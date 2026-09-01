@@ -33,10 +33,14 @@ second retailer possible (`INT-MCP-004`, `RISK-01`).
 Most search/catalog tools are gated on cart context. Establish it first, in order:
 
 ```
-silpo_get_my_shopping_cart      → cartId
-silpo_get_shopping_cart_by_id   → branchId, deliveryType, timeslot
-silpo_get_time_slots            → validate the slot (mandatory)
+silpo_get_my_shopping_cart      → cartId  (if exists=false → the guest has no cart; degrade, don't create one silently)
+silpo_get_shopping_cart_by_id   → branchId (cart.shipments[0].branchId), deliveryType
+silpo_get_time_slots            → pick a fresh slot (the cart's own timeslot is usually stale → 0 search results)
 ```
+
+`SilpoRetailProvider.getCartContext()` does this and caches the result ~60 s.
+`find_products_batch` tolerates an `available:false` slot, so prefer an available one but
+fall back to the first returned.
 
 ## Writes
 

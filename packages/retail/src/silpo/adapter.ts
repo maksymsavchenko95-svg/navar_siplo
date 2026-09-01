@@ -1,11 +1,17 @@
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { CredentialStore, McpToolsResult } from "@navar/domain";
+import type {
+  CartContext,
+  CredentialStore,
+  McpToolsResult,
+  ProductSearchResult,
+} from "@navar/domain";
 
-import type { RetailProvider } from "../provider.js";
+import { AuthRequiredError, type RetailProvider } from "../provider.js";
 import { toToolSummaries } from "../summaries.js";
 import { SilpoOAuthProvider } from "./oauth.js";
+import { parseToolResult, toCartContext, toProductSearchResults } from "./parse.js";
 
 export interface SilpoRetailProviderOptions {
   mcpUrl: string;
@@ -16,6 +22,8 @@ export interface SilpoRetailProviderOptions {
 }
 
 const AUTH_HINT = "run `pnpm mcp:auth` (one-time Silpo login)";
+const CART_TTL_MS = 60_000;
+const PRODUCT_TTL_MS = 5 * 60_000; // prices/stock: never cached beyond 60 min (NFR-DATA-002)
 
 /** Retry `fn` on JSON-RPC 429 with exponential backoff (rules/mcp-integration.md). */
 async function withBackoff<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
@@ -30,13 +38,15 @@ async function withBackoff<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
 }
 
 /**
- * Silpo implementation of `RetailProvider`. Connects lazily, calls `tools/list` once and
- * caches it (`INT-MCP-001` — never hardcode tool names). Cart context, search and writes
- * are added here as features land; nothing outside this class imports the MCP SDK.
+ * Silpo implementation of `RetailProvider`. Connects lazily; `tools/list` at first use is
+ * cached (`INT-MCP-001` — never hardcode tool names). Cart context and product search are
+ * cached briefly. Nothing outside this class imports the MCP SDK (ADR-04).
  */
 export class SilpoRetailProvider implements RetailProvider {
   private client: Client | undefined;
   private toolsCache: McpToolsResult | undefined;
+  private cartCache: { at: number; value: CartContext } | undefined;
+  private productCache = new Map<string, { at: number; value: ProductSearchResult }>();
 
   constructor(private readonly opts: SilpoRetailProviderOptions) {}
 
@@ -56,10 +66,7 @@ export class SilpoRetailProvider implements RetailProvider {
 
   async listTools(): Promise<McpToolsResult> {
     if (this.toolsCache) return this.toolsCache;
-
-    const stored = await this.opts.store.load(this.opts.householdId);
-    if (!stored?.tokens?.access_token) return { status: "auth_required", hint: AUTH_HINT };
-
+    if (!(await this.hasToken())) return { status: "auth_required", hint: AUTH_HINT };
     try {
       await this.connect();
       const { tools } = await withBackoff(() => this.client!.listTools());
@@ -71,6 +78,61 @@ export class SilpoRetailProvider implements RetailProvider {
     }
   }
 
+  async getCartContext(): Promise<CartContext> {
+    if (this.cartCache && Date.now() - this.cartCache.at < CART_TTL_MS) return this.cartCache.value;
+    if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
+
+    const myCart = await this.callTool("silpo_get_my_shopping_cart");
+    const cartId = (myCart as { shoppingCartId?: string }).shoppingCartId;
+    const cartById = cartId
+      ? await this.callTool("silpo_get_shopping_cart_by_id", { shoppingCartId: cartId })
+      : {};
+    const branchId = (cartById as { cart?: { shipments?: { branchId?: string }[] } }).cart
+      ?.shipments?.[0]?.branchId;
+    const deliveryType = (cartById as { cart?: { deliveryType?: string } }).cart?.deliveryType;
+    const slots = branchId
+      ? await this.callTool("silpo_get_time_slots", {
+          branchId,
+          deliveryTypes: deliveryType ? [deliveryType] : undefined,
+          limit: 10,
+        })
+      : {};
+
+    const value = toCartContext(myCart as never, cartById as never, slots as never);
+    this.cartCache = { at: Date.now(), value };
+    return value;
+  }
+
+  async findProducts(queries: string[]): Promise<ProductSearchResult[]> {
+    const ctx = await this.getCartContext();
+    const now = Date.now();
+
+    const fresh = new Map<string, ProductSearchResult>();
+    const missing: string[] = [];
+    for (const q of queries) {
+      const hit = this.productCache.get(`${ctx.branchId}|${q}`);
+      if (hit && now - hit.at < PRODUCT_TTL_MS) fresh.set(q, hit.value);
+      else if (!missing.includes(q)) missing.push(q);
+    }
+
+    if (missing.length > 0) {
+      const response = await this.callTool("silpo_find_products_batch", {
+        branchId: ctx.branchId,
+        deliveryType: ctx.deliveryType,
+        timeslotStart: ctx.timeslot.start,
+        timeslotEnd: ctx.timeslot.end,
+        products: missing.slice(0, 30),
+        limit: 5,
+      });
+      for (const result of toProductSearchResults(response as never, missing)) {
+        this.productCache.set(`${ctx.branchId}|${result.query}`, { at: now, value: result });
+        fresh.set(result.query, result);
+      }
+    }
+
+    return queries.map((query) => fresh.get(query) ?? { query, products: [] });
+  }
+
   /**
    * Raw `tools/list` response, full schemas, uncached. For the committed contract
    * snapshot (`pnpm mcp:tools-snapshot`, audit checklist Block 0) — not a runtime path.
@@ -78,6 +140,25 @@ export class SilpoRetailProvider implements RetailProvider {
   async rawToolList(): Promise<unknown> {
     await this.connect();
     return withBackoff(() => this.client!.listTools());
+  }
+
+  private async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    try {
+      await this.connect();
+      const result = await withBackoff(() => this.client!.callTool({ name, arguments: args }));
+      if ((result as { isError?: boolean }).isError) {
+        throw new Error(`${name}: ${JSON.stringify(parseToolResult(result))}`);
+      }
+      return parseToolResult(result);
+    } catch (err) {
+      if (err instanceof UnauthorizedError) throw new AuthRequiredError(AUTH_HINT);
+      throw err;
+    }
+  }
+
+  private async hasToken(): Promise<boolean> {
+    const stored = await this.opts.store.load(this.opts.householdId);
+    return Boolean(stored?.tokens?.access_token);
   }
 
   private async connect(): Promise<void> {

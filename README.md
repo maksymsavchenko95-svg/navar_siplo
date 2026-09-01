@@ -27,6 +27,10 @@ Connect the Silpo MCP once (opens a browser for the Silpo login):
 pnpm mcp:auth
 ```
 
+Then open http://localhost:3000 and click a recipe — the app establishes Silpo cart
+context and calls `silpo_find_products_batch` live, returning one SKU per ingredient with
+prices and a rough total. (Naive first-match; the real ingredient↔SKU mapper is `@navar/mapper`.)
+
 ## Checks
 
 ```bash
