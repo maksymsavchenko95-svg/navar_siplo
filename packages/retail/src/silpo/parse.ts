@@ -1,4 +1,15 @@
-import type { CartContext, ProductMatch, ProductSearchResult } from "@navar/domain";
+import type {
+  CartContext,
+  ProductMatch,
+  ProductSearchResult,
+  RawRestriction,
+  RetailAddress,
+  RetailFamily,
+  RetailFavorite,
+  RetailLine,
+  RetailOrder,
+  RetailProfile,
+} from "@navar/domain";
 
 import { NoCartError } from "../provider.js";
 
@@ -100,5 +111,182 @@ export function toProductSearchResults(
   return queries.map((query) => ({
     query,
     products: (byQuery.get(query) ?? []).map(toMatch),
+  }));
+}
+
+// ─── Household reads (T1.4) — every mapper drops PII at the package boundary ────
+
+function num(x: unknown, fallback = 0): number {
+  return typeof x === "number" && Number.isFinite(x) ? x : fallback;
+}
+function str(x: unknown): string | null {
+  return typeof x === "string" && x.length > 0 ? x : null;
+}
+
+/** `silpo_get_my_profile` → `{ silpoProfileId, gender, birthYear }`. Drops name/phone/email/status. */
+export function parseProfile(raw: unknown): RetailProfile {
+  const p = (raw as { profile?: Record<string, unknown> }).profile ?? {};
+  const birthday = typeof p.birthday === "string" ? p.birthday : "";
+  const year = Number.parseInt(birthday.slice(0, 4), 10);
+  return {
+    silpoProfileId: typeof p.id === "string" ? p.id : "",
+    gender: str(p.gender),
+    birthYear: Number.isFinite(year) && year > 1900 && year < 2100 ? year : null,
+  };
+}
+
+interface RawFamily {
+  members?: { itsMe?: boolean; profileId?: string }[];
+  children?: { dateOfBirth?: string }[];
+  pets?: unknown[];
+}
+
+/** `silpo_get_my_family` → counts + child ages. Drops every name/phone/image. */
+export function parseFamily(raw: unknown, now: Date = new Date()): RetailFamily {
+  const f = raw as RawFamily;
+  const members = f.members ?? [];
+  const children = f.children ?? [];
+  const childAgeYears = children
+    .map((c) => ageFromDob(c.dateOfBirth, now))
+    .filter((a): a is number => a !== null);
+  return {
+    adultCount: Math.max(members.length, 1), // the guest is always at least one adult
+    childAgeYears,
+    petCount: (f.pets ?? []).length,
+    itsMeProfileId: str(members.find((m) => m.itsMe)?.profileId) ?? str(members[0]?.profileId),
+  };
+}
+
+function ageFromDob(dob: string | undefined, now: Date): number | null {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return null;
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+  return age >= 0 && age <= 25 ? age : null;
+}
+
+/**
+ * `silpo_get_my_food_restrictions` → free text per entry for `parseRestrictions`.
+ * Q-04: the populated element shape is still unobserved (test account returns `[]`) — read
+ * `slug` + any label-ish field defensively. See `docs/mcp-audit-results.md` follow-up #10.
+ */
+export function parseRestrictionsRaw(raw: unknown): RawRestriction[] {
+  const list = (raw as { restrictions?: Record<string, unknown>[] }).restrictions ?? [];
+  return list
+    .map((r) => {
+      const text = [r.name, r.title, r.description, r.label]
+        .filter((v): v is string => typeof v === "string" && v.length > 0)
+        .join(" — ");
+      return { slug: typeof r.slug === "string" ? r.slug : "", text: text || String(r.slug ?? "") };
+    })
+    .filter((r) => r.text.length > 0);
+}
+
+/** `silpo_get_my_delivery_addresses` → `{ id, tag, city }` only. Drops street/building/geo/comment. */
+export function parseAddresses(raw: unknown): RetailAddress[] {
+  const list = (raw as { addresses?: Record<string, unknown>[] }).addresses ?? [];
+  return list
+    .map((a) => ({
+      id: typeof a.id === "string" ? a.id : "",
+      tag: str(a.tag),
+      city: str(a.city) ?? "",
+    }))
+    .filter((a) => a.id.length > 0);
+}
+
+interface RawOrderLine {
+  // online
+  id?: string;
+  subtotal?: number;
+  // offline
+  lagerId?: number;
+  catalogProduct?: { id?: string; slug?: string } | null;
+  // both
+  name?: string;
+  price?: number;
+  quantity?: number;
+  unit?: string;
+}
+interface RawOrder {
+  orderId?: string; // online
+  filId?: number; // offline
+  createdAt?: string;
+  amount?: number; // online total
+  sumReg?: number; // offline total
+  discount?: number; // online
+  sumDiscount?: number; // offline
+  products?: RawOrderLine[];
+}
+
+function toRetailLine(l: RawOrderLine): RetailLine {
+  const slug = str(l.catalogProduct?.slug);
+  const name = str(l.name) ?? "";
+  const key =
+    slug ??
+    (typeof l.lagerId === "number" ? `lager:${l.lagerId}` : name ? `name:${name}` : "unknown");
+  const unitPrice = num(l.price);
+  const quantity = num(l.quantity);
+  return {
+    key,
+    name,
+    slug,
+    unitPrice,
+    quantity,
+    lineTotal: Math.round(unitPrice * quantity * 100) / 100,
+    unit: str(l.unit),
+    catalogProductId: str(l.catalogProduct?.id),
+  };
+}
+
+/** Normalise a naive timestamp (`2026-08-17T20:11:07`, no offset) to ISO-UTC. */
+function toIsoUtc(raw: string | undefined): string {
+  if (!raw) return new Date(0).toISOString();
+  const hasZone = /[+-]\d{2}:?\d{2}$|Z$/.test(raw);
+  const d = new Date(hasZone ? raw : `${raw}Z`);
+  return Number.isNaN(d.getTime()) ? new Date(0).toISOString() : d.toISOString();
+}
+
+/**
+ * Map a `silpo_get_my_online_orders` / `_offline_orders` page to the unified `RetailOrder[]`.
+ * Discriminates on `orderId` (online) vs `filId` (offline). Drops address / receipt URL.
+ */
+export function parseOrders(raw: unknown): RetailOrder[] {
+  const orders = (raw as { orders?: RawOrder[] }).orders ?? [];
+  return orders.map((o) => {
+    const online = typeof o.orderId === "string";
+    return {
+      source: online ? ("online" as const) : ("offline" as const),
+      externalId: online ? o.orderId! : `fil:${o.filId ?? "?"}:${o.createdAt ?? ""}`,
+      createdAt: toIsoUtc(o.createdAt),
+      total: online ? num(o.amount) : num(o.sumReg),
+      discount: online ? num(o.discount) : num(o.sumDiscount),
+      lines: (o.products ?? []).map(toRetailLine),
+    };
+  });
+}
+
+interface RawFavorite {
+  id?: string;
+  slug?: string;
+  name?: string;
+  price?: number;
+  available?: boolean;
+  companyId?: string;
+  branchId?: string | null;
+}
+
+/** `silpo_get_my_favorites` → trimmed SKU list. No PII (product data only). */
+export function parseFavorites(raw: unknown): RetailFavorite[] {
+  const list = (raw as { products?: RawFavorite[] }).products ?? [];
+  return list.map((p) => ({
+    productId: typeof p.id === "string" ? p.id : "",
+    slug: str(p.slug) ?? "",
+    name: str(p.name) ?? "",
+    price: num(p.price),
+    available: p.available === true,
+    companyId: str(p.companyId) ?? "",
+    branchId: typeof p.branchId === "string" ? p.branchId : null,
   }));
 }

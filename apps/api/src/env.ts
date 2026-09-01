@@ -22,6 +22,8 @@ const schema = z.object({
   API_PORT: z.coerce.number().int().positive().default(3001),
   SILPO_MCP_URL: z.string().url().default("https://mcp.silpo.ua/mcp"),
   MCP_OAUTH_CALLBACK_PORT: z.coerce.number().int().positive().default(8765),
+  // BullMQ (household.bootstrap job, T1.4). Host default; compose sets redis://redis:6379.
+  REDIS_URL: z.string().url().default("redis://localhost:6379"),
 });
 
 export const env = schema.parse(process.env);

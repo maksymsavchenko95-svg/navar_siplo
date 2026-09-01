@@ -6,12 +6,28 @@ import type {
   CredentialStore,
   McpToolsResult,
   ProductSearchResult,
+  RawRestriction,
+  RetailAddress,
+  RetailFamily,
+  RetailFavorite,
+  RetailOrder,
+  RetailProfile,
 } from "@navar/domain";
 
-import { AuthRequiredError, type RetailProvider } from "../provider.js";
+import { AuthRequiredError, type HouseholdReader, type RetailProvider } from "../provider.js";
 import { toToolSummaries } from "../summaries.js";
 import { SilpoOAuthProvider } from "./oauth.js";
-import { parseToolResult, toCartContext, toProductSearchResults } from "./parse.js";
+import {
+  parseAddresses,
+  parseFamily,
+  parseFavorites,
+  parseOrders,
+  parseProfile,
+  parseRestrictionsRaw,
+  parseToolResult,
+  toCartContext,
+  toProductSearchResults,
+} from "./parse.js";
 
 export interface SilpoRetailProviderOptions {
   mcpUrl: string;
@@ -42,7 +58,7 @@ async function withBackoff<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
  * cached (`INT-MCP-001` — never hardcode tool names). Cart context and product search are
  * cached briefly. Nothing outside this class imports the MCP SDK (ADR-04).
  */
-export class SilpoRetailProvider implements RetailProvider {
+export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
   private client: Client | undefined;
   private toolsCache: McpToolsResult | undefined;
   private cartCache: { at: number; value: CartContext } | undefined;
@@ -131,6 +147,67 @@ export class SilpoRetailProvider implements RetailProvider {
     }
 
     return queries.map((query) => fresh.get(query) ?? { query, products: [] });
+  }
+
+  // ─── Household reads (HouseholdReader, T1.4) ────────────────────────────────
+
+  async getProfile(): Promise<RetailProfile> {
+    return parseProfile(await this.callToolAuthed("silpo_get_my_profile"));
+  }
+
+  async getFamily(): Promise<RetailFamily> {
+    return parseFamily(await this.callToolAuthed("silpo_get_my_family"));
+  }
+
+  async getFoodRestrictions(): Promise<RawRestriction[]> {
+    return parseRestrictionsRaw(await this.callToolAuthed("silpo_get_my_food_restrictions"));
+  }
+
+  async getDeliveryAddresses(): Promise<RetailAddress[]> {
+    return parseAddresses(await this.callToolAuthed("silpo_get_my_delivery_addresses"));
+  }
+
+  async getOnlineOrders(opts: { limit?: number; offset?: number } = {}): Promise<RetailOrder[]> {
+    const raw = await this.callToolAuthed("silpo_get_my_online_orders", {
+      limit: Math.min(opts.limit ?? 100, 100),
+      offset: opts.offset ?? 0,
+    });
+    return parseOrders(raw);
+  }
+
+  async getOfflineOrders(
+    opts: { limit?: number; offset?: number; dateStart?: string; dateEnd?: string } = {},
+  ): Promise<RetailOrder[]> {
+    const ctx = await this.getCartContext(); // throws NoCartError if no cart
+    const raw = await this.callToolAuthed("silpo_get_my_offline_orders", {
+      branchId: ctx.branchId,
+      deliveryType: ctx.deliveryType,
+      timeslotStart: ctx.timeslot.start,
+      timeslotEnd: ctx.timeslot.end,
+      limit: Math.min(opts.limit ?? 10, 10),
+      offset: opts.offset ?? 0,
+      ...(opts.dateStart ? { dateStart: opts.dateStart } : {}),
+      ...(opts.dateEnd ? { dateEnd: opts.dateEnd } : {}),
+    });
+    return parseOrders(raw);
+  }
+
+  async getFavorites(opts: { limit?: number; offset?: number } = {}): Promise<RetailFavorite[]> {
+    const ctx = await this.getCartContext();
+    const raw = await this.callToolAuthed("silpo_get_my_favorites", {
+      branchId: ctx.branchId,
+      deliveryType: ctx.deliveryType,
+      timeslotStart: ctx.timeslot.start,
+      limit: Math.min(opts.limit ?? 25, 500),
+      offset: opts.offset ?? 0,
+    });
+    return parseFavorites(raw);
+  }
+
+  /** `callTool` guarded by a token check — the household reads all require auth. */
+  private async callToolAuthed(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
+    return this.callTool(name, args);
   }
 
   /**

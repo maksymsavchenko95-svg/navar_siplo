@@ -16,7 +16,7 @@ import {
   vector,
 } from "drizzle-orm/pg-core";
 
-import type { NutritionComputedFrom } from "@navar/domain";
+import type { ConsumptionModel, NutritionComputedFrom } from "@navar/domain";
 
 /**
  * P0 schema — TDD v0.2 §3. Identity + recipe corpus only; the plan / receipt / pantry /
@@ -42,6 +42,10 @@ export const households = pgTable("households", {
   weeklyBudget: numeric("weekly_budget", { precision: 10, scale: 2 }),
   branchId: text("branch_id"),
   deliveryType: text("delivery_type"),
+  // household.bootstrap lifecycle (T1.4). idle | running | onboarding_required | done | error
+  bootstrapStatus: text("bootstrap_status").notNull().default("idle"),
+  bootstrapError: text("bootstrap_error"),
+  bootstrappedAt: timestamp("bootstrapped_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -87,10 +91,49 @@ export const householdRestrictions = pgTable(
     kind: text("kind").notNull(), // allergen | diet | dislike
     code: text("code").notNull(), // normalised code
     severity: text("severity").notNull().default("strict"), // strict | soft
-    source: text("source").notNull(), // mcp | onboarding | inferred
+    source: text("source").notNull(), // mcp | onboarding | inferred | guest
+    // null = still a system assumption; set when the guest accepts it (FR-HH-004).
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
   },
   (t) => [primaryKey({ columns: [t.householdId, t.kind, t.code] })],
 );
+
+/**
+ * Derived purchase model (`FR-HH-002`), 1:1 with a household. `model` is the full
+ * `ConsumptionModel` (buy frequency, brand affinity); scalar columns mirror the
+ * queryable bits. `inferred_tags` / `infer_summary` come from the `inferConsumption` LLM
+ * step (interpretation only — the numbers in `model` are deterministic, ADR-02).
+ */
+export const consumptionModels = pgTable("consumption_models", {
+  householdId: uuid("household_id")
+    .primaryKey()
+    .references(() => households.id, { onDelete: "cascade" }),
+  source: text("source").notNull(), // receipts | onboarding
+  orderCount: integer("order_count").notNull().default(0),
+  windowStart: timestamp("window_start", { withTimezone: true }),
+  windowEnd: timestamp("window_end", { withTimezone: true }),
+  medianWeeklyChequeUah: numeric("median_weekly_cheque_uah", { precision: 10, scale: 2 }),
+  model: jsonb("model").$type<ConsumptionModel>().notNull(),
+  inferredTags: jsonb("inferred_tags").$type<string[]>().notNull().default([]),
+  inferSummary: text("infer_summary"),
+  computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Guest cooking preferences (SRS §5 `HouseholdPreferences`), 1:1 with a household. Budget
+ * itself stays on `households.weekly_budget` (`FR-HH-007`).
+ */
+export const householdPreferences = pgTable("household_preferences", {
+  householdId: uuid("household_id")
+    .primaryKey()
+    .references(() => households.id, { onDelete: "cascade" }),
+  dislikedIngredients: text("disliked_ingredients").array().notNull().default([]), // canonical slugs
+  maxPrepMinutes: integer("max_prep_minutes"),
+  cookingWeekdays: integer("cooking_weekdays").array().notNull().default([]), // 0..6
+  difficultyCap: integer("difficulty_cap"), // 1..3
+  source: text("source").notNull(), // onboarding | inferred | guest
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /**
  * MCP tokens, encrypted at rest, one row per household, separate table / separate
@@ -195,11 +238,40 @@ export const householdsRelations = relations(households, ({ many, one }) => ({
     fields: [households.id],
     references: [mcpCredentials.householdId],
   }),
+  consumptionModel: one(consumptionModels, {
+    fields: [households.id],
+    references: [consumptionModels.householdId],
+  }),
+  preferences: one(householdPreferences, {
+    fields: [households.id],
+    references: [householdPreferences.householdId],
+  }),
 }));
 
 export const householdMembersRelations = relations(householdMembers, ({ one }) => ({
   household: one(households, {
     fields: [householdMembers.householdId],
+    references: [households.id],
+  }),
+}));
+
+export const householdRestrictionsRelations = relations(householdRestrictions, ({ one }) => ({
+  household: one(households, {
+    fields: [householdRestrictions.householdId],
+    references: [households.id],
+  }),
+}));
+
+export const consumptionModelsRelations = relations(consumptionModels, ({ one }) => ({
+  household: one(households, {
+    fields: [consumptionModels.householdId],
+    references: [households.id],
+  }),
+}));
+
+export const householdPreferencesRelations = relations(householdPreferences, ({ one }) => ({
+  household: one(households, {
+    fields: [householdPreferences.householdId],
     references: [households.id],
   }),
 }));

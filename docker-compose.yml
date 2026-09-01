@@ -17,6 +17,16 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   api:
     build:
       context: .
@@ -25,13 +35,21 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       NODE_ENV: development
       API_PORT: "3001"
       DATABASE_URL: postgres://navar:navar@db:5432/navar
+      REDIS_URL: redis://redis:6379
       SILPO_MCP_URL: ${SILPO_MCP_URL:-https://mcp.silpo.ua/mcp}
       MCP_OAUTH_CALLBACK_PORT: "8765"
       MCP_TOKEN_KEY: ${MCP_TOKEN_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      NAVAR_LLM_MODEL: ${NAVAR_LLM_MODEL:-claude-sonnet-5}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
     ports:
       - "3001:3001"
     volumes:

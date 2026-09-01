@@ -5,6 +5,9 @@ import { sql } from "drizzle-orm";
 import Fastify from "fastify";
 
 import { env } from "./env.js";
+import { closeBootstrapQueue } from "./queue/bootstrap-queue.js";
+import { connection } from "./queue/connection.js";
+import { startBootstrapWorker } from "./queue/worker.js";
 import { initRetail } from "./retail.js";
 import { createContext } from "./trpc/context.js";
 import { appRouter } from "./trpc/router.js";
@@ -26,8 +29,14 @@ await app.register(fastifyTRPCPlugin, {
 // tools/list at startup (INT-MCP-001). Non-blocking: missing credentials must not stop the API.
 void initRetail();
 
+// In-process BullMQ worker for household.bootstrap (T1.4).
+const bootstrapWorker = startBootstrapWorker();
+
 const close = async () => {
   await app.close();
+  await bootstrapWorker.close();
+  await closeBootstrapQueue();
+  connection.disconnect();
   await closeDb();
   process.exit(0);
 };

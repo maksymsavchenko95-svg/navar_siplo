@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@navar/db": "workspace:*",
+    "@navar/llm": "workspace:*",
     "@navar/retail": "workspace:*",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",

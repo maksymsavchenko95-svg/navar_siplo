@@ -8,9 +8,12 @@ import type {
 import { AuthRequiredError, NoCartError } from "@navar/retail";
 import { z } from "zod";
 
+import { householdRouter } from "./routers/household.js";
 import { publicProcedure, router } from "./trpc.js";
 
 export const appRouter = router({
+  household: householdRouter,
+
   hello: publicProcedure
     .input(z.object({ name: z.string().trim().min(1).max(80).optional() }).optional())
     .query(({ input }): HelloResult => {

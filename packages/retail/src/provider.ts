@@ -1,4 +1,14 @@
-import type { CartContext, McpToolsResult, ProductSearchResult } from "@navar/domain";
+import type {
+  CartContext,
+  McpToolsResult,
+  ProductSearchResult,
+  RawRestriction,
+  RetailAddress,
+  RetailFamily,
+  RetailFavorite,
+  RetailOrder,
+  RetailProfile,
+} from "@navar/domain";
 
 /**
  * `RetailProvider` — the seam that isolates the product from any single retailer
@@ -19,6 +29,30 @@ export interface RetailProvider {
 
   /** Search the catalogue for each query (batched). Result order matches the input. */
   findProducts(queries: string[]): Promise<ProductSearchResult[]>;
+}
+
+/**
+ * The read side of `household.bootstrap` (`FR-HH-001..002`, roadmap T1.4). Kept separate
+ * from `RetailProvider`'s core seam so the 3-method contract stays small. All results are
+ * PII-free — the `silpo/parse.ts` mappers drop names, phones, exact addresses and receipt
+ * URLs at the boundary (`INT-LLM-004`). Every method throws `AuthRequiredError` without a
+ * token; the two cart-gated methods additionally need a cart (`NoCartError`).
+ */
+export interface HouseholdReader {
+  getProfile(): Promise<RetailProfile>;
+  getFamily(): Promise<RetailFamily>;
+  getFoodRestrictions(): Promise<RawRestriction[]>;
+  getDeliveryAddresses(): Promise<RetailAddress[]>;
+  getOnlineOrders(opts?: { limit?: number; offset?: number }): Promise<RetailOrder[]>;
+  /** Cart-gated. Throws `NoCartError` if the guest has no cart. */
+  getOfflineOrders(opts?: {
+    limit?: number;
+    offset?: number;
+    dateStart?: string;
+    dateEnd?: string;
+  }): Promise<RetailOrder[]>;
+  /** Cart-gated. */
+  getFavorites(opts?: { limit?: number; offset?: number }): Promise<RetailFavorite[]>;
 }
 
 /** The guest has no Silpo cart yet — search cannot be gated. */

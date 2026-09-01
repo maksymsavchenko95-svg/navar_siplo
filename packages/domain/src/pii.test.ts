@@ -59,6 +59,33 @@ describe("redact", () => {
     });
   });
 
+  it("redacts a child's name + date of birth but keeps id/slug (the children[] gap)", () => {
+    const family = {
+      children: [{ id: "c1", name: "Оля", slug: "olia", dateOfBirth: "2018-05-01" }],
+    };
+    expect(redact(family)).toEqual({
+      children: [{ id: "c1", name: "«redacted»", slug: "olia", dateOfBirth: "«redacted»" }],
+    });
+  });
+
+  it("masks floor / entrance / receiptUrl (the address + receipt gaps)", () => {
+    const input = {
+      addresses: [{ city: "Київ", street: "X", floor: "8", entrance: "3" }],
+      orders: [{ receiptUrl: "https://receipt.silpo.elkasa.com.ua/abc", total: 100 }],
+    };
+    expect(redact(input)).toEqual({
+      addresses: [
+        { city: "Київ", street: "«redacted»", floor: "«redacted»", entrance: "«redacted»" },
+      ],
+      orders: [{ receiptUrl: "«redacted»", total: 100 }],
+    });
+  });
+
+  it("does not treat a product line as a person record", () => {
+    const line = { name: "Молоко Галичина 2.5%", price: 48.99, quantity: 1 };
+    expect(redact(line)).toEqual(line);
+  });
+
   it("passes primitives and nulls through untouched", () => {
     expect(redact(null)).toBeNull();
     expect(redact(7)).toBe(7);
