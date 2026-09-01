@@ -22,25 +22,27 @@ calorie corridor) — are **one solver with different configuration**, never a c
 Boilerplate stage — a runnable skeleton, no product features yet. pnpm monorepo laid out
 per `docs/tdd-navar.md` §2.
 
-| Path                           | What it is                                                                                                                                                                                                                                                               |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `packages/domain`              | `@navar/domain` — Zod schemas, inferred types, unit conversions, cross-package port contracts (`CredentialStore`). Depends only on zod. Imported by everything (ADR-01).                                                                                                 |
-| `packages/db`                  | `@navar/db` — Drizzle schema + migrate + seed + the Postgres-backed `CredentialStore` (AES-256-GCM). The only package that touches the database.                                                                                                                         |
-| `packages/retail`              | `@navar/retail` — `RetailProvider` seam + Silpo MCP adapter + OAuth. Typed methods: `listTools`, `getCartContext`, `findProducts` (`silpo/parse.ts` maps the raw responses). **The only package that imports `@modelcontextprotocol/sdk`** (ADR-04); a grep enforces it. |
-| `packages/planner`             | `@navar/planner` — deterministic solver + LLM planning layer. Stub; exports the `SolverInput` / `WEIGHTS` contract (TDD §4, ADR-09).                                                                                                                                     |
-| `packages/mapper`              | `@navar/mapper` — ingredient ↔ SKU matching. Stub (TDD §5). The demo's naive first-match lives in the API, not here.                                                                                                                                                     |
-| `packages/safety`              | `@navar/safety` — food-safety guardrails, deterministic + fail-closed. Stub; re-exports `assertKcalFloor` (SRS §6.8, `FR-SAFE-009`).                                                                                                                                     |
-| `apps/api`                     | Fastify + tRPC. Thin: wires the packages, `/health`, router (`hello`, `recipes.list`, `recipes.skuCandidates`, `mcp.listTools`), `src/scripts/{mcp-auth,mcp-tools-snapshot}.ts`.                                                                                         |
-| `apps/web`                     | Next.js (App Router). `app/page.tsx` composes `components/` (HelloCard, RecipesSection → RecipeList + RecipeShopping, McpStatus). Runs on the host.                                                                                                                      |
-| `docker-compose.yml`           | `db` (pgvector/pgvector:pg16) + `api`, both containerised. `web` runs on host.                                                                                                                                                                                           |
-| `docs/tdd-navar.md`            | Phase-0 technical design **v0.2** (adds `routine`/`form` goal modes, nutrition, ADR-09): ADRs, schema, solver + mapping specs, 13-day plan. The build guide.                                                                                                             |
-| `docs/srs.md`                  | Requirements spec **v0.1** — behind the TDD. `FR-GOAL-*`, `FR-SAFE-009`, `ASM-06`, `RISK-09/10`, `Q-09` live in the TDD until the SRS is refreshed to v0.2.                                                                                                              |
-| `docs/product-brief.md`        | Problem, market, differentiation, target user, metrics.                                                                                                                                                                                                                  |
-| `docs/mcp-reference.md`        | Silpo MCP reference: endpoint, OAuth flow, the tools, workflows (docs lag — the server returns 40, not 39).                                                                                                                                                              |
-| `docs/mcp-audit-checklist.md`  | Day-1 manual audit of the live MCP → a decisions table. Run before building the solver.                                                                                                                                                                                  |
-| `docs/mcp-tools-snapshot.json` | Raw `tools/list` (full schemas), committed as the contract fixation. Regenerate: `pnpm mcp:tools-snapshot`. Reference only — never hardcode from it.                                                                                                                     |
-| `docs/hackathon-rules.md`      | Hackathon rules — background; `.claude/rules/hackathon.md` is the working checklist.                                                                                                                                                                                     |
-| `.claude/rules/`               | Standing engineering rules for all code (imported below).                                                                                                                                                                                                                |
+| Path                           | What it is                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/domain`              | `@navar/domain` — Zod schemas, inferred types, unit conversions, cross-package port contracts (`CredentialStore`). Depends only on zod. Imported by everything (ADR-01).                                                                                                                                                                                 |
+| `packages/db`                  | `@navar/db` — Drizzle schema + migrate + seed + the Postgres-backed `CredentialStore` (AES-256-GCM). The only package that touches the database.                                                                                                                                                                                                         |
+| `packages/retail`              | `@navar/retail` — `RetailProvider` seam + Silpo MCP adapter + OAuth. Typed methods: `listTools`, `getCartContext`, `findProducts` (`silpo/parse.ts` maps the raw responses); `rawToolList` / `callToolRaw` are audit-only escape hatches, not runtime paths. **The only package that imports `@modelcontextprotocol/sdk`** (ADR-04); a grep enforces it. |
+| `packages/planner`             | `@navar/planner` — deterministic solver + LLM planning layer. Stub; exports the `SolverInput` / `WEIGHTS` contract (TDD §4, ADR-09).                                                                                                                                                                                                                     |
+| `packages/mapper`              | `@navar/mapper` — ingredient ↔ SKU matching. Stub (TDD §5). The demo's naive first-match lives in the API, not here.                                                                                                                                                                                                                                     |
+| `packages/safety`              | `@navar/safety` — food-safety guardrails, deterministic + fail-closed. Stub; re-exports `assertKcalFloor` (SRS §6.8, `FR-SAFE-009`).                                                                                                                                                                                                                     |
+| `apps/api`                     | Fastify + tRPC. Thin: wires the packages, `/health`, router (`hello`, `recipes.list`, `recipes.skuCandidates`, `mcp.listTools`), `src/scripts/{mcp-auth,mcp-tools-snapshot,mcp-audit,mcp-audit-cart}.ts` (`audit-util.ts` = their tested pure helpers).                                                                                                  |
+| `apps/web`                     | Next.js (App Router). `app/page.tsx` composes `components/` (HelloCard, RecipesSection → RecipeList + RecipeShopping, McpStatus). Runs on the host.                                                                                                                                                                                                      |
+| `designs/navar_design/`        | Standalone Gemini / AI-Studio design prototype (Vite + React 19 + Tailwind v4; its own nested git repo; gitignored here). **Visual reference, not a spec** — see "Design reference" below.                                                                                                                                                               |
+| `docker-compose.yml`           | `db` (pgvector/pgvector:pg16) + `api`, both containerised. `web` runs on host.                                                                                                                                                                                                                                                                           |
+| `docs/tdd-navar.md`            | Phase-0 technical design **v0.2** (adds `routine`/`form` goal modes, nutrition, ADR-09): ADRs, schema, solver + mapping specs, 13-day plan. The build guide.                                                                                                                                                                                             |
+| `docs/srs.md`                  | Requirements spec **v0.1** — behind the TDD. `FR-GOAL-*`, `FR-SAFE-009`, `ASM-06`, `RISK-09/10`, `Q-09` live in the TDD until the SRS is refreshed to v0.2.                                                                                                                                                                                              |
+| `docs/product-brief.md`        | Problem, market, differentiation, target user, metrics.                                                                                                                                                                                                                                                                                                  |
+| `docs/mcp-reference.md`        | Silpo MCP reference: endpoint, OAuth flow, the tools, workflows (docs lag — the server returns 40, not 39).                                                                                                                                                                                                                                              |
+| `docs/mcp-audit-checklist.md`  | Day-1 manual audit of the live MCP → a decisions table. Run before building the solver.                                                                                                                                                                                                                                                                  |
+| `docs/mcp-audit-results.md`    | M0 audit output (2026-09-01): filled decisions table, trigger decisions, per-block findings, build follow-ups. Raw redacted responses under `docs/mcp-audit-raw/`. The M2 gate.                                                                                                                                                                          |
+| `docs/mcp-tools-snapshot.json` | Raw `tools/list` (full schemas), committed as the contract fixation. Regenerate: `pnpm mcp:tools-snapshot`. Reference only — never hardcode from it.                                                                                                                                                                                                     |
+| `docs/hackathon-rules.md`      | Hackathon rules — background; `.claude/rules/hackathon.md` is the working checklist.                                                                                                                                                                                                                                                                     |
+| `.claude/rules/`               | Standing engineering rules for all code (imported below).                                                                                                                                                                                                                                                                                                |
 
 Workspace packages are consumed as **TypeScript source** (`exports` → `src/index.ts`).
 `apps/web` lists `@navar/db` / `@navar/retail` as devDependencies only so `tsc` can resolve
@@ -101,6 +103,32 @@ These hold for every change and are expanded in `.claude/rules/`:
 - **Never mutate the cart without explicit in-session guest confirmation** (ADR-07,
   `FR-CART-002`); never clear an existing cart unprompted (`FR-CART-004`).
 
+## Design reference
+
+`designs/navar_design/` is an interactive pitch prototype built with Google AI Studio /
+Gemini (Vite + React 19 + Tailwind v4). It is a **look-and-feel reference to borrow from,
+not a source of truth** — it may not fully fit the real product. The TDD, SRS, and
+`docs/mcp-audit-results.md` still win on behaviour and data shape.
+
+- **What it is:** a sticky CSS phone frame (390×844) on the left, five scroll-linked
+  narrative sections on the right, driven by IntersectionObserver. Ukrainian copy
+  throughout. Its own nested git repo (`origin`: `maksymsavchenko95-svg/navar_design`),
+  gitignored from this monorepo.
+- **The five screens** map to the P0 flow: 1 Goal (`routine` / `form`) · 2 Numbers
+  (protein floor + calorie corridor, ±15%) · 3 Tastes (receipt-informed, high-confidence
+  defaults with easy removal) · 4 Plan (5-day menu, hero ₴ + protein + promo-savings,
+  weekday rail, honest-constraint notice, dish cards, "Зібрати кошик" / "Дешевше на 300 ₴")
+  · 5 Cart (SKU mapping, promo tags, out-of-stock replacement, loyalty-bonus toggle,
+  handover to Silpo checkout).
+- **Reuse selectively:** the design system in `src/index.css` (Silpo-orange → peach →
+  borsch gradient palette as CSS custom properties, glassmorphism, Manrope) and the screen
+  layouts inform `apps/web`. The phone-frame / mobile-screen parts are input for the **P1
+  mobile clients**, not P0. Copy tone follows `.claude/rules/food-safety.md` scope limits
+  (goal/preference framing, no medical/weight-loss language) — keep it that way when
+  porting.
+- All data in `src/mockData.ts` is mock. Wire real screens to the tRPC procedures in
+  `docs/tdd-navar.md` §7.
+
 ## Commands
 
 ```bash
@@ -114,13 +142,15 @@ pnpm dev:all        # both of the above
 
 pnpm mcp:auth            # one-time Silpo OAuth → mcp_credentials (run on host; opens a browser)
 pnpm mcp:tools-snapshot  # refresh docs/mcp-tools-snapshot.json (needs credentials)
+pnpm mcp:audit           # M0 audit, blocks 0–5+7, read-only → docs/mcp-audit-raw/ (needs credentials)
+pnpm mcp:audit:cart      # M0 audit block 6: cart write + idempotency (WRITES to the live cart, auto-cleans up)
 pnpm db:generate         # drizzle-kit: regenerate SQL after editing packages/db/src/schema.ts
 pnpm db:migrate          # apply migrations (also ensures the vector + pg_trgm extensions)
 pnpm db:seed             # demo fixture: ingredients + recipes + one form-mode household
 pnpm db:studio           # drizzle-kit studio
 
 pnpm typecheck           # tsc across all packages
-pnpm test                # vitest (packages/domain: units + nutrition; packages/retail)
+pnpm test                # vitest (packages/domain, packages/retail, apps/api). Run before calling a task done — see .claude/rules/testing.md
 pnpm --filter @navar/domain test nutrition   # single vitest file by name filter
 pnpm build          # tsc check + next build
 pnpm format         # prettier --write . (also runs on every Claude edit via a hook)
@@ -134,3 +164,4 @@ Run the API on the host instead of in Docker: `docker compose up -d db` then
 @.claude/rules/mcp-integration.md
 @.claude/rules/food-safety.md
 @.claude/rules/hackathon.md
+@.claude/rules/testing.md

@@ -19,7 +19,9 @@
     "db:seed": "pnpm --filter @navar/db db:seed",
     "db:studio": "pnpm --filter @navar/db db:studio",
     "mcp:auth": "pnpm --filter @navar/api mcp:auth",
-    "mcp:tools-snapshot": "pnpm --filter @navar/api mcp:tools-snapshot"
+    "mcp:tools-snapshot": "pnpm --filter @navar/api mcp:tools-snapshot",
+    "mcp:audit": "pnpm --filter @navar/api mcp:audit",
+    "mcp:audit:cart": "pnpm --filter @navar/api mcp:audit:cart"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

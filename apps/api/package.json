@@ -16,7 +16,9 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "mcp:auth": "tsx src/scripts/mcp-auth.ts",
-    "mcp:tools-snapshot": "tsx src/scripts/mcp-tools-snapshot.ts"
+    "mcp:tools-snapshot": "tsx src/scripts/mcp-tools-snapshot.ts",
+    "mcp:audit": "tsx src/scripts/mcp-audit.ts",
+    "mcp:audit:cart": "tsx src/scripts/mcp-audit-cart.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

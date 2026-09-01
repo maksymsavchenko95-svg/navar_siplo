@@ -142,6 +142,15 @@ export class SilpoRetailProvider implements RetailProvider {
     return withBackoff(() => this.client!.listTools());
   }
 
+  /**
+   * Call an arbitrary tool and return its parsed payload, uncached. For the manual MCP
+   * audit (`pnpm mcp:audit`, audit checklist Blocks 1–7) — not a runtime path; product
+   * code uses the typed methods above so the `parse.ts` mappers stay the single seam.
+   */
+  async callToolRaw(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    return this.callTool(name, args);
+  }
+
   private async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
     try {
       await this.connect();
