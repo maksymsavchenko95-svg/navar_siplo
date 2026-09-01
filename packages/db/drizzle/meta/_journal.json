@@ -15,6 +15,13 @@
       "when": 1788256550683,
       "tag": "0001_gray_maestro",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788290253451,
+      "tag": "0002_parched_pepper_potts",
+      "breakpoints": true
     }
   ]
 }

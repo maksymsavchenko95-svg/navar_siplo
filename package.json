@@ -17,6 +17,8 @@
     "db:generate": "pnpm --filter @navar/db db:generate",
     "db:migrate": "pnpm --filter @navar/db db:migrate",
     "db:seed": "pnpm --filter @navar/db db:seed",
+    "db:import:ingredients": "pnpm --filter @navar/db db:import:ingredients",
+    "db:embed:ingredients": "pnpm --filter @navar/db db:embed:ingredients",
     "db:studio": "pnpm --filter @navar/db db:studio",
     "mcp:auth": "pnpm --filter @navar/api mcp:auth",
     "mcp:tools-snapshot": "pnpm --filter @navar/api mcp:tools-snapshot",

@@ -4,9 +4,18 @@
  * portion is a lever (0.6–1.4×) the solver uses instead of dropping a dish (`FR-GOAL-007`).
  */
 
+import { z } from "zod";
+
 export type Goal = "routine" | "form";
 export type GoalDirection = "gain" | "maintain" | "reduce";
-export type NutritionSource = "catalog" | "reference" | "estimated";
+
+/**
+ * Where a per-100 g macro figure came from (`Q-09`, `nutrition_src` column):
+ * `catalog` — read off a Silpo SKU card; `reference` — a food-composition table
+ * (weighed produce / meat / grains that don't carry card macros); `estimated` — interpolated.
+ */
+export const nutritionSourceSchema = z.enum(["catalog", "reference", "estimated"]);
+export type NutritionSource = z.infer<typeof nutritionSourceSchema>;
 
 export interface Macros {
   kcal: number;
@@ -14,6 +23,33 @@ export interface Macros {
   fat: number;
   carbs: number;
   fiber?: number;
+}
+
+/**
+ * Per-100 g macro profile for a `CanonicalIngredient`. Unlike `servingMacrosSchema`
+ * (what the guest sees), `fiber` is required — the reference dictionary always carries it,
+ * since Silpo cards never do (M0 audit follow-up #3).
+ */
+export const macros100Schema = z.object({
+  kcal: z.number().nonnegative(),
+  protein: z.number().nonnegative(),
+  fat: z.number().nonnegative(),
+  carbs: z.number().nonnegative(),
+  fiber: z.number().nonnegative(),
+});
+export type Macros100 = z.infer<typeof macros100Schema>;
+
+/**
+ * Parse a Silpo catalog `Енергетична цінність` attribute — a `"kcal/kJ"` string such as
+ * `"189/801"` (M0 audit follow-up #3). Takes the first number; tolerates a decimal comma
+ * and surrounding whitespace. Returns `null` for empty / `"н/д"` / unparseable input so
+ * callers can fall back to the reference table rather than trust a bad figure.
+ */
+export function parseKcal(raw: string): number | null {
+  const first = raw.split("/")[0]?.trim().replace(",", ".");
+  if (!first) return null;
+  const n = Number.parseFloat(first);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** Body metrics an `form` household's targets are derived from (`FR-GOAL-003`). */

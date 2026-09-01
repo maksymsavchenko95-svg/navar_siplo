@@ -5,53 +5,11 @@ import {
   cartLines,
   errMsg,
   isRateLimit,
-  redact,
   shape,
   summariseCart,
 } from "./audit-util.js";
 
-describe("redact", () => {
-  it("masks personal-data leaf values but keeps structure and non-PII values", () => {
-    const input = {
-      profile: {
-        firstName: "Тарас",
-        lastName: "Ш",
-        phone: "+380...",
-        gender: "male",
-        status: "active",
-      },
-      addresses: [{ city: "Львів", street: "Січових", latitude: "49.8", longitude: "24.0" }],
-    };
-    expect(redact(input)).toEqual({
-      profile: {
-        firstName: "«redacted»",
-        lastName: "«redacted»",
-        phone: "«redacted»",
-        gender: "male",
-        status: "active",
-      },
-      addresses: [
-        { city: "Львів", street: "«redacted»", latitude: "«redacted»", longitude: "«redacted»" },
-      ],
-    });
-  });
-
-  it("redacts a bare `name` on a person record (the family-member leak) but not on products", () => {
-    const family = {
-      members: [{ profileId: "p1", name: "Максим Савченко", itsMe: true }],
-    };
-    expect((redact(family) as typeof family).members[0]!.name).toBe("«redacted»");
-
-    const product = { name: "Молоко Селянське 2.5%", price: 42 };
-    expect(redact(product)).toEqual({ name: "Молоко Селянське 2.5%", price: 42 });
-  });
-
-  it("passes primitives and nulls through untouched", () => {
-    expect(redact(null)).toBeNull();
-    expect(redact(7)).toBe(7);
-    expect(redact("plain")).toBe("plain");
-  });
-});
+// `redact` / `PII_KEYS` moved to `@navar/domain` — covered by `packages/domain/src/pii.test.ts`.
 
 describe("shape", () => {
   it("collapses arrays to [elementShape, '×N'] and reports leaf types", () => {

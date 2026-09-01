@@ -12,10 +12,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "echo \"no tests\" && exit 0",
+    "test": "vitest run --passWithNoTests",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/migrate.ts",
     "db:seed": "tsx src/seed.ts",
+    "db:import:ingredients": "tsx src/import-ingredients.ts",
+    "db:embed:ingredients": "tsx src/embed-ingredients.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
@@ -29,6 +31,7 @@
     "@types/pg": "^8.11.10",
     "drizzle-kit": "^0.30.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }

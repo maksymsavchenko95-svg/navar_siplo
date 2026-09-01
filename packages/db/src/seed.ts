@@ -1,7 +1,15 @@
-import { convert, type Macros, recipeMacros, type Unit } from "@navar/domain";
+import {
+  convert,
+  type Macros,
+  type CanonicalIngredientInput,
+  recipeMacros,
+  type Unit,
+} from "@navar/domain";
 import { eq, sql } from "drizzle-orm";
 
 import { closeDb, db } from "./client.js";
+import { CANONICAL_INGREDIENTS } from "./data/canonical-ingredients.js";
+import { importCanonicalIngredients } from "./import-ingredients.js";
 import {
   canonicalIngredients,
   householdMembers,
@@ -13,28 +21,16 @@ import {
 } from "./schema.js";
 
 /**
- * Demo fixture for the boilerplate. Placeholder until the YAML recipe corpus + importer
- * land with the planner work (TDD §2, §8 day 2–3).
+ * Demo fixture for the boilerplate. The ingredient dictionary comes from
+ * `import-ingredients.ts` (T1.2); this file adds a couple of demo recipes and one
+ * `form`-mode household until the YAML recipe corpus + importer land (T1.3).
  *
- * Non-destructive: the demo household is upserted on a stable `silpo_user_ref`, so a
- * re-seed keeps its `mcp_credentials` row. Only the recipe corpus and this household's
- * child rows are replaced.
+ * Non-destructive: the ingredient dictionary is upserted (not truncated), the demo
+ * household is upserted on a stable `silpo_user_ref` so a re-seed keeps its
+ * `mcp_credentials` row. Only the recipe corpus and this household's child rows are replaced.
  */
 
 const DEMO_REF = "demo";
-
-type IngredientSeed = {
-  slug: string;
-  nameUk: string;
-  category: string;
-  baseUnit: string;
-  densityGMl?: string;
-  allergens?: string[];
-  synonyms?: string[];
-  perishableDays?: number;
-  /** Macros per 100 g of base unit. `nutrition_src = 'reference'` for all seed rows. */
-  per100g: Macros;
-};
 
 type RecipeSeed = {
   slug: string;
@@ -47,56 +43,6 @@ type RecipeSeed = {
   tags: string[];
   ingredients: { slug: string; amount: string; unit: string; optional?: boolean }[];
 };
-
-/** Grams per piece for `pcs` ingredients — the seed's stand-in for a real conversion table. */
-const PIECE_GRAMS: Record<string, number> = { egg: 50 };
-
-const INGREDIENTS: IngredientSeed[] = [
-  {
-    slug: "chicken_breast",
-    nameUk: "Куряче філе",
-    category: "meat",
-    baseUnit: "g",
-    perishableDays: 3,
-    synonyms: ["філе куряче"],
-    per100g: { kcal: 120, protein: 23, fat: 2.6, carbs: 0, fiber: 0 },
-  },
-  {
-    slug: "rice",
-    nameUk: "Рис",
-    category: "grain",
-    baseUnit: "g",
-    perishableDays: 365,
-    per100g: { kcal: 360, protein: 7, fat: 1, carbs: 79, fiber: 1.3 },
-  },
-  {
-    slug: "carrot",
-    nameUk: "Морква",
-    category: "vegetable",
-    baseUnit: "g",
-    perishableDays: 21,
-    per100g: { kcal: 41, protein: 0.9, fat: 0.2, carbs: 10, fiber: 2.8 },
-  },
-  {
-    slug: "egg",
-    nameUk: "Яйця",
-    category: "dairy_eggs",
-    baseUnit: "pcs",
-    allergens: ["egg"],
-    perishableDays: 28,
-    per100g: { kcal: 143, protein: 13, fat: 9.5, carbs: 0.7, fiber: 0 },
-  },
-  {
-    slug: "sunflower_oil",
-    nameUk: "Олія соняшникова",
-    category: "pantry",
-    baseUnit: "ml",
-    densityGMl: "0.920",
-    synonyms: ["олія"],
-    perishableDays: 365,
-    per100g: { kcal: 884, protein: 0, fat: 100, carbs: 0, fiber: 0 },
-  },
-];
 
 const RECIPES: RecipeSeed[] = [
   {
@@ -114,7 +60,7 @@ const RECIPES: RecipeSeed[] = [
     tags: ["dinner", "kids_friendly", "reheatable"],
     ingredients: [
       { slug: "chicken_breast", amount: "500", unit: "g" },
-      { slug: "rice", amount: "400", unit: "g" },
+      { slug: "rice_long_grain", amount: "400", unit: "g" },
       { slug: "carrot", amount: "200", unit: "g" },
       { slug: "sunflower_oil", amount: "40", unit: "ml" },
     ],
@@ -136,10 +82,10 @@ const RECIPES: RecipeSeed[] = [
   },
 ];
 
-/** Grams for a recipe line, using density for `ml` and a piece table for `pcs`. */
-function grams(slug: string, amount: number, unit: string, densityGMl?: string): number {
-  if (unit === "pcs") return amount * (PIECE_GRAMS[slug] ?? 0);
-  return convert(amount, unit as Unit, "g", densityGMl ? Number(densityGMl) : undefined);
+/** Grams for a recipe line, using density for `ml` and grams-per-piece for `pcs`. */
+function grams(entry: CanonicalIngredientInput, amount: number, unit: string): number {
+  if (unit === "pcs") return amount * (entry.gramsPerPiece ?? 0);
+  return convert(amount, unit as Unit, "g", entry.densityGMl ?? undefined);
 }
 
 function n(x: number): string {
@@ -147,35 +93,21 @@ function n(x: number): string {
 }
 
 async function seed(): Promise<void> {
-  const bySlug = new Map(INGREDIENTS.map((i) => [i.slug, i]));
+  const bySlug = new Map(CANONICAL_INGREDIENTS.map((i) => [i.slug, i]));
 
-  await db.execute(
-    sql`TRUNCATE TABLE ${recipeIngredients}, ${recipes}, ${canonicalIngredients} RESTART IDENTITY CASCADE`,
+  // Ingredient dictionary — idempotent upsert (never truncated: FK from recipe_ingredients).
+  const dict = await importCanonicalIngredients(db);
+
+  // Recipe corpus — replaced wholesale (placeholder until T1.3).
+  await db.execute(sql`TRUNCATE TABLE ${recipeIngredients}, ${recipes} RESTART IDENTITY CASCADE`);
+
+  const idBySlug = new Map(
+    (
+      await db
+        .select({ id: canonicalIngredients.id, slug: canonicalIngredients.slug })
+        .from(canonicalIngredients)
+    ).map((r) => [r.slug, r.id]),
   );
-
-  const ing = await db
-    .insert(canonicalIngredients)
-    .values(
-      INGREDIENTS.map((i) => ({
-        slug: i.slug,
-        nameUk: i.nameUk,
-        category: i.category,
-        baseUnit: i.baseUnit,
-        densityGMl: i.densityGMl,
-        allergens: i.allergens ?? [],
-        synonyms: i.synonyms ?? [],
-        perishableDays: i.perishableDays,
-        kcal100: n(i.per100g.kcal),
-        protein100: n(i.per100g.protein),
-        fat100: n(i.per100g.fat),
-        carbs100: n(i.per100g.carbs),
-        fiber100: n(i.per100g.fiber ?? 0),
-        nutritionSrc: "reference",
-      })),
-    )
-    .returning();
-
-  const idBySlug = new Map(ing.map((i) => [i.slug, i.id]));
 
   for (const r of RECIPES) {
     const allergens = [
@@ -185,10 +117,12 @@ async function seed(): Promise<void> {
     // Per-serving macros, computed from the ingredients (never hand-set).
     const macros = recipeMacros(
       r.ingredients.map((ri) => {
-        const spec = bySlug.get(ri.slug)!;
+        const spec = bySlug.get(ri.slug);
+        if (!spec) throw new Error(`recipe ${r.slug} references unknown ingredient ${ri.slug}`);
+        if (!spec.per100g) throw new Error(`ingredient ${ri.slug} has no macros`);
         return {
-          per100g: spec.per100g,
-          grams: grams(ri.slug, Number(ri.amount), ri.unit, spec.densityGMl),
+          per100g: spec.per100g as Macros,
+          grams: grams(spec, Number(ri.amount), ri.unit),
         };
       }),
       r.servings,
@@ -214,13 +148,17 @@ async function seed(): Promise<void> {
       .returning();
 
     await db.insert(recipeIngredients).values(
-      r.ingredients.map((ri) => ({
-        recipeId: row!.id,
-        ingredientId: idBySlug.get(ri.slug)!,
-        amount: ri.amount,
-        unit: ri.unit,
-        optional: ri.optional ?? false,
-      })),
+      r.ingredients.map((ri) => {
+        const id = idBySlug.get(ri.slug);
+        if (!id) throw new Error(`no id for ingredient ${ri.slug}`);
+        return {
+          recipeId: row!.id,
+          ingredientId: id,
+          amount: ri.amount,
+          unit: ri.unit,
+          optional: ri.optional ?? false,
+        };
+      }),
     );
   }
 
@@ -269,7 +207,7 @@ async function seed(): Promise<void> {
   });
 
   console.log(
-    `[seed] ${ing.length} ingredients, ${RECIPES.length} recipes, 1 household (goal=form)`,
+    `[seed] ${dict.total} ingredients (${dict.inserted} new), ${RECIPES.length} recipes, 1 household (goal=form)`,
   );
 }
 

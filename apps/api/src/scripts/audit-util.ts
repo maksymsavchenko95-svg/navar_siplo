@@ -3,34 +3,9 @@
  * Kept separate and dependency-free so they can be unit-tested (`audit-util.test.ts`).
  */
 
-/** Object keys whose string/number values are personal data and must never be written out. */
-export const PII_KEYS =
-  /^(phone|phoneNumber|email|firstName|lastName|middleName|fullName|patronymic|birthday|birthDate|dateOfBirth|latitude|longitude|lat|lng|lon|cardNumber|loyaltyCardNumber|barcode|addressLine|street|houseNumber|building|flat|apartment|comment|recipientName|contactName)$/i;
-
-const REDACTED = "«redacted»";
-
-/**
- * Recursively replace personal-data leaf values with a placeholder, preserving structure.
- * Also redacts a bare `name` when the containing object looks like a person record
- * (profile / family member / recipient) — product/category `name`s are left intact.
- */
-export function redact(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redact);
-  if (value && typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    const isPerson = "itsMe" in obj || "profileId" in obj || "profileCreatedAt" in obj;
-    return Object.fromEntries(
-      Object.entries(obj).map(([k, v]) => {
-        const isPii = PII_KEYS.test(k) || (isPerson && /^name$/i.test(k));
-        return [
-          k,
-          isPii && (typeof v === "string" || typeof v === "number") ? REDACTED : redact(v),
-        ];
-      }),
-    );
-  }
-  return value;
-}
+// PII redaction lives in `@navar/domain` (`INT-LLM-004`) — the audit scripts and the LLM
+// harness share one implementation. Re-exported here so callers keep importing from one place.
+export { PII_KEYS, redact } from "@navar/domain";
 
 /** Structural sketch of a value: keys + leaf types; arrays collapse to `[shape, "×N"]`. */
 export function shape(value: unknown, depth = 0): unknown {

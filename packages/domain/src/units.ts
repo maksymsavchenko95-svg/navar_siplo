@@ -4,7 +4,11 @@
  * of the product's bugs live (Brief §7), so it is small, pure, and tested.
  */
 
-export type BaseUnit = "g" | "ml" | "pcs";
+import { z } from "zod";
+
+/** The three units an ingredient's amounts are stored in. `kg`/`l` are input-only. */
+export const baseUnitSchema = z.enum(["g", "ml", "pcs"]);
+export type BaseUnit = z.infer<typeof baseUnitSchema>;
 export type Unit = BaseUnit | "kg" | "l";
 
 const TO_BASE: Record<Unit, { base: BaseUnit; factor: number }> = {

@@ -118,6 +118,7 @@ export const canonicalIngredients = pgTable(
     category: text("category").notNull(),
     baseUnit: text("base_unit").notNull(), // g | ml | pcs
     densityGMl: numeric("density_g_ml", { precision: 6, scale: 3 }),
+    gramsPerPiece: numeric("grams_per_piece", { precision: 7, scale: 2 }), // for base_unit = 'pcs'
     allergens: text("allergens").array().notNull().default([]),
     synonyms: text("synonyms").array().notNull().default([]),
     perishableDays: integer("perishable_days"),

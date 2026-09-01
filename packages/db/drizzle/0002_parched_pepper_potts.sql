@@ -1,0 +1,1 @@
+ALTER TABLE "canonical_ingredients" ADD COLUMN "grams_per_piece" numeric(7, 2);

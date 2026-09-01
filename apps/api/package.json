@@ -24,6 +24,7 @@
     "@fastify/cors": "^10.0.1",
     "@navar/db": "workspace:*",
     "@navar/domain": "workspace:*",
+    "@navar/llm": "workspace:*",
     "@navar/retail": "workspace:*",
     "@trpc/server": "^11.0.0",
     "drizzle-orm": "^0.38.3",
