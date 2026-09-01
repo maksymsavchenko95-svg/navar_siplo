@@ -1,0 +1,21 @@
+slug: tuna_pasta
+titleUk: Паста з тунцем
+servings: 3
+activeMinutes: 15
+totalMinutes: 25
+difficulty: 1
+mealType: dinner
+seasons: [all_year]
+tags: [quick, budget]
+steps:
+  - Відварити пасту до al dente.
+  - На олії прогріти часник, додати консервовані томати, тушкувати 8 хвилин.
+  - Додати тунець, з'єднати з пастою, посолити.
+ingredients:
+  - { slug: pasta, amount: 300, unit: g }
+  - { slug: tuna_canned, amount: 320, unit: g }
+  - { slug: canned_tomatoes, amount: 400, unit: g }
+  - { slug: garlic, amount: 12, unit: g }
+  - { slug: olive_oil, amount: 25, unit: ml }
+  - { slug: salt, amount: 5, unit: g }
+  - { slug: parsley, amount: 15, unit: g, optional: true }

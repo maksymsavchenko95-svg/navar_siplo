@@ -1,0 +1,23 @@
+slug: cabbage_beef_rolls
+titleUk: Голубці з яловичиною
+servings: 4
+activeMinutes: 40
+totalMinutes: 90
+difficulty: 3
+mealType: dinner
+seasons: [autumn, winter]
+tags: [reheatable]
+steps:
+  - Капустяне листя пробланшувати до м'якості.
+  - Фарш змішати з відвареним рисом і пасерованою цибулею з морквою.
+  - Загорнути голубці, залити томатною пастою зі сметаною та водою, тушкувати 1 годину.
+ingredients:
+  - { slug: white_cabbage, amount: 900, unit: g }
+  - { slug: beef_mince, amount: 450, unit: g }
+  - { slug: rice_round_grain, amount: 150, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: carrot, amount: 150, unit: g }
+  - { slug: tomato_paste, amount: 60, unit: g }
+  - { slug: sour_cream, amount: 120, unit: g }
+  - { slug: sunflower_oil, amount: 30, unit: ml }
+  - { slug: salt, amount: 8, unit: g }

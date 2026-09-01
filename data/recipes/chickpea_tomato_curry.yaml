@@ -1,0 +1,23 @@
+slug: chickpea_tomato_curry
+titleUk: Каррі з нуту
+servings: 3
+activeMinutes: 15
+totalMinutes: 45
+difficulty: 1
+mealType: dinner
+seasons: [all_year]
+tags: [vegetarian, vegan, lenten, budget]
+steps:
+  - Нут замочити на ніч і відварити до м'якості (або взяти консервований).
+  - Спасерувати цибулю з часником, додати спеції та томати.
+  - Всипати нут, тушкувати 15 хвилин, влити кокосове молоко.
+ingredients:
+  - { slug: chickpeas, amount: 240, unit: g }
+  - { slug: canned_tomatoes, amount: 400, unit: g }
+  - { slug: coconut_milk, amount: 200, unit: ml }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: garlic, amount: 12, unit: g }
+  - { slug: coriander_ground, amount: 4, unit: g }
+  - { slug: turmeric, amount: 3, unit: g }
+  - { slug: sunflower_oil, amount: 25, unit: ml }
+  - { slug: salt, amount: 6, unit: g }

@@ -1,0 +1,22 @@
+slug: shakshuka
+titleUk: Шакшука
+servings: 2
+activeMinutes: 15
+totalMinutes: 25
+difficulty: 1
+mealType: breakfast
+seasons: [all_year]
+tags: [vegetarian, quick, one_pot]
+steps:
+  - Цибулю й перець тушкувати на олії 8 хвилин.
+  - Додати томати й паприку, уварити соус 5 хвилин.
+  - Вбити яйця, накрити кришкою, готувати до схоплення білка.
+ingredients:
+  - { slug: egg, amount: 4, unit: pcs }
+  - { slug: canned_tomatoes, amount: 400, unit: g }
+  - { slug: bell_pepper, amount: 150, unit: g }
+  - { slug: onion, amount: 120, unit: g }
+  - { slug: garlic, amount: 10, unit: g }
+  - { slug: paprika_ground, amount: 3, unit: g }
+  - { slug: olive_oil, amount: 25, unit: ml }
+  - { slug: salt, amount: 4, unit: g }

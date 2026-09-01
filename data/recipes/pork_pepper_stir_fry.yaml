@@ -1,0 +1,22 @@
+slug: pork_pepper_stir_fry
+titleUk: Свинина з перцем по-східному
+servings: 3
+activeMinutes: 20
+totalMinutes: 30
+difficulty: 2
+mealType: dinner
+seasons: [all_year]
+tags: [quick]
+steps:
+  - Свинину нарізати смужками, швидко обсмажити на сильному вогні.
+  - Додати перець, цибулю, імбир і часник, смажити 4 хвилини.
+  - Влити соєвий соус, прогріти 1 хвилину, подати з рисом.
+ingredients:
+  - { slug: pork_loin, amount: 520, unit: g }
+  - { slug: bell_pepper, amount: 250, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: ginger_root, amount: 15, unit: g }
+  - { slug: garlic, amount: 12, unit: g }
+  - { slug: soy_sauce, amount: 40, unit: ml }
+  - { slug: sunflower_oil, amount: 25, unit: ml }
+  - { slug: rice_long_grain, amount: 250, unit: g }

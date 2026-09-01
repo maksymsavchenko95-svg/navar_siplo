@@ -1,0 +1,21 @@
+slug: pollock_stewed_vegetables
+titleUk: Мінтай, тушкований в овочах
+servings: 4
+activeMinutes: 20
+totalMinutes: 40
+difficulty: 1
+mealType: dinner
+seasons: [all_year]
+tags: [budget, one_pot]
+steps:
+  - Цибулю й моркву спасерувати, додати консервовані томати.
+  - Викласти шматки мінтая, посолити.
+  - Тушкувати під кришкою 20 хвилин.
+ingredients:
+  - { slug: pollock, amount: 750, unit: g }
+  - { slug: carrot, amount: 200, unit: g }
+  - { slug: onion, amount: 180, unit: g }
+  - { slug: canned_tomatoes, amount: 400, unit: g }
+  - { slug: sunflower_oil, amount: 30, unit: ml }
+  - { slug: bay_leaf, amount: 1, unit: g }
+  - { slug: salt, amount: 7, unit: g }

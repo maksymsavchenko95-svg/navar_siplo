@@ -1,0 +1,22 @@
+slug: tuna_bean_salad
+titleUk: Салат із тунцем і квасолею
+servings: 3
+activeMinutes: 15
+totalMinutes: 15
+difficulty: 1
+mealType: lunch
+seasons: [all_year]
+tags: [quick, gluten_free, budget]
+steps:
+  - Консервовану квасолю промити, змішати з тунцем.
+  - Додати нарізані томати, цибулю та кукурудзу.
+  - Заправити олією та лимонним соком, посолити.
+ingredients:
+  - { slug: tuna_canned, amount: 320, unit: g }
+  - { slug: beans_canned, amount: 400, unit: g }
+  - { slug: canned_corn, amount: 150, unit: g }
+  - { slug: tomato, amount: 200, unit: g }
+  - { slug: onion, amount: 80, unit: g }
+  - { slug: olive_oil, amount: 25, unit: ml }
+  - { slug: lemon, amount: 40, unit: g }
+  - { slug: salt, amount: 4, unit: g }

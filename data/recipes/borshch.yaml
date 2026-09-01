@@ -1,0 +1,25 @@
+slug: borshch
+titleUk: Борщ
+servings: 6
+activeMinutes: 35
+totalMinutes: 80
+difficulty: 2
+mealType: lunch
+seasons: [autumn, winter, all_year]
+tags: [vegetarian, lenten, budget, reheatable]
+steps:
+  - У киплячу воду закласти картоплю й нашатковану капусту.
+  - Буряк, моркву й цибулю спасерувати з томатною пастою.
+  - Додати засмажку до каструлі, варити 15 хвилин, заправити часником.
+ingredients:
+  - { slug: beetroot, amount: 400, unit: g }
+  - { slug: white_cabbage, amount: 400, unit: g }
+  - { slug: potato, amount: 500, unit: g }
+  - { slug: carrot, amount: 200, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: tomato_paste, amount: 80, unit: g }
+  - { slug: garlic, amount: 15, unit: g }
+  - { slug: sunflower_oil, amount: 40, unit: ml }
+  - { slug: bay_leaf, amount: 2, unit: g }
+  - { slug: salt, amount: 10, unit: g }
+  - { slug: sour_cream, amount: 150, unit: g, optional: true }

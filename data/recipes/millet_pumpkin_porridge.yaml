@@ -1,0 +1,20 @@
+slug: millet_pumpkin_porridge
+titleUk: Пшоняна каша з гарбузом
+servings: 4
+activeMinutes: 15
+totalMinutes: 40
+difficulty: 1
+mealType: breakfast
+seasons: [autumn, winter]
+tags: [vegetarian, gluten_free, kids_friendly, budget]
+steps:
+  - Гарбуз нарізати кубиками, проварити в молоці 10 хвилин.
+  - Всипати промите пшоно, варити 20 хвилин, помішуючи.
+  - Додати вершкове масло та мед.
+ingredients:
+  - { slug: millet_groats, amount: 220, unit: g }
+  - { slug: pumpkin, amount: 400, unit: g }
+  - { slug: milk, amount: 600, unit: ml }
+  - { slug: butter, amount: 30, unit: g }
+  - { slug: honey, amount: 25, unit: g }
+  - { slug: salt, amount: 2, unit: g }

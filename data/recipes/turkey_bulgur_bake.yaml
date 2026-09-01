@@ -1,0 +1,22 @@
+slug: turkey_bulgur_bake
+titleUk: Запечена індичка з булгуром
+servings: 4
+activeMinutes: 20
+totalMinutes: 45
+difficulty: 2
+mealType: dinner
+seasons: [autumn, winter]
+tags: [reheatable]
+steps:
+  - Булгур залити окропом 1:2, лишити під кришкою на 15 хвилин.
+  - Філе індички нарізати, обсмажити з цибулею та морквою.
+  - З'єднати з булгуром і бланшованою квасолею, викласти у форму.
+  - Запікати 15 хвилин за 190°C.
+ingredients:
+  - { slug: turkey_fillet, amount: 640, unit: g }
+  - { slug: bulgur, amount: 300, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: carrot, amount: 150, unit: g }
+  - { slug: green_beans, amount: 200, unit: g }
+  - { slug: olive_oil, amount: 30, unit: ml }
+  - { slug: salt, amount: 6, unit: g }

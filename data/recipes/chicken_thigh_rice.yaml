@@ -1,0 +1,21 @@
+slug: chicken_thigh_rice
+titleUk: Курячі стегна з рисом
+servings: 4
+activeMinutes: 20
+totalMinutes: 45
+difficulty: 2
+mealType: dinner
+seasons: [all_year]
+tags: [reheatable, one_pot, kids_friendly]
+steps:
+  - Стегна обсмажити до золотистої шкірочки, відкласти.
+  - У тому ж посуді спасерувати цибулю й моркву, всипати рис.
+  - Влити воду 1:2, повернути стегна, готувати під кришкою 25 хвилин.
+ingredients:
+  - { slug: chicken_thigh, amount: 800, unit: g }
+  - { slug: rice_long_grain, amount: 350, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: carrot, amount: 150, unit: g }
+  - { slug: sunflower_oil, amount: 25, unit: ml }
+  - { slug: salt, amount: 7, unit: g }
+  - { slug: bay_leaf, amount: 1, unit: g, optional: true }

@@ -17,7 +17,7 @@ cp apps/web/.env.example apps/web/.env.local
 # set MCP_TOKEN_KEY in .env and apps/api/.env:  openssl rand -base64 32
 
 pnpm dev        # Postgres + API in Docker (API on :3001, auto-migrates)
-pnpm db:seed    # demo recipes + household
+pnpm db:seed    # ingredient dictionary + recipe corpus (data/recipes/) + demo household
 pnpm dev:web    # Next.js on :3000
 ```
 
@@ -40,8 +40,9 @@ pnpm build        # tsc check + next build
 pnpm format       # prettier --write .
 ```
 
-`pnpm test` runs recursively; today the suites live in `packages/domain` (unit conversion,
-nutrition math) and `packages/retail` (tool-list mapping). Run one package or filter by
+`pnpm test` runs recursively; the suites live in `packages/domain` (unit conversion,
+nutrition math, schemas), `packages/db` (importers + recipe-corpus validation),
+`packages/retail` (tool-list mapping) and `packages/llm`. Run one package or filter by
 file name:
 
 ```bash
@@ -55,6 +56,7 @@ pnpm --filter @navar/domain exec vitest       # watch mode
 - `apps/api` — Fastify + tRPC; wires the packages together
 - `apps/web` — Next.js App Router
 - `packages/domain` — Zod schemas, domain types, unit conversions, port contracts
-- `packages/db` — Drizzle schema + migrations + encrypted `CredentialStore`
+- `packages/db` — Drizzle schema + migrations + encrypted `CredentialStore` + the
+  ingredient / recipe importers; `data/recipes/*.yaml` is the recipe corpus
 - `packages/retail` — `RetailProvider` + Silpo MCP adapter (only package using the MCP SDK)
 - `packages/{planner,mapper,safety}` — deterministic cores (stubs for now)

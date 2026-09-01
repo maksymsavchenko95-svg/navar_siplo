@@ -1,0 +1,21 @@
+slug: baked_cod_gratin_trout
+titleUk: Форель, запечена під сметанним соусом
+servings: 3
+activeMinutes: 15
+totalMinutes: 35
+difficulty: 2
+mealType: dinner
+seasons: [all_year]
+tags: [quick, gluten_free]
+steps:
+  - Філе форелі посолити, викласти у форму.
+  - Змішати сметану з часником і кропом, покрити рибу.
+  - Запікати 20 хвилин за 190°C, подати з відвареною картоплею.
+ingredients:
+  - { slug: trout_fillet, amount: 480, unit: g }
+  - { slug: sour_cream, amount: 180, unit: g }
+  - { slug: potato, amount: 600, unit: g }
+  - { slug: garlic, amount: 10, unit: g }
+  - { slug: dill, amount: 15, unit: g }
+  - { slug: lemon, amount: 40, unit: g }
+  - { slug: salt, amount: 6, unit: g }

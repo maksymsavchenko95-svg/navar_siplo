@@ -1,0 +1,23 @@
+slug: lentil_vegetable_soup
+titleUk: Сочевичний суп
+servings: 5
+activeMinutes: 15
+totalMinutes: 45
+difficulty: 1
+mealType: lunch
+seasons: [autumn, winter]
+tags: [vegetarian, vegan, lenten, budget, one_pot, reheatable]
+steps:
+  - Цибулю, моркву й селеру спасерувати на олії.
+  - Додати сочевицю та картоплю, влити воду, варити 25 хвилин.
+  - Приправити паприкою, посолити, додати лимонний сік.
+ingredients:
+  - { slug: lentils, amount: 250, unit: g }
+  - { slug: potato, amount: 300, unit: g }
+  - { slug: carrot, amount: 150, unit: g }
+  - { slug: onion, amount: 120, unit: g }
+  - { slug: celery_stalk, amount: 100, unit: g }
+  - { slug: paprika_ground, amount: 3, unit: g }
+  - { slug: olive_oil, amount: 30, unit: ml }
+  - { slug: lemon, amount: 40, unit: g }
+  - { slug: salt, amount: 9, unit: g }

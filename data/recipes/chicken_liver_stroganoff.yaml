@@ -1,0 +1,21 @@
+slug: chicken_liver_stroganoff
+titleUk: Куряча печінка у сметані
+servings: 3
+activeMinutes: 20
+totalMinutes: 30
+difficulty: 2
+mealType: dinner
+seasons: [all_year]
+tags: [quick, budget]
+steps:
+  - Печінку обсмажити на сильному вогні 5 хвилин, відкласти.
+  - Спасерувати цибулю, додати сметану й ложку борошна, влити воду.
+  - Повернути печінку, тушкувати 7 хвилин, подати з гречкою.
+ingredients:
+  - { slug: chicken_liver, amount: 550, unit: g }
+  - { slug: sour_cream, amount: 180, unit: g }
+  - { slug: onion, amount: 180, unit: g }
+  - { slug: wheat_flour, amount: 15, unit: g }
+  - { slug: buckwheat_groats, amount: 240, unit: g }
+  - { slug: sunflower_oil, amount: 30, unit: ml }
+  - { slug: salt, amount: 6, unit: g }

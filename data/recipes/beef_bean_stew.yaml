@@ -1,0 +1,23 @@
+slug: beef_bean_stew
+titleUk: Тушкована яловичина з квасолею
+servings: 4
+activeMinutes: 25
+totalMinutes: 90
+difficulty: 2
+mealType: dinner
+seasons: [autumn, winter]
+tags: [reheatable, one_pot, budget]
+steps:
+  - Яловичину нарізати кубиками, обсмажити до рум'яності.
+  - Додати цибулю, моркву й томатну пасту, влити воду.
+  - Тушкувати під кришкою 1 годину.
+  - Всипати відварену червону квасолю, готувати ще 15 хвилин.
+ingredients:
+  - { slug: beef_stewing, amount: 550, unit: g }
+  - { slug: red_beans, amount: 200, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: carrot, amount: 150, unit: g }
+  - { slug: tomato_paste, amount: 60, unit: g }
+  - { slug: sunflower_oil, amount: 30, unit: ml }
+  - { slug: bay_leaf, amount: 1, unit: g }
+  - { slug: salt, amount: 7, unit: g }

@@ -1,0 +1,22 @@
+slug: beef_stroganoff
+titleUk: Бефстроганов
+servings: 4
+activeMinutes: 25
+totalMinutes: 45
+difficulty: 2
+mealType: dinner
+seasons: [autumn, winter]
+tags: [reheatable]
+steps:
+  - Яловичину нарізати тонкими смужками, швидко обсмажити.
+  - Додати цибулю, за пару хвилин — борошно й сметану, влити трохи води.
+  - Тушкувати 10 хвилин, подати з картопляним пюре.
+ingredients:
+  - { slug: beef_stewing, amount: 550, unit: g }
+  - { slug: sour_cream, amount: 200, unit: g }
+  - { slug: onion, amount: 180, unit: g }
+  - { slug: wheat_flour, amount: 20, unit: g }
+  - { slug: potato, amount: 800, unit: g }
+  - { slug: butter, amount: 30, unit: g }
+  - { slug: sunflower_oil, amount: 25, unit: ml }
+  - { slug: salt, amount: 7, unit: g }

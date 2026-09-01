@@ -1,0 +1,23 @@
+slug: greek_salad_chicken
+titleUk: Грецький салат з куркою
+servings: 3
+activeMinutes: 20
+totalMinutes: 25
+difficulty: 1
+mealType: lunch
+seasons: [summer]
+tags: [quick, gluten_free]
+steps:
+  - Куряче філе посолити, обсмажити й нарізати.
+  - Огірки, томати й перець нарізати великими шматками.
+  - Додати фету й маслини, заправити оливковою олією з лимоном.
+ingredients:
+  - { slug: chicken_breast, amount: 450, unit: g }
+  - { slug: cucumber, amount: 300, unit: g }
+  - { slug: tomato, amount: 300, unit: g }
+  - { slug: bell_pepper, amount: 150, unit: g }
+  - { slug: feta_cheese, amount: 150, unit: g }
+  - { slug: olives, amount: 60, unit: g }
+  - { slug: olive_oil, amount: 35, unit: ml }
+  - { slug: lemon, amount: 40, unit: g }
+  - { slug: salt, amount: 4, unit: g }

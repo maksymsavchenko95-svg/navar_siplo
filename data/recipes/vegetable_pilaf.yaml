@@ -1,0 +1,23 @@
+slug: vegetable_pilaf
+titleUk: Овочевий плов
+servings: 4
+activeMinutes: 20
+totalMinutes: 45
+difficulty: 2
+mealType: dinner
+seasons: [all_year]
+tags: [vegetarian, vegan, lenten, budget, one_pot, kids_friendly]
+steps:
+  - Цибулю, моркву й перець спасерувати на олії зі спеціями.
+  - Всипати рис, додати зелений горошок, влити воду 1:2.
+  - Готувати під кришкою 25 хвилин, дати настоятися.
+ingredients:
+  - { slug: rice_long_grain, amount: 400, unit: g }
+  - { slug: carrot, amount: 250, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: bell_pepper, amount: 150, unit: g }
+  - { slug: green_peas_frozen, amount: 150, unit: g }
+  - { slug: garlic, amount: 15, unit: g }
+  - { slug: cumin_ground, amount: 3, unit: g }
+  - { slug: sunflower_oil, amount: 45, unit: ml }
+  - { slug: salt, amount: 8, unit: g }

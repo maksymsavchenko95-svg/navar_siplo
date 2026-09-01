@@ -149,6 +149,85 @@ export type CanonicalIngredientSeed = z.infer<typeof canonicalIngredientSchema>;
 /** Authoring shape for the data file — optional fields may be omitted. */
 export type CanonicalIngredientInput = z.input<typeof canonicalIngredientSchema>;
 
+// ─── Recipe corpus (authoring schema for data/recipes/*.yaml) ──────────────────
+
+/**
+ * The meal slot a recipe fills (`FR-RECIPE-002`). The P0 demo plans 5 dinners, but the
+ * corpus also carries breakfast / lunch entries.
+ */
+export const recipeMealTypeSchema = z.enum(["breakfast", "lunch", "dinner", "snack"]);
+export type RecipeMealType = z.infer<typeof recipeMealTypeSchema>;
+
+/** Season fit (`FR-RECIPE-002`; `FR-RECIPE-005` wants ≥ 1). `all_year` = no seasonal bias. */
+export const recipeSeasonSchema = z.enum(["spring", "summer", "autumn", "winter", "all_year"]);
+export type RecipeSeason = z.infer<typeof recipeSeasonSchema>;
+
+/**
+ * Dietary + practical recipe tags (`FR-RECIPE-002`). Deliberately **no `fitness` tag** —
+ * `form`-mode suitability is computed from macros + portion, never declared (ADR-09). The
+ * dietary tags here are author hints for filtering / display; the authoritative allergen
+ * set is always the computed ingredient union (`FR-RECIPE-003`).
+ */
+export const recipeTagSchema = z.enum([
+  "vegetarian",
+  "vegan",
+  "lenten", // пісне
+  "gluten_free",
+  "lactose_free",
+  "kids_friendly",
+  "reheatable",
+  "quick",
+  "one_pot",
+  "budget",
+]);
+export type RecipeTag = z.infer<typeof recipeTagSchema>;
+
+/** One ingredient line of a recipe — a reference into the `CanonicalIngredient` dictionary. */
+export const recipeIngredientRefSchema = z
+  .object({
+    slug: z.string().regex(/^[a-z0-9_]+$/, "slug must be lower_snake_case"),
+    amount: z.number().positive(),
+    unit: z.enum(["g", "ml", "pcs", "kg", "l"]),
+    optional: z.boolean().default(false),
+  })
+  .strict();
+export type RecipeIngredientRef = z.infer<typeof recipeIngredientRefSchema>;
+
+/**
+ * One recipe as authored in `data/recipes/<slug>.yaml` (`DATA-02`, `FR-RECIPE-001/002`,
+ * roadmap T1.3). `.strict()` — `allergens` and per-serving macros are **never** authored
+ * here; `import-recipes.ts` computes them from the ingredient union and `recipeMacros`
+ * (`FR-RECIPE-003`, `.claude/rules/food-safety.md`). Runtime-validated by the importer and
+ * a pure corpus test — the same discipline `canonicalIngredientSchema` gives the dictionary.
+ */
+export const recipeSeedSchema = z
+  .object({
+    slug: z.string().regex(/^[a-z0-9_]+$/, "slug must be lower_snake_case"),
+    titleUk: z.string().min(1),
+    servings: z.number().int().positive(),
+    activeMinutes: z.number().int().positive(),
+    totalMinutes: z.number().int().positive(),
+    difficulty: z.number().int().min(1).max(3),
+    mealType: recipeMealTypeSchema,
+    seasons: z.array(recipeSeasonSchema).min(1),
+    tags: z.array(recipeTagSchema).default([]),
+    steps: z.array(z.string().min(1)).min(1),
+    ingredients: z.array(recipeIngredientRefSchema).min(1),
+  })
+  .strict()
+  .refine((r) => r.totalMinutes >= r.activeMinutes, {
+    message: "totalMinutes must be >= activeMinutes",
+    path: ["totalMinutes"],
+  })
+  .refine((r) => new Set(r.ingredients.map((i) => i.slug)).size === r.ingredients.length, {
+    message: "duplicate ingredient slug in one recipe",
+    path: ["ingredients"],
+  });
+/** Post-parse shape (defaults resolved). */
+export type RecipeSeed = z.infer<typeof recipeSeedSchema>;
+/** Authoring shape for a YAML file — optional fields (`optional`, `tags`) may be omitted. */
+export type RecipeSeedInput = z.input<typeof recipeSeedSchema>;
+
 // ─── LLM step contracts (TDD §6) ──────────────────────────────────────────────
 
 /**

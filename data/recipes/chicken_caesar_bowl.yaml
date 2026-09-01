@@ -1,0 +1,22 @@
+slug: chicken_caesar_bowl
+titleUk: Курка з листям салату та сухариками
+servings: 3
+activeMinutes: 20
+totalMinutes: 30
+difficulty: 2
+mealType: lunch
+seasons: [spring, summer]
+tags: [quick]
+steps:
+  - Куряче філе посолити, обсмажити й нарізати.
+  - Білий хліб підсушити кубиками на олії до хрусткості.
+  - З'єднати листя салату, курку й сухарики, заправити майонезом з часником і сиром.
+ingredients:
+  - { slug: chicken_breast, amount: 500, unit: g }
+  - { slug: lettuce, amount: 200, unit: g }
+  - { slug: white_bread, amount: 120, unit: g }
+  - { slug: hard_cheese, amount: 50, unit: g }
+  - { slug: mayonnaise, amount: 60, unit: g }
+  - { slug: garlic, amount: 8, unit: g }
+  - { slug: olive_oil, amount: 20, unit: ml }
+  - { slug: salt, amount: 4, unit: g }

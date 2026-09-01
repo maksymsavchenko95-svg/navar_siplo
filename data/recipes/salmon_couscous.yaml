@@ -1,0 +1,21 @@
+slug: salmon_couscous
+titleUk: Лосось з кускусом і овочами
+servings: 3
+activeMinutes: 20
+totalMinutes: 30
+difficulty: 2
+mealType: dinner
+seasons: [spring, summer]
+tags: [quick]
+steps:
+  - Кускус залити окропом 1:1,5, лишити на 5 хвилин, розпушити виделкою.
+  - Філе лосося посолити, обсмажити по 3 хвилини з кожного боку.
+  - Цукіні й перець підсмажити, з'єднати з кускусом, подати з лососем.
+ingredients:
+  - { slug: salmon_fillet, amount: 480, unit: g }
+  - { slug: couscous, amount: 240, unit: g }
+  - { slug: zucchini, amount: 200, unit: g }
+  - { slug: bell_pepper, amount: 150, unit: g }
+  - { slug: olive_oil, amount: 30, unit: ml }
+  - { slug: lemon, amount: 50, unit: g }
+  - { slug: salt, amount: 5, unit: g }

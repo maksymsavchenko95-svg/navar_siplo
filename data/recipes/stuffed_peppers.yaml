@@ -1,0 +1,22 @@
+slug: stuffed_peppers
+titleUk: Фаршировані перці
+servings: 4
+activeMinutes: 30
+totalMinutes: 70
+difficulty: 2
+mealType: dinner
+seasons: [summer, autumn]
+tags: [reheatable, kids_friendly]
+steps:
+  - Рис відварити до напівготовності, змішати з фаршем і цибулею.
+  - Начинити перці, скласти в каструлю.
+  - Залити томатною пастою з водою та сметаною, тушкувати 40 хвилин.
+ingredients:
+  - { slug: bell_pepper, amount: 700, unit: g }
+  - { slug: mixed_mince, amount: 400, unit: g }
+  - { slug: rice_round_grain, amount: 150, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: carrot, amount: 120, unit: g }
+  - { slug: tomato_paste, amount: 60, unit: g }
+  - { slug: sour_cream, amount: 100, unit: g }
+  - { slug: salt, amount: 7, unit: g }

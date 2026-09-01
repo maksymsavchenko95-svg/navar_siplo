@@ -1,0 +1,22 @@
+slug: white_bean_tomato_stew
+titleUk: Квасоля, тушкована в томаті
+servings: 3
+activeMinutes: 15
+totalMinutes: 40
+difficulty: 1
+mealType: dinner
+seasons: [autumn, winter]
+tags: [vegetarian, vegan, lenten, budget, one_pot]
+steps:
+  - Цибулю з часником спасерувати на олії.
+  - Додати консервовані томати й паприку, уварити 5 хвилин.
+  - Всипати відварену білу квасолю, тушкувати 15 хвилин.
+ingredients:
+  - { slug: white_beans, amount: 240, unit: g }
+  - { slug: canned_tomatoes, amount: 400, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: garlic, amount: 12, unit: g }
+  - { slug: paprika_ground, amount: 3, unit: g }
+  - { slug: olive_oil, amount: 30, unit: ml }
+  - { slug: parsley, amount: 15, unit: g }
+  - { slug: salt, amount: 6, unit: g }

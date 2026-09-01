@@ -1,0 +1,22 @@
+slug: pearl_barley_mushroom_kulesh
+titleUk: Куліш з перловкою та грибами
+servings: 4
+activeMinutes: 15
+totalMinutes: 55
+difficulty: 1
+mealType: dinner
+seasons: [autumn, winter]
+tags: [vegetarian, vegan, lenten, budget, one_pot, reheatable]
+steps:
+  - Перловку замочити на годину, відварити до напівм'якості.
+  - Обсмажити цибулю, моркву й печериці, додати картоплю.
+  - З'єднати з перловкою, влити воду, варити 20 хвилин.
+ingredients:
+  - { slug: pearl_barley, amount: 250, unit: g }
+  - { slug: champignon, amount: 300, unit: g }
+  - { slug: potato, amount: 400, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: carrot, amount: 150, unit: g }
+  - { slug: sunflower_oil, amount: 35, unit: ml }
+  - { slug: bay_leaf, amount: 1, unit: g }
+  - { slug: salt, amount: 8, unit: g }

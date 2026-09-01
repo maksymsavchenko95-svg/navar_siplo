@@ -25,7 +25,7 @@ per `docs/tdd-navar.md` §2.
 | Path                           | What it is                                                                                                                                                                                                                                                                                                                                               |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/domain`              | `@navar/domain` — Zod schemas, inferred types, unit conversions, cross-package port contracts (`CredentialStore`). Depends only on zod. Imported by everything (ADR-01).                                                                                                                                                                                 |
-| `packages/db`                  | `@navar/db` — Drizzle schema + migrate + seed + the Postgres-backed `CredentialStore` (AES-256-GCM). The only package that touches the database.                                                                                                                                                                                                         |
+| `packages/db`                  | `@navar/db` — Drizzle schema + migrate + seed + the Postgres-backed `CredentialStore` (AES-256-GCM) + the idempotent `import-ingredients.ts` / `import-recipes.ts` importers (pure helpers split from DB I/O). The only package that touches the database.                                                                                               |
 | `packages/retail`              | `@navar/retail` — `RetailProvider` seam + Silpo MCP adapter + OAuth. Typed methods: `listTools`, `getCartContext`, `findProducts` (`silpo/parse.ts` maps the raw responses); `rawToolList` / `callToolRaw` are audit-only escape hatches, not runtime paths. **The only package that imports `@modelcontextprotocol/sdk`** (ADR-04); a grep enforces it. |
 | `packages/planner`             | `@navar/planner` — deterministic solver + LLM planning layer. Stub; exports the `SolverInput` / `WEIGHTS` contract (TDD §4, ADR-09).                                                                                                                                                                                                                     |
 | `packages/mapper`              | `@navar/mapper` — ingredient ↔ SKU matching. Stub (TDD §5). The demo's naive first-match lives in the API, not here.                                                                                                                                                                                                                                     |
@@ -54,11 +54,11 @@ Scaffolded: TypeScript (Node 22) pnpm monorepo · Fastify + tRPC + Zod · Postgr
 pgvector + pg_trgm · Drizzle ORM · `@modelcontextprotocol/sdk` (StreamableHTTP) · Next.js
 (App Router) · Docker Compose.
 
-Not yet added (introduce when a feature needs it): BullMQ + Redis, Claude via Vercel AI SDK,
-Langfuse + OpenTelemetry + Sentry, app auth/sessions, the plan / receipt / pantry /
-shopping-list tables (`docs/tdd-navar.md` §3), the YAML recipe corpus + importer (§2), the
-solver itself (incl. portion-fit), `household.computeNutrition` (body metrics → targets),
-the goal-selection UI.
+Not yet added (introduce when a feature needs it): BullMQ + Redis, Langfuse + OpenTelemetry
+
+- Sentry, app auth/sessions, the plan / receipt / pantry / shopping-list tables
+  (`docs/tdd-navar.md` §3), the solver itself (incl. portion-fit),
+  `household.computeNutrition` (body metrics → targets), the goal-selection UI.
 
 Runtime is `tsx` (dev and prod). `pnpm build` / `pnpm typecheck` run `tsc` as a check only —
 no JS emit.
@@ -79,7 +79,14 @@ the allergen union). `nutrition_targets.kcal_target` has a DB `CHECK (>= 1200)` 
 
 Edit the schema, then `pnpm db:generate` to regenerate SQL under `packages/db/drizzle/`.
 `pnpm db:seed` is non-destructive — it upserts the demo household on `silpo_user_ref='demo'`,
-so `mcp_credentials` survives a re-seed.
+so `mcp_credentials` survives a re-seed. It runs `import-ingredients.ts` then
+`import-recipes.ts`; both upsert on `slug` and never truncate.
+
+The recipe corpus is `data/recipes/*.yaml` in git (`FR-RECIPE-001..005`, TDD §2 — "import is
+a build step"). `import-recipes.ts` validates each file against `recipeSeedSchema`, then
+**computes** the allergen union and per-serving macros from the ingredient dictionary
+(`recipeMacros`) — never hand-set. `pnpm db:import:recipes` imports standalone; a bad YAML
+aborts with the filename, and `packages/db/src/recipes-corpus.test.ts` fails the build for it.
 
 ## Architecture invariants
 
@@ -146,6 +153,8 @@ pnpm mcp:audit           # M0 audit, blocks 0–5+7, read-only → docs/mcp-audi
 pnpm mcp:audit:cart      # M0 audit block 6: cart write + idempotency (WRITES to the live cart, auto-cleans up)
 pnpm db:generate         # drizzle-kit: regenerate SQL after editing packages/db/src/schema.ts
 pnpm db:migrate          # apply migrations (also ensures the vector + pg_trgm extensions)
+pnpm db:import:ingredients # idempotent upsert of the CanonicalIngredient dictionary
+pnpm db:import:recipes    # idempotent upsert of data/recipes/*.yaml (allergens + macros computed)
 pnpm db:seed             # demo fixture: ingredients + recipes + one form-mode household
 pnpm db:studio           # drizzle-kit studio
 

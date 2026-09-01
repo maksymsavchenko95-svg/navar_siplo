@@ -1,0 +1,25 @@
+slug: turkey_chili
+titleUk: Чилі з індичкою та квасолею
+servings: 4
+activeMinutes: 20
+totalMinutes: 50
+difficulty: 2
+mealType: dinner
+seasons: [autumn, winter]
+tags: [reheatable, one_pot]
+steps:
+  - Фарш індички обсмажити з цибулею й часником.
+  - Додати паприку, кмин, консервовані томати й перець.
+  - Всипати червону квасолю, тушкувати 25 хвилин.
+ingredients:
+  - { slug: chicken_mince, amount: 300, unit: g }
+  - { slug: turkey_fillet, amount: 300, unit: g }
+  - { slug: red_beans, amount: 200, unit: g }
+  - { slug: canned_tomatoes, amount: 400, unit: g }
+  - { slug: bell_pepper, amount: 200, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: garlic, amount: 12, unit: g }
+  - { slug: paprika_ground, amount: 4, unit: g }
+  - { slug: cumin_ground, amount: 3, unit: g }
+  - { slug: sunflower_oil, amount: 25, unit: ml }
+  - { slug: salt, amount: 6, unit: g }

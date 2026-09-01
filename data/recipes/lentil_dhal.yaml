@@ -1,0 +1,22 @@
+slug: lentil_dhal
+titleUk: Дал із сочевиці
+servings: 3
+activeMinutes: 15
+totalMinutes: 40
+difficulty: 1
+mealType: dinner
+seasons: [autumn, winter]
+tags: [vegetarian, vegan, lenten, budget, one_pot]
+steps:
+  - Цибулю з часником та імбиром спасерувати на олії.
+  - Додати куркуму й сочевицю, влити воду, варити 25 хвилин.
+  - Влити кокосове молоко, посолити, прогріти 5 хвилин.
+ingredients:
+  - { slug: lentils, amount: 300, unit: g }
+  - { slug: coconut_milk, amount: 200, unit: ml }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: garlic, amount: 12, unit: g }
+  - { slug: ginger_root, amount: 12, unit: g }
+  - { slug: turmeric, amount: 4, unit: g }
+  - { slug: sunflower_oil, amount: 25, unit: ml }
+  - { slug: salt, amount: 6, unit: g }

@@ -1,0 +1,23 @@
+slug: beef_barley_soup
+titleUk: Яловичий суп з перловкою
+servings: 6
+activeMinutes: 20
+totalMinutes: 100
+difficulty: 1
+mealType: lunch
+seasons: [autumn, winter]
+tags: [reheatable, one_pot, budget]
+steps:
+  - Яловичину залити водою, варити бульйон 1 годину, зняти піну.
+  - Додати перловку й картоплю, варити 25 хвилин.
+  - Закласти пасеровані цибулю з морквою, приправити лавром і зеленню.
+ingredients:
+  - { slug: beef_stewing, amount: 500, unit: g }
+  - { slug: pearl_barley, amount: 150, unit: g }
+  - { slug: potato, amount: 400, unit: g }
+  - { slug: carrot, amount: 150, unit: g }
+  - { slug: onion, amount: 120, unit: g }
+  - { slug: bay_leaf, amount: 2, unit: g }
+  - { slug: parsley, amount: 15, unit: g }
+  - { slug: sunflower_oil, amount: 25, unit: ml }
+  - { slug: salt, amount: 10, unit: g }

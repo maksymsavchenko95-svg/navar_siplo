@@ -1,0 +1,22 @@
+slug: zucchini_fritters
+titleUk: Оладки з кабачків
+servings: 3
+activeMinutes: 25
+totalMinutes: 35
+difficulty: 2
+mealType: dinner
+seasons: [summer]
+tags: [vegetarian, budget, kids_friendly]
+steps:
+  - Кабачки натерти, відтиснути рідину.
+  - Змішати з яйцями, борошном, часником і сіллю.
+  - Смажити оладки на олії, подати зі сметаною.
+ingredients:
+  - { slug: zucchini, amount: 700, unit: g }
+  - { slug: egg, amount: 2, unit: pcs }
+  - { slug: wheat_flour, amount: 100, unit: g }
+  - { slug: garlic, amount: 10, unit: g }
+  - { slug: dill, amount: 15, unit: g }
+  - { slug: sunflower_oil, amount: 40, unit: ml }
+  - { slug: sour_cream, amount: 150, unit: g }
+  - { slug: salt, amount: 5, unit: g }

@@ -1,0 +1,22 @@
+slug: mushroom_risotto
+titleUk: Різото з грибами
+servings: 3
+activeMinutes: 25
+totalMinutes: 40
+difficulty: 3
+mealType: dinner
+seasons: [autumn, winter]
+tags: [vegetarian]
+steps:
+  - Печериці обсмажити на вершковому маслі, відкласти.
+  - Спасерувати цибулю, всипати рис, вливати гарячу воду частинами, помішуючи.
+  - За 18 хвилин додати гриби й тертий сир, дати настоятися.
+ingredients:
+  - { slug: rice_round_grain, amount: 300, unit: g }
+  - { slug: champignon, amount: 350, unit: g }
+  - { slug: hard_cheese, amount: 80, unit: g }
+  - { slug: butter, amount: 40, unit: g }
+  - { slug: onion, amount: 120, unit: g }
+  - { slug: garlic, amount: 10, unit: g }
+  - { slug: vegetable_broth_cube, amount: 10, unit: g }
+  - { slug: salt, amount: 4, unit: g }

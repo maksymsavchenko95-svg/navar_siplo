@@ -1,0 +1,21 @@
+slug: salmon_potato_bake
+titleUk: Запіканка з лососем і картоплею
+servings: 4
+activeMinutes: 25
+totalMinutes: 55
+difficulty: 2
+mealType: dinner
+seasons: [autumn, winter]
+tags: [reheatable]
+steps:
+  - Картоплю відварити до напівготовності, нарізати кружальцями.
+  - Викласти шарами картоплю, філе лосося та цибулю, залити вершками.
+  - Посипати сиром, запікати 30 хвилин за 190°C.
+ingredients:
+  - { slug: salmon_fillet, amount: 500, unit: g }
+  - { slug: potato, amount: 700, unit: g }
+  - { slug: cream_20, amount: 200, unit: ml }
+  - { slug: hard_cheese, amount: 80, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: butter, amount: 20, unit: g }
+  - { slug: salt, amount: 7, unit: g }

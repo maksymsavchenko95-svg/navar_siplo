@@ -17,6 +17,7 @@
     "db:migrate": "tsx src/migrate.ts",
     "db:seed": "tsx src/seed.ts",
     "db:import:ingredients": "tsx src/import-ingredients.ts",
+    "db:import:recipes": "tsx src/import-recipes.ts",
     "db:embed:ingredients": "tsx src/embed-ingredients.ts",
     "db:studio": "drizzle-kit studio"
   },
@@ -24,6 +25,7 @@
     "@navar/domain": "workspace:*",
     "drizzle-orm": "^0.38.3",
     "pg": "^8.13.1",
+    "yaml": "^2.6.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {

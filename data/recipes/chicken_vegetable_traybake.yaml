@@ -1,0 +1,23 @@
+slug: chicken_vegetable_traybake
+titleUk: Курка з овочами на деку
+servings: 4
+activeMinutes: 20
+totalMinutes: 55
+difficulty: 1
+mealType: dinner
+seasons: [autumn, all_year]
+tags: [one_pot, reheatable, gluten_free]
+steps:
+  - Курячі стегна й нарізані овочі скласти на деко.
+  - Збризнути олією, посолити, додати часник і паприку.
+  - Запікати 40 хвилин за 200°C, раз перемішавши.
+ingredients:
+  - { slug: chicken_drumstick, amount: 800, unit: g }
+  - { slug: potato, amount: 600, unit: g }
+  - { slug: carrot, amount: 200, unit: g }
+  - { slug: bell_pepper, amount: 200, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: garlic, amount: 15, unit: g }
+  - { slug: paprika_ground, amount: 4, unit: g }
+  - { slug: olive_oil, amount: 40, unit: ml }
+  - { slug: salt, amount: 8, unit: g }

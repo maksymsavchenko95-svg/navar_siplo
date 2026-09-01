@@ -1,0 +1,22 @@
+slug: cod_style_fish_cutlets
+titleUk: Рибні котлети з хеку
+servings: 4
+activeMinutes: 30
+totalMinutes: 45
+difficulty: 2
+mealType: dinner
+seasons: [all_year]
+tags: [kids_friendly, reheatable]
+steps:
+  - Філе хека подрібнити, змішати з цибулею, яйцем і сухарями.
+  - Сформувати котлети, обваляти в сухарях.
+  - Смажити по 4 хвилини з боку, подати з картопляним пюре.
+ingredients:
+  - { slug: hake, amount: 700, unit: g }
+  - { slug: egg, amount: 1, unit: pcs }
+  - { slug: breadcrumbs, amount: 80, unit: g }
+  - { slug: onion, amount: 120, unit: g }
+  - { slug: potato, amount: 700, unit: g }
+  - { slug: milk, amount: 100, unit: ml }
+  - { slug: sunflower_oil, amount: 35, unit: ml }
+  - { slug: salt, amount: 7, unit: g }

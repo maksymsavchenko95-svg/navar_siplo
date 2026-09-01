@@ -1,0 +1,20 @@
+slug: buckwheat_mushrooms
+titleUk: Гречка з грибами
+servings: 4
+activeMinutes: 15
+totalMinutes: 35
+difficulty: 1
+mealType: dinner
+seasons: [autumn, winter]
+tags: [vegetarian, vegan, lenten, budget, one_pot, reheatable]
+steps:
+  - Печериці нарізати, обсмажити з цибулею й морквою до випаровування рідини.
+  - Всипати промиту гречку, влити воду 1:2.
+  - Готувати під кришкою 20 хвилин, посолити.
+ingredients:
+  - { slug: buckwheat_groats, amount: 360, unit: g }
+  - { slug: champignon, amount: 400, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: carrot, amount: 120, unit: g }
+  - { slug: sunflower_oil, amount: 35, unit: ml }
+  - { slug: salt, amount: 7, unit: g }

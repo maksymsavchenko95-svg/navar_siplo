@@ -1,0 +1,22 @@
+slug: chicken_pilaf
+titleUk: Плов з куркою
+servings: 4
+activeMinutes: 20
+totalMinutes: 55
+difficulty: 2
+mealType: dinner
+seasons: [autumn, winter, all_year]
+tags: [reheatable, one_pot, kids_friendly]
+steps:
+  - Куряче філе обсмажити до золястості.
+  - Додати цибулю й моркву соломкою, спеції, тушкувати 5 хвилин.
+  - Всипати рис, залити водою 1:2, готувати під кришкою 25 хвилин.
+ingredients:
+  - { slug: chicken_breast, amount: 600, unit: g }
+  - { slug: rice_long_grain, amount: 400, unit: g }
+  - { slug: carrot, amount: 250, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: garlic, amount: 15, unit: g }
+  - { slug: cumin_ground, amount: 3, unit: g }
+  - { slug: sunflower_oil, amount: 45, unit: ml }
+  - { slug: salt, amount: 8, unit: g }

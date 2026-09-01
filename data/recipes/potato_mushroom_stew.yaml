@@ -1,0 +1,22 @@
+slug: potato_mushroom_stew
+titleUk: Тушкована картопля з грибами
+servings: 4
+activeMinutes: 20
+totalMinutes: 45
+difficulty: 1
+mealType: dinner
+seasons: [autumn, winter]
+tags: [vegetarian, vegan, lenten, budget, one_pot]
+steps:
+  - Печериці й цибулю обсмажити на олії.
+  - Додати картоплю кубиками та моркву, влити воду до половини.
+  - Тушкувати під кришкою 25 хвилин, приправити кропом.
+ingredients:
+  - { slug: potato, amount: 900, unit: g }
+  - { slug: champignon, amount: 350, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: carrot, amount: 150, unit: g }
+  - { slug: sunflower_oil, amount: 35, unit: ml }
+  - { slug: bay_leaf, amount: 1, unit: g }
+  - { slug: dill, amount: 15, unit: g }
+  - { slug: salt, amount: 8, unit: g }

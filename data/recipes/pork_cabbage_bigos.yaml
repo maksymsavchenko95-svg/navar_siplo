@@ -1,0 +1,22 @@
+slug: pork_cabbage_bigos
+titleUk: Капуста, тушкована зі свининою
+servings: 4
+activeMinutes: 20
+totalMinutes: 60
+difficulty: 2
+mealType: dinner
+seasons: [autumn, winter]
+tags: [reheatable, one_pot, budget]
+steps:
+  - Свинину нарізати, обсмажити до рум'яності.
+  - Додати цибулю, моркву й нашатковану капусту.
+  - Влити томатну пасту з водою, тушкувати під кришкою 40 хвилин.
+ingredients:
+  - { slug: pork_loin, amount: 500, unit: g }
+  - { slug: white_cabbage, amount: 800, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: carrot, amount: 150, unit: g }
+  - { slug: tomato_paste, amount: 50, unit: g }
+  - { slug: sunflower_oil, amount: 30, unit: ml }
+  - { slug: bay_leaf, amount: 2, unit: g }
+  - { slug: salt, amount: 8, unit: g }

@@ -1,0 +1,21 @@
+slug: beans_stewed_with_eggs
+titleUk: Квасоля з яйцем по-сільськи
+servings: 3
+activeMinutes: 15
+totalMinutes: 25
+difficulty: 1
+mealType: breakfast
+seasons: [all_year]
+tags: [vegetarian, quick, gluten_free, budget]
+steps:
+  - Цибулю обсмажити на олії, додати консервовану квасолю в томаті.
+  - Прогріти 5 хвилин, зробити заглиблення й вбити яйця.
+  - Готувати під кришкою до схоплення, посипати зеленню.
+ingredients:
+  - { slug: beans_canned, amount: 500, unit: g }
+  - { slug: egg, amount: 3, unit: pcs }
+  - { slug: onion, amount: 120, unit: g }
+  - { slug: tomato_paste, amount: 30, unit: g }
+  - { slug: sunflower_oil, amount: 20, unit: ml }
+  - { slug: parsley, amount: 12, unit: g }
+  - { slug: salt, amount: 4, unit: g }

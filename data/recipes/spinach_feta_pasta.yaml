@@ -1,0 +1,20 @@
+slug: spinach_feta_pasta
+titleUk: Паста зі шпинатом і фетою
+servings: 3
+activeMinutes: 15
+totalMinutes: 25
+difficulty: 1
+mealType: dinner
+seasons: [spring, all_year]
+tags: [vegetarian, quick]
+steps:
+  - Відварити пасту, лишити трохи води від варіння.
+  - Шпинат прогріти з часником на олії до опадання.
+  - З'єднати з пастою, додати фету, поперчити.
+ingredients:
+  - { slug: pasta, amount: 300, unit: g }
+  - { slug: spinach, amount: 250, unit: g }
+  - { slug: feta_cheese, amount: 150, unit: g }
+  - { slug: garlic, amount: 12, unit: g }
+  - { slug: olive_oil, amount: 30, unit: ml }
+  - { slug: black_pepper_ground, amount: 2, unit: g }

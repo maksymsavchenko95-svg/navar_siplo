@@ -1,0 +1,21 @@
+slug: baked_hake_potato
+titleUk: Хек, запечений з картоплею
+servings: 4
+activeMinutes: 20
+totalMinutes: 50
+difficulty: 1
+mealType: dinner
+seasons: [all_year]
+tags: [kids_friendly]
+steps:
+  - Картоплю нарізати кружальцями, викласти на деко, збризнути олією.
+  - Зверху покласти філе хека, посолити, додати лимон.
+  - Запікати 35 хвилин за 200°C.
+ingredients:
+  - { slug: hake, amount: 700, unit: g }
+  - { slug: potato, amount: 800, unit: g }
+  - { slug: onion, amount: 120, unit: g }
+  - { slug: olive_oil, amount: 35, unit: ml }
+  - { slug: lemon, amount: 60, unit: g }
+  - { slug: salt, amount: 7, unit: g }
+  - { slug: dill, amount: 15, unit: g, optional: true }

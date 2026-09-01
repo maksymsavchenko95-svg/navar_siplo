@@ -1,0 +1,22 @@
+slug: chicken_noodle_stir_fry
+titleUk: Локшина з куркою та овочами
+servings: 3
+activeMinutes: 20
+totalMinutes: 30
+difficulty: 2
+mealType: dinner
+seasons: [all_year]
+tags: [quick, kids_friendly]
+steps:
+  - Локшину відварити, відкинути на друшляк.
+  - Куряче філе смужками обсмажити, додати перець, моркву й капусту.
+  - Влити соєвий соус, з'єднати з локшиною, прогріти.
+ingredients:
+  - { slug: chicken_breast, amount: 500, unit: g }
+  - { slug: egg_noodles, amount: 250, unit: g }
+  - { slug: bell_pepper, amount: 150, unit: g }
+  - { slug: carrot, amount: 150, unit: g }
+  - { slug: napa_cabbage, amount: 200, unit: g }
+  - { slug: soy_sauce, amount: 40, unit: ml }
+  - { slug: garlic, amount: 12, unit: g }
+  - { slug: sunflower_oil, amount: 25, unit: ml }

@@ -1,0 +1,22 @@
+slug: chicken_mince_meatballs
+titleUk: Тефтелі з курячого фаршу в підливі
+servings: 4
+activeMinutes: 25
+totalMinutes: 45
+difficulty: 2
+mealType: dinner
+seasons: [all_year]
+tags: [kids_friendly, reheatable]
+steps:
+  - Фарш змішати з відвареним рисом, цибулею та яйцем, сформувати кульки.
+  - Обсмажити тефтелі, залити томатною підливою з водою.
+  - Тушкувати під кришкою 20 хвилин.
+ingredients:
+  - { slug: chicken_mince, amount: 650, unit: g }
+  - { slug: rice_round_grain, amount: 120, unit: g }
+  - { slug: egg, amount: 1, unit: pcs }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: carrot, amount: 120, unit: g }
+  - { slug: tomato_paste, amount: 60, unit: g }
+  - { slug: sunflower_oil, amount: 30, unit: ml }
+  - { slug: salt, amount: 6, unit: g }

@@ -1,0 +1,20 @@
+slug: cottage_cheese_syrniki
+titleUk: Сирники з сиру
+servings: 3
+activeMinutes: 20
+totalMinutes: 30
+difficulty: 2
+mealType: breakfast
+seasons: [all_year]
+tags: [vegetarian, kids_friendly, quick]
+steps:
+  - Сир розім'яти з яйцями, цукром і борошном до однорідності.
+  - Сформувати сирники, обваляти в борошні.
+  - Смажити на олії по 3 хвилини з кожного боку.
+ingredients:
+  - { slug: cottage_cheese, amount: 600, unit: g }
+  - { slug: egg, amount: 2, unit: pcs }
+  - { slug: wheat_flour, amount: 90, unit: g }
+  - { slug: sugar, amount: 40, unit: g }
+  - { slug: sunflower_oil, amount: 30, unit: ml }
+  - { slug: sour_cream, amount: 120, unit: g, optional: true }

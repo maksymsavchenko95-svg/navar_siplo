@@ -1,0 +1,20 @@
+slug: egg_spinach_omelette
+titleUk: Омлет зі шпинатом і сиром
+servings: 2
+activeMinutes: 10
+totalMinutes: 15
+difficulty: 1
+mealType: breakfast
+seasons: [all_year]
+tags: [vegetarian, gluten_free, quick, kids_friendly]
+steps:
+  - Шпинат прогріти на олії до опадання.
+  - Яйця збити з молоком і сіллю, вилити на пательню.
+  - Посипати тертим сиром, готувати під кришкою 4 хвилини.
+ingredients:
+  - { slug: egg, amount: 6, unit: pcs }
+  - { slug: spinach, amount: 120, unit: g }
+  - { slug: hard_cheese, amount: 60, unit: g }
+  - { slug: milk, amount: 60, unit: ml }
+  - { slug: sunflower_oil, amount: 15, unit: ml }
+  - { slug: salt, amount: 3, unit: g }

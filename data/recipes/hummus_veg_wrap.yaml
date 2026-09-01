@@ -1,0 +1,23 @@
+slug: hummus_veg_wrap
+titleUk: Лаваш з нутовою пастою та овочами
+servings: 3
+activeMinutes: 15
+totalMinutes: 15
+difficulty: 1
+mealType: lunch
+seasons: [spring, summer]
+tags: [vegetarian, vegan, quick, budget]
+steps:
+  - Консервований нут збити з часником, олією та лимоном у пасту.
+  - Змастити лаваш, викласти огірок, перець і листя салату.
+  - Згорнути рулетом, розрізати навпіл.
+ingredients:
+  - { slug: chickpeas_canned, amount: 400, unit: g }
+  - { slug: lavash, amount: 180, unit: g }
+  - { slug: cucumber, amount: 200, unit: g }
+  - { slug: bell_pepper, amount: 150, unit: g }
+  - { slug: lettuce, amount: 100, unit: g }
+  - { slug: garlic, amount: 8, unit: g }
+  - { slug: olive_oil, amount: 30, unit: ml }
+  - { slug: lemon, amount: 40, unit: g }
+  - { slug: salt, amount: 4, unit: g }

@@ -1,0 +1,21 @@
+slug: eggplant_tomato_gratin
+titleUk: Баклажани, запечені з томатами й сиром
+servings: 4
+activeMinutes: 25
+totalMinutes: 55
+difficulty: 2
+mealType: dinner
+seasons: [summer, autumn]
+tags: [vegetarian]
+steps:
+  - Баклажани нарізати, підсмажити скибочками.
+  - Викласти шарами з томатами, часником та італійськими травами.
+  - Посипати моцарелою, запікати 25 хвилин за 190°C.
+ingredients:
+  - { slug: eggplant, amount: 700, unit: g }
+  - { slug: tomato, amount: 500, unit: g }
+  - { slug: mozzarella, amount: 200, unit: g }
+  - { slug: garlic, amount: 12, unit: g }
+  - { slug: italian_herbs, amount: 4, unit: g }
+  - { slug: olive_oil, amount: 40, unit: ml }
+  - { slug: salt, amount: 6, unit: g }

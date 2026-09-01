@@ -1,0 +1,21 @@
+slug: shrimp_garlic_rice
+titleUk: Креветки з часниковим рисом
+servings: 3
+activeMinutes: 20
+totalMinutes: 30
+difficulty: 2
+mealType: dinner
+seasons: [spring, summer]
+tags: [quick]
+steps:
+  - Відварити рис.
+  - Креветки обсмажити з часником на олії 3 хвилини.
+  - З'єднати з рисом, додати зелену цибулю та лимон.
+ingredients:
+  - { slug: shrimp, amount: 400, unit: g }
+  - { slug: rice_long_grain, amount: 260, unit: g }
+  - { slug: garlic, amount: 15, unit: g }
+  - { slug: green_onion, amount: 30, unit: g }
+  - { slug: olive_oil, amount: 25, unit: ml }
+  - { slug: lemon, amount: 50, unit: g }
+  - { slug: salt, amount: 5, unit: g }

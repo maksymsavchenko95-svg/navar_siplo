@@ -1,0 +1,22 @@
+slug: chicken_buckwheat_broccoli
+titleUk: Курка з гречкою та броколі
+servings: 4
+activeMinutes: 20
+totalMinutes: 40
+difficulty: 2
+mealType: dinner
+seasons: [autumn, winter, all_year]
+tags: [kids_friendly, reheatable, one_pot]
+steps:
+  - Відварити гречку до готовності, злити зайву воду.
+  - Куряче філе нарізати кубиками, обсмажити на олії з часником 8–10 хвилин.
+  - Додати броколі суцвіттями, тушкувати під кришкою 5 хвилин.
+  - Змішати з гречкою, посолити, поперчити.
+ingredients:
+  - { slug: chicken_breast, amount: 650, unit: g }
+  - { slug: buckwheat_groats, amount: 320, unit: g }
+  - { slug: broccoli, amount: 400, unit: g }
+  - { slug: garlic, amount: 12, unit: g }
+  - { slug: sunflower_oil, amount: 30, unit: ml }
+  - { slug: salt, amount: 6, unit: g }
+  - { slug: black_pepper_ground, amount: 2, unit: g, optional: true }

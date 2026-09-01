@@ -1,0 +1,19 @@
+slug: oat_porridge_banana
+titleUk: Вівсянка з бананом і горіхами
+servings: 2
+activeMinutes: 5
+totalMinutes: 15
+difficulty: 1
+mealType: breakfast
+seasons: [all_year]
+tags: [vegetarian, quick, kids_friendly, budget]
+steps:
+  - Вівсяні пластівці залити молоком, довести до кипіння.
+  - Варити 5 хвилин, помішуючи.
+  - Подати з нарізаним бананом, волоськими горіхами та медом.
+ingredients:
+  - { slug: oat_flakes, amount: 120, unit: g }
+  - { slug: milk, amount: 500, unit: ml }
+  - { slug: banana, amount: 200, unit: g }
+  - { slug: walnuts, amount: 30, unit: g }
+  - { slug: honey, amount: 20, unit: g }

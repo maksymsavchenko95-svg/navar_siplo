@@ -1,0 +1,20 @@
+slug: cauliflower_cheese_bake
+titleUk: Цвітна капуста під сирним соусом
+servings: 3
+activeMinutes: 20
+totalMinutes: 40
+difficulty: 2
+mealType: dinner
+seasons: [autumn, winter]
+tags: [vegetarian, kids_friendly]
+steps:
+  - Цвітну капусту розібрати й відварити 5 хвилин.
+  - Приготувати соус з масла, борошна й молока, додати тертий сир.
+  - Залити капусту соусом, запікати 20 хвилин за 190°C.
+ingredients:
+  - { slug: cauliflower, amount: 700, unit: g }
+  - { slug: milk, amount: 400, unit: ml }
+  - { slug: hard_cheese, amount: 100, unit: g }
+  - { slug: butter, amount: 40, unit: g }
+  - { slug: wheat_flour, amount: 40, unit: g }
+  - { slug: salt, amount: 5, unit: g }

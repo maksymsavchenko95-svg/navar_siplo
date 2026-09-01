@@ -1,0 +1,21 @@
+slug: baked_mackerel_vegetables
+titleUk: Скумбрія, запечена з овочами
+servings: 4
+activeMinutes: 20
+totalMinutes: 45
+difficulty: 2
+mealType: dinner
+seasons: [all_year]
+tags: [reheatable]
+steps:
+  - Скумбрію випатрати, натерти сіллю й лимоном.
+  - Кабачок, перець і цибулю викласти на деко з олією.
+  - Зверху покласти рибу, запікати 30 хвилин за 200°C.
+ingredients:
+  - { slug: mackerel, amount: 650, unit: g }
+  - { slug: zucchini, amount: 300, unit: g }
+  - { slug: bell_pepper, amount: 200, unit: g }
+  - { slug: onion, amount: 150, unit: g }
+  - { slug: lemon, amount: 60, unit: g }
+  - { slug: olive_oil, amount: 35, unit: ml }
+  - { slug: salt, amount: 7, unit: g }
