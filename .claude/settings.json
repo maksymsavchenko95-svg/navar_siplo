@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": ["Bash(npm test *)", "Bash(npm run *)", "Bash(git diff *)"],
+    "deny": ["Bash(rm -rf *)", "Read(./.env)"]
+  },
+  "hooks": {
+    "PostToolUse": [{
+      "matcher": "Edit|Write",
+      "hooks": [{ "type": "command", "command": "jq -r '.tool_input.file_path' | xargs npx prettier --write" }]
+    }]
+  }
+}

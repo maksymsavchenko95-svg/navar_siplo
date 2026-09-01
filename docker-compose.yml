@@ -1,0 +1,52 @@
+name: navar
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: navar
+      POSTGRES_PASSWORD: navar
+      POSTGRES_DB: navar
+    ports:
+      - "5432:5432"
+    volumes:
+      - navar-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U navar -d navar"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: dev
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      API_PORT: "3001"
+      DATABASE_URL: postgres://navar:navar@db:5432/navar
+      SILPO_MCP_URL: ${SILPO_MCP_URL:-https://mcp.silpo.ua/mcp}
+      MCP_OAUTH_CALLBACK_PORT: "8765"
+      MCP_TOKEN_KEY: ${MCP_TOKEN_KEY:-}
+    ports:
+      - "3001:3001"
+    volumes:
+      # Live source for hot reload; anonymous volumes keep the container's own
+      # node_modules (linux binaries) separate from the host's.
+      - ./:/app
+      - /app/node_modules
+      - /app/apps/api/node_modules
+      - /app/apps/web/node_modules
+      - /app/packages/domain/node_modules
+      - /app/packages/db/node_modules
+      - /app/packages/retail/node_modules
+      - /app/packages/planner/node_modules
+      - /app/packages/mapper/node_modules
+      - /app/packages/safety/node_modules
+
+volumes:
+  navar-pgdata:

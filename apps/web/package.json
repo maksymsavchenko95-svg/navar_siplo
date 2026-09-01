@@ -1,0 +1,31 @@
+{
+  "name": "@navar/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"no tests\" && exit 0"
+  },
+  "dependencies": {
+    "@navar/api": "workspace:*",
+    "@navar/domain": "workspace:*",
+    "@tanstack/react-query": "^5.62.7",
+    "@trpc/client": "^11.0.0",
+    "@trpc/react-query": "^11.0.0",
+    "next": "^15.1.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@navar/db": "workspace:*",
+    "@navar/retail": "workspace:*",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@navar/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./router": {
+      "types": "./src/trpc/router.ts",
+      "default": "./src/trpc/router.ts"
+    }
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "mcp:auth": "tsx src/scripts/mcp-auth.ts",
+    "mcp:tools-snapshot": "tsx src/scripts/mcp-tools-snapshot.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@navar/db": "workspace:*",
+    "@navar/domain": "workspace:*",
+    "@navar/retail": "workspace:*",
+    "@trpc/server": "^11.0.0",
+    "drizzle-orm": "^0.38.3",
+    "fastify": "^5.2.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

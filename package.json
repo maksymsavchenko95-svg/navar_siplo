@@ -1,0 +1,34 @@
+{
+  "name": "navar",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.24.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "docker compose up --build",
+    "dev:web": "pnpm --filter @navar/web dev",
+    "dev:all": "concurrently -n compose,web -c blue,green \"docker compose up --build\" \"pnpm --filter @navar/web dev\"",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "prettier --write .",
+    "db:generate": "pnpm --filter @navar/db db:generate",
+    "db:migrate": "pnpm --filter @navar/db db:migrate",
+    "db:seed": "pnpm --filter @navar/db db:seed",
+    "db:studio": "pnpm --filter @navar/db db:studio",
+    "mcp:auth": "pnpm --filter @navar/api mcp:auth",
+    "mcp:tools-snapshot": "pnpm --filter @navar/api mcp:tools-snapshot"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
