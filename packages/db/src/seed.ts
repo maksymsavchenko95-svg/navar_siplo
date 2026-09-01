@@ -1,4 +1,8 @@
-import type { ConsumptionModel } from "@navar/domain";
+import {
+  computeNutritionTargets,
+  type ConsumptionModel,
+  type NutritionComputedFrom,
+} from "@navar/domain";
 import { eq } from "drizzle-orm";
 
 import { closeDb, db } from "./client.js";
@@ -75,20 +79,24 @@ async function seed(): Promise<void> {
     source: "onboarding",
   });
 
-  // goal='form' → a nutrition target (exercises the table, the FK and the kcal CHECK).
+  // goal='form' → a nutrition target, computed the same way `household.computeNutrition`
+  // does (T1.5) so the fixture never drifts from the formula.
+  const computedFrom: NutritionComputedFrom = {
+    sex: "male",
+    ageYears: 32,
+    weightKg: 78,
+    heightCm: 182,
+    activity: "moderate",
+    direction: "gain",
+  };
+  const targets = computeNutritionTargets(computedFrom);
   await db.insert(nutritionTargets).values({
     householdId: hh!.id,
-    proteinMinG: 135,
-    kcalTarget: 2400,
-    direction: "gain",
-    computedFrom: {
-      sex: "male",
-      ageYears: 32,
-      weightKg: 78,
-      heightCm: 182,
-      activity: "moderate",
-      direction: "gain",
-    },
+    proteinMinG: targets.proteinMinG,
+    kcalTarget: targets.kcalTarget,
+    kcalTolerance: String(targets.kcalTolerance),
+    direction: targets.direction,
+    computedFrom,
   });
 
   // Derived purchase model (T1.4) — plausible values over real ingredient slugs.

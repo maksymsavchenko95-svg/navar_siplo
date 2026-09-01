@@ -1,11 +1,20 @@
 import type { Db } from "@navar/db";
 import { schema } from "@navar/db";
 import {
+  computeNutritionTargets,
   type ConsumptionModel,
   confirmTastesInputSchema,
+  type Goal,
+  goalSchema,
   type HouseholdPortrait,
   type HouseholdResult,
+  KCAL_FLOOR,
+  KcalFloorError,
+  type NutritionTargets,
+  nutritionComputedFromSchema,
+  nutritionTargetsSchema,
   onboardingAnswersSchema,
+  rawKcalTarget,
   type StoredRestriction,
 } from "@navar/domain";
 import { parseRestrictionsStep, runStep } from "@navar/llm";
@@ -371,6 +380,79 @@ export const householdRouter = router({
 
       return { status: "ok" };
     }),
+
+  // ── goal mode + nutrition targets (roadmap T1.5, FR-GOAL-003) ──────────────
+
+  /** Flip `households.goal`. Idempotent. Does not touch `nutrition_targets` (a stale row is
+   *  ignored while `goal='routine'`); the "form plan needs targets" check is the solver's
+   *  (T2.3). */
+  setGoal: publicProcedure
+    .input(z.object({ goal: goalSchema }))
+    .mutation(
+      async ({
+        ctx,
+        input,
+      }): Promise<{ status: "ok"; goal: Goal } | { status: "error"; message: string }> => {
+        const householdId = await resolveHouseholdId();
+        if (!householdId) return { status: "error", message: "no household — run pnpm db:seed" };
+        await ctx.db
+          .update(schema.households)
+          .set({ goal: input.goal })
+          .where(eq(schema.households.id, householdId));
+        return { status: "ok", goal: input.goal };
+      },
+    ),
+
+  /**
+   * `FR-GOAL-003` — body metrics → `nutrition_targets`, computed by the system. Fail-closed
+   * (`FR-SAFE-009`): a sub-floor target is **rejected with a reason**, never clamped, and
+   * nothing is written. Idempotent — re-running with the same metrics upserts the same row.
+   */
+  computeNutrition: publicProcedure
+    .input(nutritionComputedFromSchema)
+    .mutation(
+      async ({
+        ctx,
+        input,
+      }): Promise<
+        | { status: "ok"; targets: NutritionTargets }
+        | { status: "rejected"; reason: string; floorKcal: number; computedKcal: number }
+        | { status: "error"; message: string }
+      > => {
+        const householdId = await resolveHouseholdId();
+        if (!householdId) return { status: "error", message: "no household — run pnpm db:seed" };
+
+        let targets: NutritionTargets;
+        try {
+          targets = nutritionTargetsSchema.parse(computeNutritionTargets(input));
+        } catch (err) {
+          if (err instanceof KcalFloorError) {
+            return {
+              status: "rejected",
+              reason: err.message,
+              floorKcal: KCAL_FLOOR,
+              computedKcal: rawKcalTarget(input),
+            };
+          }
+          return { status: "error", message: err instanceof Error ? err.message : String(err) };
+        }
+
+        const row = {
+          householdId,
+          proteinMinG: targets.proteinMinG,
+          kcalTarget: targets.kcalTarget,
+          kcalTolerance: String(targets.kcalTolerance),
+          direction: targets.direction,
+          computedFrom: input,
+        };
+        await ctx.db
+          .insert(schema.nutritionTargets)
+          .values(row)
+          .onConflictDoUpdate({ target: schema.nutritionTargets.householdId, set: row });
+
+        return { status: "ok", targets };
+      },
+    ),
 });
 
 // ─── card id parsing ──────────────────────────────────────────────────────────

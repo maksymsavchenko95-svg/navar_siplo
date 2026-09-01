@@ -79,6 +79,87 @@ export function assertKcalFloor(kcalTarget: number): void {
   }
 }
 
+// ─── Nutrition targets from body metrics (FR-GOAL-003, household.computeNutrition) ─────
+
+/** Activity level → TDEE multiplier applied to the Mifflin–St Jeor BMR. */
+export const ACTIVITY_FACTOR: Record<NutritionComputedFrom["activity"], number> = {
+  sedentary: 1.2,
+  light: 1.375,
+  moderate: 1.55,
+  active: 1.725,
+  very_active: 1.9,
+};
+
+/** Goal direction → kcal adjustment on TDEE. Deliberately gentle — `form` is a goal, not
+ *  a treatment (`.claude/rules/food-safety.md`). Tune here, not at call sites. */
+export const DIRECTION_KCAL_FACTOR: Record<GoalDirection, number> = {
+  gain: 1.12,
+  maintain: 1.0,
+  reduce: 0.85,
+};
+
+/** Goal direction → daily protein floor, grams per kg of body weight. */
+export const DIRECTION_PROTEIN_G_PER_KG: Record<GoalDirection, number> = {
+  gain: 1.8,
+  maintain: 1.6,
+  reduce: 2.0,
+};
+
+/** Half-width of the calorie corridor as a fraction of the target (TDD v0.2 §4, ±15%). */
+export const KCAL_TOLERANCE = 0.15;
+
+/** Output of {@link computeNutritionTargets} — a superset of the persisted `nutrition_targets`
+ *  columns (`bmr` / `tdee` are kept for the future plan explainer, not stored). */
+export interface NutritionTargetsComputation {
+  proteinMinG: number;
+  /** Centre of the calorie corridor (kcal). Never below {@link KCAL_FLOOR}. */
+  kcalTarget: number;
+  kcalTolerance: number;
+  direction: GoalDirection;
+  computedFrom: NutritionComputedFrom;
+  /** Basal metabolic rate, kcal/day (Mifflin–St Jeor). */
+  bmr: number;
+  /** Total daily energy expenditure before the direction adjustment, kcal/day. */
+  tdee: number;
+}
+
+/** Mifflin–St Jeor basal metabolic rate, kcal/day. */
+function mifflinStJeorBmr(m: NutritionComputedFrom): number {
+  return 10 * m.weightKg + 6.25 * m.heightCm - 5 * m.ageYears + (m.sex === "male" ? 5 : -161);
+}
+
+/**
+ * The calorie-corridor centre *before* the `FR-SAFE-009` floor check. Exposed so a caller
+ * that gets a {@link KcalFloorError} can still report the raw figure it rejected.
+ */
+export function rawKcalTarget(m: NutritionComputedFrom): number {
+  const tdee = mifflinStJeorBmr(m) * ACTIVITY_FACTOR[m.activity];
+  return Math.round(tdee * DIRECTION_KCAL_FACTOR[m.direction]);
+}
+
+/**
+ * `FR-GOAL-003` — body metrics → a `form` household's nutrition targets. Deterministic:
+ * same metrics → same targets (no RNG, no clock). Fail-closed: throws {@link KcalFloorError}
+ * (its message is the reason) when the computed target is below {@link KCAL_FLOOR}, so the
+ * caller **rejects** the request rather than clamping it (`FR-SAFE-009`). Targets are
+ * computed by the system, never entered by the guest.
+ */
+export function computeNutritionTargets(m: NutritionComputedFrom): NutritionTargetsComputation {
+  const bmr = mifflinStJeorBmr(m);
+  const tdee = bmr * ACTIVITY_FACTOR[m.activity];
+  const kcalTarget = Math.round(tdee * DIRECTION_KCAL_FACTOR[m.direction]);
+  assertKcalFloor(kcalTarget);
+  return {
+    proteinMinG: Math.round(m.weightKg * DIRECTION_PROTEIN_G_PER_KG[m.direction]),
+    kcalTarget,
+    kcalTolerance: KCAL_TOLERANCE,
+    direction: m.direction,
+    computedFrom: m,
+    bmr: Math.round(bmr),
+    tdee: Math.round(tdee),
+  };
+}
+
 const ZERO: Macros = { kcal: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 };
 
 /** Macros contributed by `grams` of an ingredient given its per-100g profile. */
