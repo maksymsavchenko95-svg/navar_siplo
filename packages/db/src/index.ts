@@ -14,3 +14,12 @@ export {
   type SynonymEntry,
 } from "./receipt-lines.js";
 export { CANONICAL_INGREDIENTS } from "./data/canonical-ingredients.js";
+export {
+  toPlanRows,
+  savePlan,
+  setPlanExplanation,
+  getPlanDetail,
+  listPlans,
+  type ToPlanRowsInput,
+  type PlanRows,
+} from "./plans.js";

@@ -1,0 +1,88 @@
+import { db } from "@navar/db";
+import type { ProductDetails, ProductMatch, ProductSearchResult } from "@navar/domain";
+import { describe, expect, it, vi } from "vitest";
+
+import { getLlm, getLlmTracer } from "../../llm.js";
+import type { Context } from "../context.js";
+import { appRouter } from "../router.js";
+
+const sku = (
+  over: Partial<ProductMatch> & Pick<ProductMatch, "productId" | "name">,
+): ProductMatch => ({
+  externalProductId: null,
+  companyId: "co",
+  branchId: "br-1",
+  slug: over.productId,
+  price: 25,
+  oldPrice: null,
+  packSize: "500г",
+  imageUrl: null,
+  inStock: true,
+  weighted: false,
+  step: null,
+  ...over,
+});
+
+const cleanDetails = (slug: string): ProductDetails => ({
+  slug,
+  name: slug,
+  price: 25,
+  oldPrice: null,
+  inStock: true,
+  weighted: false,
+  packSize: "500г",
+  attributes: {},
+  composition: "інгредієнти",
+  allergens: [],
+  kcal100: null,
+  protein100: null,
+  fat100: null,
+  carbs100: null,
+});
+
+function ctx(): Context {
+  return {
+    db,
+    retail: {
+      findProducts: vi.fn(async (queries: string[]): Promise<ProductSearchResult[]> =>
+        queries.map((query) => ({
+          query,
+          products: [sku({ productId: `${query}-1`, name: query })],
+        })),
+      ),
+      getReplacements: async () => [],
+      getProductDetails: vi.fn(async (s: string) => cleanDetails(s)),
+    },
+    llm: getLlm(),
+    tracer: getLlmTracer(),
+  } as unknown as Context;
+}
+
+describe.skipIf(!process.env.DATABASE_URL)("plan router (integration)", () => {
+  it("generate → get round-trips a persisted plan with an explanation", async () => {
+    const caller = appRouter.createCaller(ctx());
+    const gen = await caller.plan.generate({ goal: "routine", budgetUah: 6000, seed: 11 });
+    expect(gen.status).toBe("ok");
+    if (gen.status !== "ok") return;
+
+    const got = await caller.plan.get({ planId: gen.planId });
+    expect(got.status).toBe("ok");
+    if (got.status !== "ok") return;
+    expect(got.plan.items).toHaveLength(5);
+    expect(got.plan.list.length).toBeGreaterThan(0);
+    expect(got.plan.explanation).toBeTruthy();
+    expect(got.plan.seed).toBe(11);
+    expect(got.plan.totalEstUah).toBeLessThanOrEqual(6000);
+
+    // cleanup
+    const { schema } = await import("@navar/db");
+    const { eq } = await import("drizzle-orm");
+    await db.delete(schema.plans).where(eq(schema.plans.id, gen.planId));
+  }, 120_000);
+
+  it("get with a foreign planId → not_found", async () => {
+    const caller = appRouter.createCaller(ctx());
+    const res = await caller.plan.get({ planId: "00000000-0000-0000-0000-000000000000" });
+    expect(res).toEqual({ status: "not_found" });
+  });
+});

@@ -1,22 +1,24 @@
-import { closeDb } from "@navar/db";
+import { closeDb, getPlanDetail } from "@navar/db";
 import type { Goal } from "@navar/domain";
 import { generatePlan } from "@navar/planner";
 
 import { resolveHouseholdId } from "../household.js";
-import { buildSolverInput } from "../plan.js";
+import { buildSolverInput, generateAndPersistPlan } from "../plan.js";
 import { getSilpoProvider } from "../retail.js";
 
 /**
- * `pnpm --filter @navar/api plan:probe [--goal routine|form] [--budget N] [--seed N] [--days N]`
+ * `pnpm --filter @navar/api plan:probe [--goal routine|form] [--budget N] [--seed N] [--days N] [--persist]`
  * — Demo-1 console command (`AC-P0-03`, `AC-P0-09`). Builds a `SolverInput` for the resolved
  * household, runs the solver, prints the plan + totals, and runs it twice to prove
- * determinism. Needs `pnpm mcp:auth` for real prices; degrades to an infeasible plan
- * without it.
+ * determinism. `--persist` also runs `plan.generate` (persist + `explainPlan`) and prints a
+ * `plan.get` round-trip. Needs `pnpm mcp:auth` for real prices; degrades to an infeasible
+ * plan without it.
  */
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
+const flag = (name: string): boolean => process.argv.includes(`--${name}`);
 
 async function main(): Promise<void> {
   const householdId = await resolveHouseholdId();
@@ -83,6 +85,30 @@ async function main(): Promise<void> {
   const same = JSON.stringify(result) === JSON.stringify(again);
   console.log(same ? `✅ deterministic (seed ${input.seed})` : "❌ non-deterministic");
   if (!withinBudget || !same) process.exitCode = 1;
+
+  if (flag("persist")) {
+    console.log("\n── persist (plan.generate + explainPlan) ──");
+    const gen = await generateAndPersistPlan(householdId, retail, opts);
+    if (gen.status !== "ok") {
+      console.log(`⚠️  ${gen.status}${"reason" in gen ? ` — ${gen.reason}` : ""}`);
+      process.exitCode = 1;
+      return;
+    }
+    const saved = await getPlanDetail(gen.planId, householdId);
+    if (!saved) {
+      console.log("❌ plan.get returned null");
+      process.exitCode = 1;
+      return;
+    }
+    console.log(
+      `planId ${gen.planId}  ·  ${saved.items.length} dinners  ·  ${saved.list.length} list lines`,
+    );
+    console.log(
+      `Σ ${saved.totalEstUah}₴  promo ${saved.promoSharePct?.toFixed(0)}%  ` +
+        `unpriced ${saved.unpricedLineCount}  needs-confirm ${saved.list.filter((l) => l.needsConfirmation).length}`,
+    );
+    console.log(`explanation: ${saved.explanation}`);
+  }
 }
 
 main()

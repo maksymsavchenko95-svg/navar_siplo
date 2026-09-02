@@ -1,10 +1,25 @@
-import { db, schema } from "@navar/db";
-import type { ConsumptionModel, Goal, Macros } from "@navar/domain";
+import { db, savePlan, setPlanExplanation, toPlanRows } from "@navar/db";
+import type {
+  ConsumptionModel,
+  ExplainPlanInput,
+  Goal,
+  Macros,
+  MapperResult,
+  PlanGenerateResult,
+} from "@navar/domain";
+import { explainPlanStep, runStep } from "@navar/llm";
 import { mapPlan, type MapperRetail, type PlanIngredientLine, toBaseAmount } from "@navar/mapper";
-import { WEIGHTS, type RecipeCandidate, type SolverInput } from "@navar/planner";
-import type { RetailProvider } from "@navar/retail";
+import {
+  generatePlan,
+  WEIGHTS,
+  type RecipeCandidate,
+  type SolverInput,
+  type SolverResult,
+} from "@navar/planner";
+import { AuthRequiredError, NoCartError, type RetailProvider } from "@navar/retail";
 import { hasHardExclusion } from "@navar/safety";
 
+import { getLlm, getLlmTracer } from "./llm.js";
 import {
   getRerankFn,
   loadExclusions,
@@ -55,12 +70,28 @@ export interface BuildPlanOpts {
   goal?: Goal;
 }
 
-/** Household + corpus + mapper + safety → a `SolverInput` (T2.3). T2.4 wraps this in `plan.generate`. */
-export async function buildSolverInput(
+export interface PlanContext {
+  input: SolverInput;
+  /** The mapper output for the whole priced corpus, or `null` when pricing was unavailable. */
+  mapperResult: MapperResult | null;
+  /** canonical_ingredients slug → id. */
+  idBySlug: Map<string, string>;
+  /** recipe slug → the slugs of its (non-optional + optional) ingredient lines. */
+  recipeSlugIngredients: Map<string, string[]>;
+  /** An `AuthRequiredError` / `NoCartError` from the pricing step, surfaced not thrown. */
+  retailError: AuthRequiredError | NoCartError | null;
+}
+
+/**
+ * Household + corpus + mapper + safety → everything `generatePlan` and the persistence
+ * layer need (T2.3 / T2.4). `buildSolverInput` is the thin `.input` view for callers that
+ * only run the solver (`plan-probe`, the existing test).
+ */
+export async function buildPlanContext(
   householdId: string,
   retail: RetailProvider,
   opts: BuildPlanOpts = {},
-): Promise<SolverInput> {
+): Promise<PlanContext> {
   const hh = await db.query.households.findFirst({
     where: (h, { eq: e }) => e(h.id, householdId),
     with: { members: true, preferences: true, consumptionModel: true },
@@ -104,6 +135,10 @@ export async function buildSolverInput(
   });
   const excludedAllergens = new Set<string>(exclusions.allergens);
   const usableRecipes = recipes.filter((r) => !r.allergens.some((a) => excludedAllergens.has(a)));
+
+  const recipeSlugIngredients = new Map<string, string[]>(
+    usableRecipes.map((r) => [r.slug, r.ingredients.map((ri) => ri.ingredient.slug)]),
+  );
 
   const candidates: RecipeCandidate[] = usableRecipes.map((r) => ({
     recipeId: r.id,
@@ -153,8 +188,10 @@ export async function buildSolverInput(
   const dict = await loadMapperDict(uniqueSlugs);
   const idBySlug = await loadIdBySlug(uniqueSlugs);
   const prices = new Map<string, { uah: number; promo: boolean; packSize: number }>();
+  let mapperResult: MapperResult | null = null;
+  let retailError: AuthRequiredError | NoCartError | null = null;
   try {
-    const mapped = await mapPlan(
+    mapperResult = await mapPlan(
       { lines, dict },
       {
         retail: retail as MapperRetail,
@@ -167,7 +204,7 @@ export async function buildSolverInput(
           : {}),
       },
     );
-    for (const m of mapped.matches) {
+    for (const m of mapperResult.matches) {
       const id = idBySlug.get(m.slug);
       if (!id || !m.match) continue;
       prices.set(id, {
@@ -178,7 +215,9 @@ export async function buildSolverInput(
     }
   } catch (err) {
     // No auth / no cart / a transient MCP error → no prices. The plan degrades to an
-    // infeasible verdict (the caller sees the reason) rather than failing generation.
+    // infeasible verdict rather than failing generation; auth / cart errors are surfaced
+    // (not thrown) so `plan.generate` can return a reconnect prompt.
+    if (err instanceof AuthRequiredError || err instanceof NoCartError) retailError = err;
     console.warn(
       `[plan] pricing unavailable — ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -200,7 +239,7 @@ export async function buildSolverInput(
     .map((slug) => idBySlug.get(slug))
     .filter((id): id is string => id != null);
 
-  return {
+  const input: SolverInput = {
     seed,
     days,
     budget,
@@ -220,4 +259,131 @@ export async function buildSolverInput(
     recentRecipeIds: [],
     frequentIngredientIds,
   };
+
+  return { input, mapperResult, idBySlug, recipeSlugIngredients, retailError };
+}
+
+/** Household + corpus + mapper + safety → a `SolverInput` (T2.3). */
+export async function buildSolverInput(
+  householdId: string,
+  retail: RetailProvider,
+  opts: BuildPlanOpts = {},
+): Promise<SolverInput> {
+  return (await buildPlanContext(householdId, retail, opts)).input;
+}
+
+/**
+ * `ExplainPlanInput` from a feasible plan (T2.6, pure). `savingsUah` = the pre-promo delta
+ * on the shopping list (Σ `(oldPrice − price) × packCount` over promo lines).
+ */
+export function toExplainInput(args: {
+  goal: Goal;
+  days: number;
+  budgetUah: number;
+  totalUah: number;
+  dishes: string[];
+  promoSharePct: number;
+  lines: readonly {
+    isPromo?: boolean;
+    price?: string | null;
+    oldPrice?: string | null;
+    packCount?: number;
+  }[];
+}): ExplainPlanInput {
+  const savingsUah = args.lines.reduce((s, l) => {
+    if (!l.isPromo || l.price == null || l.oldPrice == null) return s;
+    return s + Math.max(0, (Number(l.oldPrice) - Number(l.price)) * (l.packCount ?? 0));
+  }, 0);
+  return {
+    days: args.days,
+    budgetUah: args.budgetUah,
+    totalUah: args.totalUah,
+    savingsUah: Math.round(savingsUah * 100) / 100,
+    promoSharePct: Math.min(100, Math.max(0, args.promoSharePct)),
+    goal: args.goal,
+    dishes: args.dishes.slice(0, 40),
+  };
+}
+
+/**
+ * Generate a plan for `householdId`, persist it if feasible, attach the `explainPlan`
+ * note, and return `{ status, planId }` (roadmap T2.4 + T2.6). Infeasible plans are not
+ * persisted — the terse verdict is returned inline (T2.5 will add the nearest-plan path).
+ */
+export async function generateAndPersistPlan(
+  householdId: string,
+  retail: RetailProvider,
+  opts: BuildPlanOpts = {},
+): Promise<PlanGenerateResult> {
+  let ctx: PlanContext;
+  try {
+    ctx = await buildPlanContext(householdId, retail, opts);
+  } catch (err) {
+    if (err instanceof PlanInputError) return { status: "error", message: err.message };
+    throw err;
+  }
+
+  if (ctx.retailError instanceof AuthRequiredError) {
+    return { status: "auth_required", hint: ctx.retailError.hint };
+  }
+  if (ctx.retailError instanceof NoCartError) {
+    return { status: "no_cart", hint: ctx.retailError.message };
+  }
+
+  const result: SolverResult = generatePlan(ctx.input);
+  if (!result.feasible) {
+    return {
+      status: "infeasible",
+      reason: result.reason,
+      ...(result.shortfallUah != null ? { shortfallUah: result.shortfallUah } : {}),
+      ...(result.shortfallProteinG != null ? { shortfallProteinG: result.shortfallProteinG } : {}),
+    };
+  }
+
+  const emptyMapper: MapperResult = {
+    branchId: "",
+    consolidated: [],
+    matches: [],
+    stats: { total: 0, matched: 0, needsConfirmation: 0, noMatch: 0, blocked: 0 },
+  };
+
+  const rows = toPlanRows({
+    householdId,
+    goal: result.goal,
+    seed: result.seed,
+    days: ctx.input.days,
+    budgetUah: ctx.input.budget,
+    servings: ctx.input.servings,
+    picks: result.days,
+    totals: {
+      costUah: result.totals.costUah,
+      promoSharePct: result.totals.promoSharePct,
+      estimatedCostUah: result.totals.estimatedCostUah,
+      unpricedLineCount: result.totals.unpricedLineCount,
+      proteinFloorMet: result.totals.proteinFloorMet,
+      kcalCorridorMet: result.totals.kcalCorridorMet,
+    },
+    mapper: ctx.mapperResult ?? emptyMapper,
+    idBySlug: ctx.idBySlug,
+    recipeSlugIngredients: ctx.recipeSlugIngredients,
+  });
+
+  const planId = await savePlan(rows);
+
+  const explain = await runStep(
+    explainPlanStep,
+    toExplainInput({
+      goal: result.goal,
+      days: ctx.input.days,
+      budgetUah: ctx.input.budget,
+      totalUah: result.totals.costUah,
+      dishes: result.days.map((d) => d.titleUk),
+      promoSharePct: result.totals.promoSharePct,
+      lines: rows.lines,
+    }),
+    { provider: getLlm(), tracer: getLlmTracer() },
+  );
+  await setPlanExplanation(planId, explain.value.text);
+
+  return { status: "ok", planId };
 }

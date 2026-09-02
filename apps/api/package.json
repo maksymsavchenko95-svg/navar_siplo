@@ -14,7 +14,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --passWithNoTests --no-file-parallelism",
     "mcp:auth": "tsx src/scripts/mcp-auth.ts",
     "mcp:tools-snapshot": "tsx src/scripts/mcp-tools-snapshot.ts",
     "mcp:audit": "tsx src/scripts/mcp-audit.ts",

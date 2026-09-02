@@ -19,10 +19,12 @@ import {
   makeSkuSafety,
 } from "../mapper.js";
 import { householdRouter } from "./routers/household.js";
+import { planRouter } from "./routers/plan.js";
 import { publicProcedure, router } from "./trpc.js";
 
 export const appRouter = router({
   household: householdRouter,
+  plan: planRouter,
 
   hello: publicProcedure
     .input(z.object({ name: z.string().trim().min(1).max(80).optional() }).optional())

@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   boolean,
   check,
@@ -268,12 +269,117 @@ export const receiptLines = pgTable(
   ],
 );
 
+// ─── Plans (TDD §3, roadmap T2.4) ──────────────────────────────────────────────
+
+/**
+ * A generated meal plan — the persisted form of `@navar/planner`'s `SolverResult`
+ * (`FR-PLAN-*`, `AC-P0-03/09`). `seed` + `budget_uah` + `goal` are the reproducibility
+ * key. Only feasible plans are stored; the infeasible verdict is returned inline by
+ * `plan.generate` (T2.5 will persist a nearest plan). Header numbers are snapshots — the
+ * corpus and live prices move on. `explanation` is the `explainPlan` LLM step's output
+ * (T2.6), always populated via the template fallback.
+ */
+export const plans = pgTable(
+  "plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    goal: text("goal").notNull(), // routine | form — snapshot (households.goal can change)
+    seed: bigint("seed", { mode: "number" }).notNull(),
+    days: integer("days").notNull(),
+    budgetUah: numeric("budget_uah", { precision: 10, scale: 2 }).notNull(),
+    status: text("status").notNull().default("draft"), // draft|confirmed|materialized|checked_out
+    totalEstUah: numeric("total_est_uah", { precision: 10, scale: 2 }),
+    promoShare: numeric("promo_share", { precision: 4, scale: 3 }), // 0..1
+    estimatedCostUah: numeric("estimated_cost_uah", { precision: 10, scale: 2 }), // F3
+    unpricedLineCount: integer("unpriced_line_count").notNull().default(0), // F3
+    proteinFloorMet: boolean("protein_floor_met"),
+    kcalCorridorMet: boolean("kcal_corridor_met"), // F4 — against the TRUE corridor
+    explanation: text("explanation"), // T2.6
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("plans_household_created_idx").on(t.householdId, t.createdAt.desc())],
+);
+
+/**
+ * One dinner of a plan. `recipe_id` is nullable + `ON DELETE SET NULL` — `import-recipes.ts`
+ * prunes removed recipes, and a pruned recipe must not break an old plan or block a
+ * re-import. `slug` / `title_uk` / per-serving macros are snapshots so the row renders
+ * without the recipe row.
+ */
+export const planItems = pgTable(
+  "plan_items",
+  {
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    dayIndex: integer("day_index").notNull(),
+    recipeId: uuid("recipe_id").references(() => recipes.id, { onDelete: "set null" }),
+    slug: text("slug").notNull(),
+    titleUk: text("title_uk").notNull(),
+    servings: integer("servings").notNull(),
+    costUah: numeric("cost_uah", { precision: 10, scale: 2 }).notNull(),
+    promoShareUah: numeric("promo_share_uah", { precision: 10, scale: 2 }).notNull(),
+    kcalServing: numeric("kcal_serving", { precision: 7, scale: 2 }),
+    proteinServing: numeric("protein_serving", { precision: 6, scale: 2 }),
+    fatServing: numeric("fat_serving", { precision: 6, scale: 2 }),
+    carbsServing: numeric("carbs_serving", { precision: 6, scale: 2 }),
+    pinned: boolean("pinned").notNull().default(false),
+    outcome: text("outcome"), // cooked | skipped | null
+  },
+  (t) => [primaryKey({ columns: [t.planId, t.dayIndex] })],
+);
+
+/**
+ * The shopping list — one line per consolidated `CanonicalIngredient` the plan's dinners
+ * need, with its resolved Silpo SKU (the T2.1 mapper's output for the chosen recipes only).
+ * `ingredient_id` is `ON DELETE RESTRICT` like `receipt_lines` (ingredients are never
+ * pruned). Carries the mapper's decision + confidence + flags so the cart step (T3.1) and
+ * the web screen can show what needs the Guest's attention.
+ */
+export const listLines = pgTable(
+  "list_lines",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => canonicalIngredients.id, { onDelete: "restrict" }),
+    slug: text("slug").notNull(),
+    nameUk: text("name_uk").notNull(),
+    neededAmount: numeric("needed_amount", { precision: 10, scale: 2 }).notNull(),
+    unit: text("unit").notNull(),
+    productRef: text("product_ref"), // ProductMatch.productId
+    externalProductId: text("external_product_id"),
+    companyId: text("company_id"),
+    branchId: text("branch_id"),
+    productName: text("product_name"),
+    packSize: numeric("pack_size", { precision: 10, scale: 2 }),
+    packCount: integer("pack_count").notNull().default(0),
+    price: numeric("price", { precision: 10, scale: 2 }),
+    oldPrice: numeric("old_price", { precision: 10, scale: 2 }), // pre-promo — for the savings figure
+    isPromo: boolean("is_promo").notNull().default(false),
+    confidence: numeric("confidence", { precision: 3, scale: 2 }),
+    decision: text("decision"), // accepted|reranked|needs_confirmation|no_match|replacement|blocked_unsafe
+    needsConfirmation: boolean("needs_confirmation").notNull().default(false),
+    outOfStock: boolean("out_of_stock").notNull().default(false), // F5
+    blockReason: text("block_reason"),
+    userOverridden: boolean("user_overridden").notNull().default(false), // learning signal (TDD)
+  },
+  (t) => [index("list_lines_plan_idx").on(t.planId)],
+);
+
 // ─── Relations (for the drizzle relational query API) ───────────────────────────
 
 export const householdsRelations = relations(households, ({ many, one }) => ({
   members: many(householdMembers),
   restrictions: many(householdRestrictions),
   receiptLines: many(receiptLines),
+  plans: many(plans),
   nutritionTargets: one(nutritionTargets, {
     fields: [households.id],
     references: [nutritionTargets.householdId],
@@ -342,6 +448,28 @@ export const receiptLinesRelations = relations(receiptLines, ({ one }) => ({
   }),
   ingredient: one(canonicalIngredients, {
     fields: [receiptLines.ingredientId],
+    references: [canonicalIngredients.id],
+  }),
+}));
+
+export const plansRelations = relations(plans, ({ many, one }) => ({
+  household: one(households, {
+    fields: [plans.householdId],
+    references: [households.id],
+  }),
+  items: many(planItems),
+  list: many(listLines),
+}));
+
+export const planItemsRelations = relations(planItems, ({ one }) => ({
+  plan: one(plans, { fields: [planItems.planId], references: [plans.id] }),
+  recipe: one(recipes, { fields: [planItems.recipeId], references: [recipes.id] }),
+}));
+
+export const listLinesRelations = relations(listLines, ({ one }) => ({
+  plan: one(plans, { fields: [listLines.planId], references: [plans.id] }),
+  ingredient: one(canonicalIngredients, {
+    fields: [listLines.ingredientId],
     references: [canonicalIngredients.id],
   }),
 }));
