@@ -133,6 +133,14 @@ describe.skipIf(!HAS_DB)("runBootstrap (integration)", () => {
     expect(hh.preferences!.source).toBe("inferred");
     // budget defaulted to the median (was null)
     expect(hh.weeklyBudget).not.toBeNull();
+
+    // T1.6 — the raw purchased lines are retained (3 fake orders × 2 lines).
+    const lines = await db
+      .select()
+      .from(schema.receiptLines)
+      .where(eq(schema.receiptLines.householdId, householdId));
+    expect(lines).toHaveLength(6);
+    expect(lines.every((l) => l.rawName.length > 0 && l.purchasedAt instanceof Date)).toBe(true);
   });
 
   it("<3 orders → onboarding_required, no receipts model", async () => {
@@ -210,5 +218,9 @@ describe.skipIf(!HAS_DB)("runBootstrap (integration)", () => {
     // exactly one row per (kind, code)
     const keys = hh.restrictions.map((r) => `${r.kind}:${r.code}`);
     expect(new Set(keys).size).toBe(keys.length);
+    // T1.6 — receipt lines are replaced wholesale, not duplicated.
+    expect(
+      await db.$count(schema.receiptLines, eq(schema.receiptLines.householdId, householdId)),
+    ).toBe(6);
   });
 });

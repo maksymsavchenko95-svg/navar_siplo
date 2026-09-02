@@ -5,3 +5,11 @@
 export * as schema from "./schema.js";
 export { db, closeDb, type Db } from "./client.js";
 export { pgCredentialStore } from "./credentials.js";
+export {
+  linkIngredientSlug,
+  normalizeName,
+  retailOrdersToRows,
+  saveReceiptLines,
+  synonymIndex,
+  type SynonymEntry,
+} from "./receipt-lines.js";

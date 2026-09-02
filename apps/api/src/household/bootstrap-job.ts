@@ -11,7 +11,7 @@
  */
 
 import type { Db } from "@navar/db";
-import { schema } from "@navar/db";
+import { saveReceiptLines, schema } from "@navar/db";
 import type {
   CartContext,
   ConsumptionModel,
@@ -133,6 +133,11 @@ export async function runBootstrap(
 
     const orders = [...online, ...offline];
     const nowDate = now();
+
+    // 5b. Retain the raw purchased lines (T1.6, `FR-HH-002`) — the replayable source the
+    // consumption model + P1 pantry sit on. Runs for the sparse-history case too.
+    // Idempotent: per-household delete + insert, re-deriving `ingredient_id` each run.
+    await saveReceiptLines(db, householdId, orders);
 
     // 6. Family → members (rebuild).
     await db

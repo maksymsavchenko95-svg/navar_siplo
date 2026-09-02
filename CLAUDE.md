@@ -65,12 +65,19 @@ no JS emit.
 
 ## Data model
 
-`packages/db/src/schema.ts` — the identity + recipe-corpus subset of `docs/tdd-navar.md` §3:
-`households` (incl. `goal` = routine|form), `household_members`, `household_restrictions`,
-`nutrition_targets`, `mcp_credentials`, `canonical_ingredients`, `recipes`,
-`recipe_ingredients`. IDs are `uuid` with a separate unique `slug` (the human key for the
-corpus and the golden mapping dataset). MCP tokens are AES-256-GCM ciphertext in
+`packages/db/src/schema.ts` — the identity + consumption + recipe-corpus subset of
+`docs/tdd-navar.md` §3: `households` (incl. `goal` = routine|form, `bootstrap_status`),
+`household_members`, `household_restrictions`, `nutrition_targets`, `consumption_models`,
+`household_preferences`, `receipt_lines`, `mcp_credentials`, `canonical_ingredients`,
+`recipes`, `recipe_ingredients`. IDs are `uuid` + a separate unique `slug` (the human key
+for the corpus and the golden mapping dataset); `receipt_lines` is the one `bigserial`
+table (append-only fact rows). MCP tokens are AES-256-GCM ciphertext in
 `mcp_credentials.payload`, scoped per household (`NFR-SEC-001`).
+
+`receipt_lines` holds the raw purchased lines from `silpo_get_my_*_orders`, written by
+`household.bootstrap` via `saveReceiptLines` (`@navar/db`) — delete-by-household + insert,
+with a best-effort deterministic `ingredient_id` link (`receipt-lines.ts` phrase-matches
+`raw_name` against the dictionary; brand-heavy items stay null for the T2.1 mapper).
 
 Nutrition (`form` mode): `canonical_ingredients` and `recipes` carry per-100 g / per-serving
 macros; recipe macros are **computed from the ingredients on import**, never hand-set (like

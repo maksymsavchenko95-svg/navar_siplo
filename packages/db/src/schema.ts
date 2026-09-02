@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  bigserial,
   boolean,
   check,
   customType,
@@ -225,11 +226,54 @@ export const recipeIngredients = pgTable(
   (t) => [primaryKey({ columns: [t.recipeId, t.ingredientId] })],
 );
 
+// ─── Consumption ───────────────────────────────────────────────────────────────
+
+/**
+ * Raw purchased lines from `silpo_get_my_online_orders` / `_offline_orders`, retained per
+ * household (`FR-HH-002`, `ASM-01`, TDD §3, roadmap T1.6). The replayable source that
+ * `buildConsumptionModel` and P1 pantry inference sit on — bootstrap otherwise keeps only
+ * the aggregated `consumption_models.model` JSON.
+ *
+ * Written by `household.bootstrap` as delete-by-household + bulk insert, so a re-bootstrap
+ * re-derives `ingredient_id` rather than leaving it stale. `ingredient_id` is a best-effort
+ * deterministic link (synonym / `name_uk` phrase match) — null when not confidently
+ * derivable; the T2.1 mapper backfills the rest. PII-free: `silpo/parse.ts` drops names /
+ * addresses / receipt URLs at the package boundary (`INT-LLM-004`, `CON-05`).
+ */
+export const receiptLines = pgTable(
+  "receipt_lines",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    source: text("source").notNull(), // online | offline
+    orderExternalId: text("order_external_id").notNull(),
+    purchasedAt: timestamp("purchased_at", { withTimezone: true }).notNull(),
+    rawName: text("raw_name").notNull(),
+    // RetailLine.key — the stable aggregation key, joins to consumption_models buyFrequency.
+    aggKey: text("agg_key").notNull(),
+    productRef: text("product_ref"), // Silpo catalogProduct.id (online + offline)
+    catalogSlug: text("catalog_slug"), // Silpo catalogProduct.slug (offline only)
+    quantity: numeric("quantity", { precision: 10, scale: 3 }), // negative = void / return
+    unit: text("unit"),
+    price: numeric("price", { precision: 10, scale: 2 }), // RetailLine.unitPrice
+    ingredientId: uuid("ingredient_id").references(() => canonicalIngredients.id, {
+      onDelete: "restrict",
+    }),
+  },
+  (t) => [
+    index("receipt_lines_household_purchased_idx").on(t.householdId, t.purchasedAt.desc()),
+    index("receipt_lines_ingredient_idx").on(t.ingredientId),
+  ],
+);
+
 // ─── Relations (for the drizzle relational query API) ───────────────────────────
 
 export const householdsRelations = relations(households, ({ many, one }) => ({
   members: many(householdMembers),
   restrictions: many(householdRestrictions),
+  receiptLines: many(receiptLines),
   nutritionTargets: one(nutritionTargets, {
     fields: [households.id],
     references: [nutritionTargets.householdId],
@@ -287,6 +331,17 @@ export const recipeIngredientsRelations = relations(recipeIngredients, ({ one })
   }),
   ingredient: one(canonicalIngredients, {
     fields: [recipeIngredients.ingredientId],
+    references: [canonicalIngredients.id],
+  }),
+}));
+
+export const receiptLinesRelations = relations(receiptLines, ({ one }) => ({
+  household: one(households, {
+    fields: [receiptLines.householdId],
+    references: [households.id],
+  }),
+  ingredient: one(canonicalIngredients, {
+    fields: [receiptLines.ingredientId],
     references: [canonicalIngredients.id],
   }),
 }));
