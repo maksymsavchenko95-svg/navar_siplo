@@ -15,10 +15,12 @@ export {
   type PlanDayPick,
   type PlanTotals,
   type SolverResult,
+  type InfeasibleBinding,
 } from "./contract.js";
 export { generatePlan } from "./generate.js";
 export { hardFilter, type HardFilterResult } from "./filter.js";
 export { recipeCost, type RecipeCost } from "./cost.js";
 export { scoreRecipe, type SolverState, type ScoreBreakdown } from "./score.js";
-export { greedyPlan } from "./greedy.js";
+export { greedyPlan, planTotals } from "./greedy.js";
+export { cheapestPlan, diagnoseInfeasible } from "./nearest.js";
 export { mulberry32, shuffle, type Rng } from "./rng.js";

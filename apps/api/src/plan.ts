@@ -3,8 +3,10 @@ import type {
   ConsumptionModel,
   ExplainPlanInput,
   Goal,
+  InfeasibleBinding,
   Macros,
   MapperResult,
+  NearestPlan,
   PlanGenerateResult,
 } from "@navar/domain";
 import { explainPlanStep, runStep } from "@navar/llm";
@@ -17,7 +19,7 @@ import {
   type SolverResult,
 } from "@navar/planner";
 import { AuthRequiredError, NoCartError, type RetailProvider } from "@navar/retail";
-import { hasHardExclusion } from "@navar/safety";
+import { ALLERGEN_LABEL_UK, hasHardExclusion } from "@navar/safety";
 
 import { getLlm, getLlmTracer } from "./llm.js";
 import {
@@ -80,6 +82,10 @@ export interface PlanContext {
   recipeSlugIngredients: Map<string, string[]>;
   /** An `AuthRequiredError` / `NoCartError` from the pricing step, surfaced not thrown. */
   retailError: AuthRequiredError | NoCartError | null;
+  /** Recipes the household's allergen restrictions removed before the solver saw them (T2.5). */
+  excludedRecipeCount: number;
+  /** Guest-facing labels for those restrictions — feeds the infeasible reason (T2.5). */
+  excludedAllergenLabels: string[];
 }
 
 /**
@@ -135,6 +141,10 @@ export async function buildPlanContext(
   });
   const excludedAllergens = new Set<string>(exclusions.allergens);
   const usableRecipes = recipes.filter((r) => !r.allergens.some((a) => excludedAllergens.has(a)));
+  const excludedRecipeCount = recipes.length - usableRecipes.length;
+  const excludedAllergenLabels = exclusions.allergens.map(
+    (a) => ALLERGEN_LABEL_UK[a as keyof typeof ALLERGEN_LABEL_UK] ?? a,
+  );
 
   const recipeSlugIngredients = new Map<string, string[]>(
     usableRecipes.map((r) => [r.slug, r.ingredients.map((ri) => ri.ingredient.slug)]),
@@ -260,7 +270,15 @@ export async function buildPlanContext(
     frequentIngredientIds,
   };
 
-  return { input, mapperResult, idBySlug, recipeSlugIngredients, retailError };
+  return {
+    input,
+    mapperResult,
+    idBySlug,
+    recipeSlugIngredients,
+    retailError,
+    excludedRecipeCount,
+    excludedAllergenLabels,
+  };
 }
 
 /** Household + corpus + mapper + safety → a `SolverInput` (T2.3). */
@@ -305,10 +323,67 @@ export function toExplainInput(args: {
   };
 }
 
+/** The solver's `nearest` plan → the trimmed view the client gets (no SKU list in P0). */
+export function toNearestView(nearest: {
+  days: readonly {
+    day: number;
+    slug: string;
+    titleUk: string;
+    costUah: number;
+    promoShareUah: number;
+    macrosPerServing: Macros;
+  }[];
+  totals: {
+    costUah: number;
+    promoSharePct: number;
+    proteinFloorMet: boolean;
+    kcalCorridorMet: boolean;
+  };
+}): NearestPlan {
+  return {
+    days: nearest.days.map((d) => ({
+      day: d.day,
+      slug: d.slug,
+      titleUk: d.titleUk,
+      costUah: d.costUah,
+      promoShareUah: d.promoShareUah,
+      macrosPerServing: {
+        kcal: d.macrosPerServing.kcal,
+        protein: d.macrosPerServing.protein,
+        fat: d.macrosPerServing.fat,
+        carbs: d.macrosPerServing.carbs,
+      },
+    })),
+    costUah: nearest.totals.costUah,
+    promoSharePct: Math.min(100, Math.max(0, nearest.totals.promoSharePct)),
+    proteinFloorMet: nearest.totals.proteinFloorMet,
+    kcalCorridorMet: nearest.totals.kcalCorridorMet,
+  };
+}
+
+/**
+ * The Guest-facing infeasible reason (T2.5, `FR-PLAN-006`, pure). The planner's `reason` is
+ * already concrete; for a pure `budget` bind we prepend the restriction context the planner
+ * can't see (allergen labels), so the Guest learns *why* the cheapest valid plan is that
+ * expensive. `protein` / `kcal` / `excluded_ingredients` / `candidates` pass through.
+ */
+export function toInfeasibleReason(args: {
+  binding: InfeasibleBinding;
+  plannerReason: string;
+  shortfallUah?: number;
+  restrictionLabels: readonly string[];
+}): string {
+  if (args.binding === "budget" && args.restrictionLabels.length > 0 && args.shortfallUah != null) {
+    return `на ${args.shortfallUah} ₴ більше — найдешевший план з урахуванням ваших обмежень (${args.restrictionLabels.join(", ")})`;
+  }
+  return args.plannerReason;
+}
+
 /**
  * Generate a plan for `householdId`, persist it if feasible, attach the `explainPlan`
- * note, and return `{ status, planId }` (roadmap T2.4 + T2.6). Infeasible plans are not
- * persisted — the terse verdict is returned inline (T2.5 will add the nearest-plan path).
+ * note, and return `{ status, planId }` (roadmap T2.4 + T2.6). An infeasible input returns
+ * the cheapest valid plan + the ₴ delta + a concrete reason inline (T2.5), persisting
+ * nothing.
  */
 export async function generateAndPersistPlan(
   householdId: string,
@@ -334,9 +409,16 @@ export async function generateAndPersistPlan(
   if (!result.feasible) {
     return {
       status: "infeasible",
-      reason: result.reason,
+      binding: result.binding,
+      reason: toInfeasibleReason({
+        binding: result.binding,
+        plannerReason: result.reason,
+        shortfallUah: result.shortfallUah,
+        restrictionLabels: ctx.excludedRecipeCount > 0 ? ctx.excludedAllergenLabels : [],
+      }),
       ...(result.shortfallUah != null ? { shortfallUah: result.shortfallUah } : {}),
       ...(result.shortfallProteinG != null ? { shortfallProteinG: result.shortfallProteinG } : {}),
+      ...(result.nearest ? { nearest: toNearestView(result.nearest) } : {}),
     };
   }
 

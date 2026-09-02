@@ -9,6 +9,8 @@ import {
   perDinnerTargets,
   PlanInputError,
   toExplainInput,
+  toInfeasibleReason,
+  toNearestView,
 } from "./plan.js";
 import { getSilpoProvider } from "./retail.js";
 
@@ -55,6 +57,65 @@ describe("toExplainInput", () => {
         lines: [{ isPromo: true }, {}],
       }).savingsUah,
     ).toBe(0);
+  });
+});
+
+describe("toInfeasibleReason (T2.5)", () => {
+  it("augments a pure budget bind with the household's restriction labels", () => {
+    expect(
+      toInfeasibleReason({
+        binding: "budget",
+        plannerReason: "на 320 ₴ більше — інакше не скласти 5 вечер у межах бюджету",
+        shortfallUah: 320,
+        restrictionLabels: ["молоко", "глютен"],
+      }),
+    ).toBe("на 320 ₴ більше — найдешевший план з урахуванням ваших обмежень (молоко, глютен)");
+  });
+
+  it("passes protein / kcal / candidates reasons through unchanged", () => {
+    for (const binding of ["protein", "kcal", "excluded_ingredients", "candidates"] as const) {
+      const planner = "на 240 ₴ більше — інакше не набрати 155 г білка за тиждень";
+      expect(
+        toInfeasibleReason({
+          binding,
+          plannerReason: planner,
+          shortfallUah: 240,
+          restrictionLabels: ["молоко"],
+        }),
+      ).toBe(planner);
+    }
+  });
+
+  it("leaves a budget bind alone when there are no restrictions", () => {
+    const planner = "на 100 ₴ більше — інакше не скласти 5 вечер у межах бюджету";
+    expect(
+      toInfeasibleReason({
+        binding: "budget",
+        plannerReason: planner,
+        shortfallUah: 100,
+        restrictionLabels: [],
+      }),
+    ).toBe(planner);
+  });
+});
+
+describe("toNearestView (T2.5)", () => {
+  it("trims the solver's nearest plan to the client shape", () => {
+    const view = toNearestView({
+      days: [
+        {
+          day: 1,
+          slug: "borshch",
+          titleUk: "Борщ",
+          costUah: 180,
+          promoShareUah: 20,
+          macrosPerServing: { kcal: 520, protein: 34, fat: 18, carbs: 60, fiber: 5 },
+        },
+      ],
+      totals: { costUah: 2740, promoSharePct: 12, proteinFloorMet: true, kcalCorridorMet: false },
+    });
+    expect(view.days[0]!.macrosPerServing).toEqual({ kcal: 520, protein: 34, fat: 18, carbs: 60 });
+    expect(view).toMatchObject({ costUah: 2740, promoSharePct: 12, proteinFloorMet: true });
   });
 });
 
@@ -108,5 +169,32 @@ describe.skipIf(!process.env.DATABASE_URL)("plan generation (integration)", () =
       expect(detail!.explanation).toBeTruthy(); // template fallback always fills it
       await db.delete(schema.plans).where(eq(schema.plans.id, res.planId));
     }
+  }, 120_000);
+
+  it("an unreachable budget → infeasible with a nearest plan + reason, nothing persisted (T2.5)", async () => {
+    const id = await resolveHouseholdId();
+    if (!id) throw new Error("no demo household — run pnpm db:seed");
+    const retail = await getSilpoProvider();
+    const { db, schema } = await import("@navar/db");
+    const { eq } = await import("drizzle-orm");
+
+    const before = await db.$count(schema.plans, eq(schema.plans.householdId, id));
+    const res = await generateAndPersistPlan(id, retail, {
+      goal: "routine",
+      budgetUah: 150,
+      seed: 9,
+    });
+
+    // With prices: infeasible + nearest. Without MCP auth: a degraded status — still typed.
+    expect(["infeasible", "auth_required", "no_cart", "error"]).toContain(res.status);
+    if (res.status === "infeasible") {
+      expect(res.binding).toBeDefined();
+      expect(res.reason.length).toBeGreaterThan(0);
+      if (res.binding !== "candidates") {
+        expect(res.nearest?.days.length).toBe(5);
+        expect(res.shortfallUah).toBeGreaterThan(0);
+      }
+    }
+    expect(await db.$count(schema.plans, eq(schema.plans.householdId, id))).toBe(before);
   }, 120_000);
 });

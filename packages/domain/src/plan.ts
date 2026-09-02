@@ -88,14 +88,49 @@ export const planGenerateInputSchema = z.object({
 });
 export type PlanGenerateInput = z.infer<typeof planGenerateInputSchema>;
 
-/** `plan.generate` result. Only feasible plans are persisted (T2.5 adds the nearest-plan path). */
+/** Which hard constraint made an infeasible input infeasible (T2.5, `FR-PLAN-006`). */
+export const infeasibleBindingSchema = z.enum([
+  "budget",
+  "protein",
+  "kcal",
+  "excluded_ingredients",
+  "candidates",
+]);
+export type InfeasibleBinding = z.infer<typeof infeasibleBindingSchema>;
+
+/** One dinner of the nearest valid plan returned alongside an infeasible verdict. */
+export const nearestPlanDaySchema = z.object({
+  day: z.number().int().positive(),
+  slug: z.string(),
+  titleUk: z.string(),
+  costUah: z.number().nonnegative(),
+  promoShareUah: z.number().nonnegative(),
+  macrosPerServing: servingMacrosSchema,
+});
+
+/** The cheapest plan that honours every hard constraint (budget relaxed) — no SKU list in P0. */
+export const nearestPlanSchema = z.object({
+  days: z.array(nearestPlanDaySchema),
+  costUah: z.number().nonnegative(),
+  promoSharePct: z.number().min(0).max(100),
+  proteinFloorMet: z.boolean(),
+  kcalCorridorMet: z.boolean(),
+});
+export type NearestPlan = z.infer<typeof nearestPlanSchema>;
+
+/**
+ * `plan.generate` result. Only feasible plans are persisted; an infeasible input carries
+ * the nearest valid plan + the ₴ delta + a concrete reason (T2.5, `FR-PLAN-006`).
+ */
 export const planGenerateResultSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("ok"), planId: z.string().uuid() }),
   z.object({
     status: z.literal("infeasible"),
+    binding: infeasibleBindingSchema,
     reason: z.string(),
     shortfallUah: z.number().nonnegative().optional(),
     shortfallProteinG: z.number().nonnegative().optional(),
+    nearest: nearestPlanSchema.optional(),
   }),
   z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
   z.object({ status: z.literal("no_cart"), hint: z.string().optional() }),

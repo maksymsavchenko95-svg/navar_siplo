@@ -45,14 +45,36 @@ async function main(): Promise<void> {
         : ""),
   );
 
+  const col = (s: string, n: number) => s.slice(0, n).padEnd(n);
+
   const result = generatePlan(input);
   if (!result.feasible) {
-    console.log(`\n⚠️  infeasible — ${result.reason}`);
+    console.log(
+      `\n⚠️  infeasible · binding=${result.binding}` +
+        (result.shortfallUah != null ? ` · +${result.shortfallUah} ₴` : "") +
+        (result.shortfallProteinG != null ? ` · −${result.shortfallProteinG} г білка` : ""),
+    );
+    console.log(`   ${result.reason}`);
+    if (result.nearest) {
+      console.log("\n   найближчий валідний план:");
+      for (const d of result.nearest.days) {
+        console.log(
+          `   ${col(String(d.day), 3)}${col(d.titleUk, 34)}${col(`${d.costUah}₴`, 9)}` +
+            `${Math.round(d.macrosPerServing.protein)}g`,
+        );
+      }
+      console.log(`   Σ ${result.nearest.totals.costUah}₴ (бюджет ${input.budget}₴)`);
+    }
+    // Same seed → identical enriched result (AC-P0-09).
+    const again = generatePlan(input);
+    console.log(
+      JSON.stringify(result) === JSON.stringify(again)
+        ? `✅ deterministic (seed ${input.seed})`
+        : "❌ non-deterministic",
+    );
     process.exitCode = 1;
     return;
   }
-
-  const col = (s: string, n: number) => s.slice(0, n).padEnd(n);
   console.log(
     "\n" +
       col("day", 4) +

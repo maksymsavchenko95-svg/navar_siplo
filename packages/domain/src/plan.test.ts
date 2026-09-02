@@ -77,12 +77,42 @@ describe("plan schemas", () => {
       status: "ok",
       planId: item.recipeId,
     });
-    expect(
-      planGenerateResultSchema.parse({ status: "infeasible", reason: "бюджет", shortfallUah: 180 }),
-    ).toMatchObject({ status: "infeasible", shortfallUah: 180 });
     expect(planGenerateResultSchema.parse({ status: "auth_required" })).toEqual({
       status: "auth_required",
     });
+  });
+
+  it("round-trips an infeasible result with binding + nearest (T2.5)", () => {
+    const infeasible = {
+      status: "infeasible" as const,
+      binding: "protein" as const,
+      reason: "на 240 ₴ більше — інакше не набрати 155 г білка за тиждень",
+      shortfallUah: 240,
+      shortfallProteinG: 35,
+      nearest: {
+        days: [
+          {
+            day: 1,
+            slug: "borshch",
+            titleUk: "Борщ",
+            costUah: 180,
+            promoShareUah: 0,
+            macrosPerServing: { kcal: 520, protein: 34, fat: 18, carbs: 60 },
+          },
+        ],
+        costUah: 2740,
+        promoSharePct: 12,
+        proteinFloorMet: true,
+        kcalCorridorMet: false,
+      },
+    };
+    expect(planGenerateResultSchema.parse(infeasible)).toEqual(infeasible);
+  });
+
+  it("requires binding on an infeasible result", () => {
+    expect(() =>
+      planGenerateResultSchema.parse({ status: "infeasible", reason: "x", shortfallUah: 1 }),
+    ).toThrow();
   });
 
   it("discriminates the get result union", () => {

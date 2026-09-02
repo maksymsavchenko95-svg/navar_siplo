@@ -122,13 +122,27 @@ export interface PlanTotals {
   estimatedCostUah: number;
 }
 
+/** Which hard constraint makes an infeasible input infeasible (T2.5, `FR-PLAN-006`). */
+export type InfeasibleBinding =
+  | "budget" // the corpus just costs more than the budget; nothing to relax
+  | "protein" // form: the daily protein floor pushes the cheapest valid plan over budget
+  | "kcal" // form: the kcal corridor does
+  | "excluded_ingredients" // a strict dislike removes the cheap options
+  | "candidates"; // fewer than `days` recipes survive the hard filter at all
+
 export type SolverResult =
   | { feasible: true; seed: number; goal: Goal; days: PlanDayPick[]; totals: PlanTotals }
   | {
       feasible: false;
       seed: number;
       goal: Goal;
+      binding: InfeasibleBinding;
+      /** Concrete, Guest-facing Ukrainian sentence (TDD §4 step 7). */
       reason: string;
+      /** The cheapest plan that honours every hard constraint (budget relaxed). Absent for `binding: "candidates"`. */
+      nearest?: { days: PlanDayPick[]; totals: PlanTotals };
+      /** `nearest.totals.costUah − budget` — how much more the Guest must spend. */
       shortfallUah?: number;
+      /** `binding: "protein"` only — grams the best within-budget plan misses per week. */
       shortfallProteinG?: number;
     };

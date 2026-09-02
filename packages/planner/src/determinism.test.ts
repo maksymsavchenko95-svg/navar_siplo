@@ -24,6 +24,26 @@ describe("generatePlan — determinism (FR-PLAN-005, AC-P0-09)", () => {
     expect(generatePlan(input())).toEqual(generatePlan(input()));
   });
 
+  it("an infeasible input is byte-identical across runs (T2.5 — nearest plan + delta + reason)", () => {
+    const cands = corpus();
+    const mk = () =>
+      solverInput({
+        seed: 7,
+        candidates: cands,
+        prices: priceMapFor(cands, 400, { packSize: 100 }),
+        budget: 900,
+      });
+    const a = generatePlan(mk());
+    const b = generatePlan(mk());
+    expect(a.feasible).toBe(false);
+    expect(a).toEqual(b);
+    if (!a.feasible) {
+      expect(a.nearest).toBeDefined();
+      expect(a.shortfallUah).toBeGreaterThan(0);
+      expect(a.reason.length).toBeGreaterThan(0);
+    }
+  });
+
   it("a different seed gives a different (still valid) plan", () => {
     const cands = corpus();
     const mk = (seed: number) =>

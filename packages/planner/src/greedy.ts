@@ -17,7 +17,7 @@ const round6 = (n: number): number => Math.round(n * 1e6) / 1e6;
 const ZERO: Macros = { kcal: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 };
 
 /** Sum the cheapest `k` distinct recipe costs from `pool`. */
-function cheapestRemainder(pool: { costUah: number }[], k: number): number | null {
+export function cheapestRemainder(pool: { costUah: number }[], k: number): number | null {
   if (pool.length < k) return null;
   return [...pool]
     .sort((a, b) => a.costUah - b.costUah)
@@ -25,7 +25,8 @@ function cheapestRemainder(pool: { costUah: number }[], k: number): number | nul
     .reduce((s, r) => s + r.costUah, 0);
 }
 
-function computeTotals(
+/** Roll a set of day picks + their costs into `PlanTotals` (shared by greedy + `cheapestPlan`). */
+export function planTotals(
   picks: PlanDayPick[],
   pickCosts: readonly RecipeCost[],
   finalPantry: Map<string, number>,
@@ -94,6 +95,7 @@ export function greedyPlan(kept: RecipeCandidate[], input: SolverInput): SolverR
     return {
       ...base,
       feasible: false,
+      binding: "candidates",
       reason: `замало рецептів відповідає обмеженням (${kept.length} < ${input.days})`,
     };
   }
@@ -146,6 +148,7 @@ export function greedyPlan(kept: RecipeCandidate[], input: SolverInput): SolverR
       return {
         ...base,
         feasible: false,
+        binding: shortfallUah ? "budget" : "candidates",
         reason: shortfallUah
           ? `план не вкладається в бюджет — бракує ${shortfallUah} ₴`
           : `не вдалося скласти ${input.days} страв у межах обмежень`,
@@ -175,6 +178,6 @@ export function greedyPlan(kept: RecipeCandidate[], input: SolverInput): SolverR
     ...base,
     feasible: true,
     days: picks,
-    totals: computeTotals(picks, pickCosts, pantry, input),
+    totals: planTotals(picks, pickCosts, pantry, input),
   };
 }
