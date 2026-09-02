@@ -1,6 +1,7 @@
 import type {
   BaseUnit,
   IngredientCategory,
+  ProductMatch,
   ProductSearchResult,
   RerankSkuMatchInput,
   ReplacementResult,
@@ -20,6 +21,8 @@ export interface MapperDictEntry {
   densityGMl: number | null;
   gramsPerPiece: number | null;
   synonyms: string[];
+  /** EU-14 allergen codes (`canonical_ingredients.allergens`) — the ingredient-level gate (T2.2). */
+  allergens: string[];
 }
 
 /** One recipe line of the plan, already scaled to the household's servings by the caller. */
@@ -43,6 +46,26 @@ export interface MapperRetail {
 export type RerankFn = (
   input: RerankSkuMatchInput,
 ) => Promise<{ index: number; confidence: number; source: "llm" | "fallback" }>;
+
+/**
+ * The safety seams (T2.2). `apps/api` composes both from `@navar/safety` +
+ * `retail.getProductDetails`, so `@navar/mapper` imports neither and holds no allergen
+ * logic — it only coordinates. Both must be fail-closed (ADR-05) and never throw.
+ *
+ * `ingredientSafety` runs before search (a blocked ingredient is never queried);
+ * `skuSafety` runs after the SKU is chosen (and again for a replacement — `FR-SAFE-004`).
+ */
+export type IngredientSafetyCheck = (entry: MapperDictEntry) => {
+  blocked: boolean;
+  reason: string | null;
+};
+
+export type SkuSafetyCheck = (args: {
+  slug: string;
+  category: string;
+  ingredientAllergens: readonly string[];
+  chosen: ProductMatch;
+}) => Promise<{ blocked: boolean; reason: string | null }>;
 
 /** Accept the top match outright when it leads the runner-up by more than this (TDD §5 step 4). */
 export const ACCEPT_GAP = 0.25;

@@ -1,4 +1,10 @@
-import type { MapperResult, ProductMatch, RerankSkuMatchInput, SkuMatch } from "@navar/domain";
+import type {
+  ConsolidatedIngredient,
+  MapperResult,
+  ProductMatch,
+  RerankSkuMatchInput,
+  SkuMatch,
+} from "@navar/domain";
 
 import { consolidate } from "./consolidate.js";
 import { decideMatch } from "./decide.js";
@@ -7,10 +13,12 @@ import { computePack, parsePackSize } from "./pack.js";
 import { rankCandidates, type ScoredCandidate } from "./score.js";
 import {
   ACCEPT_GAP,
+  type IngredientSafetyCheck,
   type MapperDictEntry,
   type MapperRetail,
   type PlanIngredientLine,
   type RerankFn,
+  type SkuSafetyCheck,
 } from "./types.js";
 
 export interface MapPlanInput {
@@ -24,6 +32,10 @@ export interface MapPlanInput {
 export interface MapPlanDeps {
   retail: MapperRetail;
   rerank: RerankFn;
+  /** Ingredient-level safety gate (T2.2, `FR-SAFE-002` first pass). Absent = no household allergy. */
+  ingredientSafety?: IngredientSafetyCheck;
+  /** SKU-level safety gate (T2.2, `FR-SAFE-002` second pass). */
+  skuSafety?: SkuSafetyCheck;
 }
 
 const isPromo = (p: ProductMatch): boolean => p.oldPrice != null && p.oldPrice > p.price;
@@ -57,21 +69,53 @@ function toRerankInput(
 const closeCall = (ranked: readonly ScoredCandidate[]): boolean =>
   ranked.length >= 2 && ranked[0]!.score - ranked[1]!.score <= ACCEPT_GAP;
 
+function blockedMatch(c: ConsolidatedIngredient, query: string, reason: string): SkuMatch {
+  return {
+    slug: c.slug,
+    ingredientNameUk: c.nameUk,
+    query,
+    neededAmount: c.amount,
+    neededUnit: c.baseUnit,
+    match: null,
+    score: null,
+    confidence: 0,
+    decision: "blocked_unsafe",
+    needsConfirmation: false,
+    packCount: 0,
+    packSize: null,
+    surplusAmount: 0,
+    isPromo: false,
+    candidatesConsidered: 0,
+    rerankSource: null,
+    safetyChecked: true,
+    blockReason: reason,
+  };
+}
+
 /**
- * Map a plan's ingredients to concrete Silpo SKUs (TDD §5, `FR-MAP-001..006`). Consolidate
- * → normalise queries → batched search → deterministic score → LLM re-rank only on a close
- * call → flag low-confidence, never add silently. Pack-size aware; out-of-stock picks go
- * through the replacement funnel. The only non-determinism is `deps.rerank`; with its
- * offline fallback the whole pipeline is reproducible (ADR-03).
+ * Map a plan's ingredients to concrete Silpo SKUs (TDD §5, `FR-MAP-001..006`, `FR-SAFE-002`).
+ * Consolidate → ingredient-level safety gate → normalise queries → batched search →
+ * deterministic score → LLM re-rank only on a close call → SKU-level safety gate → flag
+ * low-confidence, never add silently. Pack-size aware; out-of-stock picks (and their
+ * replacements) go through the same funnel + the same safety check (`FR-SAFE-004`). The only
+ * non-determinism is `deps.rerank`; with its offline fallback the pipeline is reproducible.
  */
 export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<MapperResult> {
+  const safetyOn = Boolean(deps.ingredientSafety);
   const consolidated = consolidate(input.lines, input.dict);
 
-  // 1 query per ingredient, deduped in first-seen order.
+  // Ingredient-level gate first — blocked ingredients never reach search.
+  const blockedBySlug = new Map<string, string>();
   const queryBySlug = new Map<string, string>();
   const uniqueQueries: string[] = [];
   for (const c of consolidated) {
-    const query = buildQuery(input.dict.get(c.slug)!);
+    const entry = input.dict.get(c.slug)!;
+    const block = deps.ingredientSafety?.(entry);
+    if (block?.blocked) {
+      blockedBySlug.set(c.slug, block.reason ?? "Не додано: не пройшло перевірку безпеки.");
+      continue;
+    }
+    const query = buildQuery(entry);
     queryBySlug.set(c.slug, query);
     if (!uniqueQueries.includes(query)) uniqueQueries.push(query);
   }
@@ -86,6 +130,12 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
 
   const matches: SkuMatch[] = [];
   for (const c of consolidated) {
+    const blockReason = blockedBySlug.get(c.slug);
+    if (blockReason) {
+      matches.push(blockedMatch(c, buildQuery(input.dict.get(c.slug)!), blockReason));
+      continue;
+    }
+
     const entry = input.dict.get(c.slug)!;
     const query = queryBySlug.get(c.slug)!;
     const candidates = resultsByQuery.get(query) ?? [];
@@ -129,6 +179,23 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
       }
     }
 
+    // SKU-level safety gate (`FR-SAFE-002` second pass, `FR-SAFE-004` for replacements).
+    let skuBlockReason: string | null = null;
+    if (d.chosen && deps.skuSafety) {
+      const v = await deps.skuSafety({
+        slug: c.slug,
+        category: c.category,
+        ingredientAllergens: entry.allergens,
+        chosen: d.chosen.candidate,
+      });
+      if (v.blocked) skuBlockReason = v.reason ?? "Не додано: не пройшло перевірку безпеки.";
+    }
+
+    if (skuBlockReason) {
+      matches.push(blockedMatch(c, query, skuBlockReason));
+      continue;
+    }
+
     const chosen = d.chosen?.candidate ?? null;
     const pack = computePack(c.amount, parsePackSize(chosen?.packSize ?? null, c.baseUnit), {
       weighted: chosen?.weighted,
@@ -152,7 +219,8 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
       isPromo: chosen ? isPromo(chosen) : false,
       candidatesConsidered: candidates.length,
       rerankSource: d.rerankSource,
-      safetyChecked: false,
+      safetyChecked: safetyOn, // the ingredient-level gate ran for this line
+      blockReason: null,
     });
   }
 
@@ -166,6 +234,7 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
       matched: matches.filter((m) => m.match).length,
       needsConfirmation: matches.filter((m) => m.needsConfirmation).length,
       noMatch: matches.filter((m) => m.decision === "no_match").length,
+      blocked: matches.filter((m) => m.decision === "blocked_unsafe").length,
     },
   };
 }

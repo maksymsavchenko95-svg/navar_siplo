@@ -28,6 +28,7 @@
     "@navar/llm": "workspace:*",
     "@navar/mapper": "workspace:*",
     "@navar/retail": "workspace:*",
+    "@navar/safety": "workspace:*",
     "@trpc/server": "^11.0.0",
     "bullmq": "^6.3.4",
     "drizzle-orm": "^0.38.3",

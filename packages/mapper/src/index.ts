@@ -36,4 +36,6 @@ export {
   type PlanIngredientLine,
   type MapperRetail,
   type RerankFn,
+  type IngredientSafetyCheck,
+  type SkuSafetyCheck,
 } from "./types.js";

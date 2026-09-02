@@ -12,6 +12,7 @@ const MILK: MapperDictEntry = {
   densityGMl: 1.03,
   gramsPerPiece: null,
   synonyms: ["молоко", "молоко пастеризоване"],
+  allergens: ["milk"],
 };
 
 const sku = (

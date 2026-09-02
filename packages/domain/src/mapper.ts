@@ -33,6 +33,7 @@ export const skuMatchDecisionSchema = z.enum([
   "needs_confirmation", // confidence < 0.6 — flagged, never added silently
   "no_match", // search returned nothing usable
   "replacement", // chosen via the get_replacements funnel
+  "blocked_unsafe", // failed the safety gate (T2.2) — fail-closed, non-overridable
 ]);
 export type SkuMatchDecision = z.infer<typeof skuMatchDecisionSchema>;
 
@@ -53,7 +54,10 @@ export const skuMatchSchema = z.object({
   isPromo: z.boolean(),
   candidatesConsidered: z.number().int().nonnegative(),
   rerankSource: z.enum(["llm", "fallback"]).nullable(),
-  safetyChecked: z.literal(false), // T2.2 sets the real SKU-level allergen check
+  /** True once the safety gate (T2.2) ran for this line — ingredient-level and/or SKU-level. */
+  safetyChecked: z.boolean(),
+  /** Guest-facing reason a line was blocked (`decision: "blocked_unsafe"`); non-medical. */
+  blockReason: z.string().nullable(),
 });
 export type SkuMatch = z.infer<typeof skuMatchSchema>;
 
@@ -66,6 +70,7 @@ export const mapperResultSchema = z.object({
     matched: z.number().int().nonnegative(),
     needsConfirmation: z.number().int().nonnegative(),
     noMatch: z.number().int().nonnegative(),
+    blocked: z.number().int().nonnegative(),
   }),
 });
 export type MapperResult = z.infer<typeof mapperResultSchema>;

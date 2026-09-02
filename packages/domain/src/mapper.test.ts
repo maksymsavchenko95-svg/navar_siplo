@@ -62,14 +62,22 @@ describe("skuMatchSchema", () => {
     isPromo: false,
     candidatesConsidered: 0,
     rerankSource: null,
-    safetyChecked: false as const,
+    safetyChecked: false,
+    blockReason: null,
   };
 
   it("round-trips a hand-built match", () => {
     expect(skuMatchSchema.parse(base)).toEqual(base);
   });
 
-  it("rejects safetyChecked: true (the SKU gate is T2.2's job)", () => {
-    expect(() => skuMatchSchema.parse({ ...base, safetyChecked: true })).toThrow();
+  it("round-trips a safety-blocked match", () => {
+    const blocked = {
+      ...base,
+      decision: "blocked_unsafe" as const,
+      needsConfirmation: false,
+      safetyChecked: true,
+      blockReason: "Не додано: містить алерген (глютен).",
+    };
+    expect(skuMatchSchema.parse(blocked)).toEqual(blocked);
   });
 });

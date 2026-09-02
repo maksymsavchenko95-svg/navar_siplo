@@ -81,6 +81,9 @@ export const ingredientSkuCandidateSchema = z.object({
   needsConfirmation: z.boolean().default(false),
   packCount: z.number().int().nonnegative().default(1),
   surplusAmount: z.number().nonnegative().default(0),
+  /** The safety gate (T2.2) blocked this line — `match` is null, `blockReason` explains why. */
+  blocked: z.boolean().default(false),
+  blockReason: z.string().nullable().default(null),
 });
 export type IngredientSkuCandidate = z.infer<typeof ingredientSkuCandidateSchema>;
 
@@ -92,6 +95,7 @@ export const recipeShoppingResultSchema = z.discriminatedUnion("status", [
     items: z.array(ingredientSkuCandidateSchema),
     totalUah: z.number(), // sum of matched prices (missing matches excluded)
     matchedCount: z.number(),
+    blockedCount: z.number().default(0), // lines the safety gate blocked (T2.2)
   }),
   z.object({ status: z.literal("auth_required"), hint: z.string() }),
   z.object({ status: z.literal("no_cart"), hint: z.string() }),

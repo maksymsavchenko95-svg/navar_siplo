@@ -19,6 +19,7 @@ const DICT: Map<string, MapperDictEntry> = new Map(
         densityGMl: e.densityGMl,
         gramsPerPiece: e.gramsPerPiece,
         synonyms: e.synonyms,
+        allergens: e.allergens,
       },
     ];
   }),

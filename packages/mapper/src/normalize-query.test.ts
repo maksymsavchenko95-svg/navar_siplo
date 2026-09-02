@@ -11,6 +11,7 @@ const entry = (nameUk: string, synonyms: string[] = []): MapperDictEntry => ({
   densityGMl: null,
   gramsPerPiece: null,
   synonyms,
+  allergens: [],
 });
 
 describe("buildQuery — M0 audit failure cases", () => {

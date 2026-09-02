@@ -12,6 +12,7 @@ const entry = (
   densityGMl: null,
   gramsPerPiece: null,
   synonyms: [],
+  allergens: [],
   ...over,
 });
 

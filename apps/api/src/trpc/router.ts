@@ -6,10 +6,18 @@ import type {
   RecipeSummary,
 } from "@navar/domain";
 import { mapPlan, type MapperRetail, type PlanIngredientLine } from "@navar/mapper";
+import { hasHardExclusion } from "@navar/safety";
 import { AuthRequiredError, NoCartError } from "@navar/retail";
 import { z } from "zod";
 
-import { getRerankFn, loadMapperDict } from "../mapper.js";
+import { resolveHouseholdId } from "../household.js";
+import {
+  getRerankFn,
+  loadExclusions,
+  loadMapperDict,
+  makeIngredientSafety,
+  makeSkuSafety,
+} from "../mapper.js";
 import { householdRouter } from "./routers/household.js";
 import { publicProcedure, router } from "./trpc.js";
 
@@ -54,8 +62,9 @@ export const appRouter = router({
     /**
      * Map a recipe's ingredients to concrete Silpo SKUs via `@navar/mapper` (TDD §5):
      * consolidate → head-noun query → deterministic score → LLM re-rank on a close call →
-     * flag low-confidence matches (`FR-MAP-006`). Pack-size aware; `totalUah` is the basket
-     * cost (price × packs). The SKU-level safety gate is T2.2.
+     * flag low-confidence matches (`FR-MAP-006`). The T2.2 safety gate runs against the
+     * resolved household's allergen exclusions — blocked lines come back `blocked: true`
+     * with a Guest-facing reason. Pack-size aware; `totalUah` is basket cost (price × packs).
      */
     skuCandidates: publicProcedure
       .input(z.object({ recipeId: z.string().uuid() }))
@@ -74,10 +83,23 @@ export const appRouter = router({
         }));
 
         try {
+          const householdId = await resolveHouseholdId();
+          const exclusions = householdId
+            ? await loadExclusions(householdId)
+            : { allergens: [], ingredients: [], strictMode: false };
           const dict = await loadMapperDict(lines.map((l) => l.slug));
           const result = await mapPlan(
             { lines, dict },
-            { retail: ctx.retail as MapperRetail, rerank: getRerankFn() },
+            {
+              retail: ctx.retail as MapperRetail,
+              rerank: getRerankFn(),
+              ...(hasHardExclusion(exclusions)
+                ? {
+                    ingredientSafety: makeIngredientSafety(exclusions),
+                    skuSafety: makeSkuSafety(ctx.retail, exclusions, householdId!),
+                  }
+                : {}),
+            },
           );
           const items: IngredientSkuCandidate[] = result.matches.map((m) => ({
             ingredient: m.ingredientNameUk,
@@ -87,6 +109,8 @@ export const appRouter = router({
             needsConfirmation: m.needsConfirmation,
             packCount: m.packCount,
             surplusAmount: m.surplusAmount,
+            blocked: m.decision === "blocked_unsafe",
+            blockReason: m.blockReason,
           }));
           const totalUah =
             Math.round(
@@ -99,6 +123,7 @@ export const appRouter = router({
             items,
             totalUah,
             matchedCount: result.stats.matched,
+            blockedCount: result.stats.blocked,
           };
         } catch (err) {
           if (err instanceof AuthRequiredError) return { status: "auth_required", hint: err.hint };

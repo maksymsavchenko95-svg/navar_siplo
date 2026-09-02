@@ -71,13 +71,26 @@ async function seed(): Promise<void> {
     { householdId: hh!.id, kind: "child", ageYears: 6, label: "C" },
   ]);
 
-  await db.insert(householdRestrictions).values({
-    householdId: hh!.id,
-    kind: "dislike",
-    code: "mushroom",
-    severity: "soft",
-    source: "onboarding",
-  });
+  await db.insert(householdRestrictions).values([
+    {
+      householdId: hh!.id,
+      kind: "dislike",
+      code: "mushroom",
+      severity: "soft",
+      source: "onboarding",
+    },
+    // A confirmed gluten allergy — the AC-P0-07 guardrail demo. Many corpus recipes carry
+    // gluten (wheat_flour / pasta / soy_sauce), so the block is easy to show and fully
+    // deterministic (ingredient-level, no live catalogue needed).
+    {
+      householdId: hh!.id,
+      kind: "allergen",
+      code: "gluten",
+      severity: "strict",
+      source: "onboarding",
+      confirmedAt: new Date(),
+    },
+  ]);
 
   // goal='form' → a nutrition target, computed the same way `household.computeNutrition`
   // does (T1.5) so the fixture never drifts from the formula.

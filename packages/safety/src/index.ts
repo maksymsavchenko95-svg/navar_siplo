@@ -1,31 +1,37 @@
 /**
- * @navar/safety — food-safety guardrails. Deterministic, fail-closed (ADR-05). Nothing
- * enters a plan or the cart without a code check against the household's restrictions,
- * run twice: at the CanonicalIngredient level during planning, and at the concrete SKU
- * level via `silpo_get_product_details` before add-to-cart. Unknown / ambiguous
- * composition + a declared allergy → block. Replacements get the same checks.
+ * @navar/safety — food-safety guardrails. Deterministic, fail-closed (ADR-05, ADR-02).
+ * Nothing enters a plan or the cart without a code check against the household's
+ * restrictions, run twice (`FR-SAFE-002`): at the `CanonicalIngredient` level during
+ * planning (`checkIngredient` — authoritative), and at the concrete SKU level via
+ * `silpo_get_product_details` before add-to-cart (`checkSku` — best-effort, fail-closed).
+ * Unknown / ambiguous composition + a declared allergy → block. Replacements get the same
+ * check (`FR-SAFE-004`). Never a prompt.
  *
- * Spec: SRS §6.8 (`FR-SAFE-*`), TDD §5 step 5. Kept a separate package on purpose. Never
- * a prompt.
+ * Spec: SRS §6.8 (`FR-SAFE-001..008`), TDD §5 step 5. The M0 audit found SKU composition on
+ * only ~22% of cards, so the ingredient-level union check is the real protection and the
+ * SKU check is a fail-closed second layer, run only for allergen-risk categories.
  *
- * ── Goal-mode guardrails (TDD v0.2) ───────────────────────────────────────────
- * - `FR-SAFE-009` (calorie floor): a `form` household's `kcal_target` can never sit
- *   below `KCAL_FLOOR`. Enforced fail-closed in three places — `assertKcalFloor` in
- *   `@navar/domain`, the `nutritionTargetsSchema` refine, and the `nutrition_targets`
- *   DB CHECK. A sub-floor request is rejected with an explanation, never clamped.
- * - `RISK-10` (estimate honesty): when `nutrition_src='estimated'` for >30 % of a
- *   plan's ingredient mass, the plan is marked an estimate and exact macro figures are
- *   withheld.
- * - `form` is framed as a preference / goal, never a treatment — no medical diets or
- *   medical terminology (`CON-04`, `FR-SAFE-008`).
+ * ── Calorie floor (`FR-SAFE-009`) ─────────────────────────────────────────────
+ * A `form` household's `kcal_target` can never sit below `KCAL_FLOOR`. Enforced fail-closed
+ * in three places kept in sync — `assertKcalFloor` (re-exported here), the
+ * `nutritionTargetsSchema` refine, and the `nutrition_targets` DB CHECK.
+ *
+ * `form` is a preference / goal, never a treatment — no medical diets or terminology
+ * (`CON-04`, `FR-SAFE-008`).
  */
 
 export { assertKcalFloor, KcalFloorError } from "@navar/domain";
 
-export function assertIngredientSafe(): never {
-  throw new Error("safety not implemented — P0 (SRS §6.8)");
-}
-
-export function assertSkuSafe(): never {
-  throw new Error("safety not implemented — P0 (SRS §6.8)");
-}
+export { normalizeAllergenToken, mapSkuAllergens } from "./allergens.js";
+export { resolveExclusions, hasHardExclusion, type Exclusions } from "./restrictions.js";
+export {
+  type SafetyVerdict,
+  ALLERGEN_LABEL_UK,
+  ALLERGEN_RISK_CATEGORIES,
+  needsSkuCheck,
+  checkIngredient,
+  checkSku,
+  SafetyError,
+  assertIngredientSafe,
+  assertSkuSafe,
+} from "./check.js";

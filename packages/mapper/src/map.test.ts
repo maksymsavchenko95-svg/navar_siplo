@@ -2,7 +2,14 @@ import type { ProductMatch, ProductSearchResult, ReplacementResult } from "@nava
 import { describe, expect, it, vi } from "vitest";
 
 import { mapPlan } from "./map.js";
-import type { MapperDictEntry, MapperRetail, PlanIngredientLine, RerankFn } from "./types.js";
+import type {
+  IngredientSafetyCheck,
+  MapperDictEntry,
+  MapperRetail,
+  PlanIngredientLine,
+  RerankFn,
+  SkuSafetyCheck,
+} from "./types.js";
 
 const dictEntry = (
   over: Partial<MapperDictEntry> & Pick<MapperDictEntry, "slug" | "nameUk">,
@@ -12,6 +19,7 @@ const dictEntry = (
   densityGMl: null,
   gramsPerPiece: null,
   synonyms: [],
+  allergens: [],
   ...over,
 });
 
@@ -26,6 +34,13 @@ const DICT = new Map(
       densityGMl: 1.03,
     }),
     dictEntry({ slug: "dill", nameUk: "Кріп", category: "vegetable" }),
+    dictEntry({
+      slug: "wheat_flour",
+      nameUk: "Борошно пшеничне",
+      category: "grain",
+      allergens: ["gluten"],
+    }),
+    dictEntry({ slug: "soy_sauce", nameUk: "Соус соєвий", category: "pantry", baseUnit: "ml" }),
   ].map((e) => [e.slug, e]),
 );
 
@@ -200,5 +215,121 @@ describe("mapPlan", () => {
     );
     expect(res.matches).toHaveLength(1);
     expect(res.matches[0]).toMatchObject({ neededAmount: 900, packCount: 3, surplusAmount: 300 });
+  });
+
+  // ─── Safety gate (T2.2) ────────────────────────────────────────────────────
+
+  /** Blocks any ingredient carrying one of `allergens`, or any slug in `slugs`. */
+  const ingredientSafetyFor =
+    (allergens: string[], slugs: string[] = []): IngredientSafetyCheck =>
+    (entry) => {
+      if (slugs.includes(entry.slug))
+        return { blocked: true, reason: `«${entry.nameUk}» виключено` };
+      const hit = entry.allergens.filter((a) => allergens.includes(a));
+      return hit.length
+        ? { blocked: true, reason: `«${entry.nameUk}» містить алерген (глютен)` }
+        : { blocked: false, reason: null };
+    };
+
+  it("ingredient-level block: excluded allergen → blocked_unsafe, no search", async () => {
+    const retail = fakeRetail({
+      борошно: [sku({ productId: "f1", name: "Борошно" })],
+      морква: [sku({ productId: "c1", name: "Морква" })],
+    });
+    const res = await mapPlan(
+      {
+        lines: lines([
+          { slug: "wheat_flour", amount: 200, unit: "g" },
+          { slug: "carrot", amount: 100, unit: "g" },
+        ]),
+        dict: DICT,
+      },
+      { retail, rerank: vi.fn(fallbackRerank), ingredientSafety: ingredientSafetyFor(["gluten"]) },
+    );
+    const flour = res.matches.find((m) => m.slug === "wheat_flour")!;
+    expect(flour).toMatchObject({ decision: "blocked_unsafe", match: null, safetyChecked: true });
+    expect(flour.blockReason).toMatch(/глютен/);
+    expect(res.stats.blocked).toBe(1);
+    expect(retail.findSpy.mock.calls.flat(2)).not.toContain("борошно");
+    expect(res.matches.find((m) => m.slug === "carrot")!.match).not.toBeNull();
+  });
+
+  it("ingredient-level block: strict-dislike slug → blocked_unsafe", async () => {
+    const res = await mapPlan(
+      { lines: lines([{ slug: "carrot", amount: 100, unit: "g" }]), dict: DICT },
+      {
+        retail: fakeRetail({}),
+        rerank: vi.fn(fallbackRerank),
+        ingredientSafety: ingredientSafetyFor([], ["carrot"]),
+      },
+    );
+    expect(res.matches[0]).toMatchObject({ decision: "blocked_unsafe", match: null });
+  });
+
+  it("SKU-level block: skuSafety vetoes a chosen SKU", async () => {
+    const retail = fakeRetail({
+      "соус соєвий": [sku({ productId: "s1", name: "Соус соєвий Kikkoman" })],
+      морква: [sku({ productId: "c1", name: "Морква" })],
+    });
+    const skuSafety: SkuSafetyCheck = vi.fn(async ({ slug }) =>
+      slug === "soy_sauce"
+        ? { blocked: true, reason: "Не додано: у складі вказано алерген (глютен)." }
+        : { blocked: false, reason: null },
+    );
+    const res = await mapPlan(
+      {
+        lines: lines([
+          { slug: "soy_sauce", amount: 30, unit: "ml" },
+          { slug: "carrot", amount: 100, unit: "g" },
+        ]),
+        dict: DICT,
+      },
+      {
+        retail,
+        rerank: vi.fn(fallbackRerank),
+        ingredientSafety: ingredientSafetyFor(["gluten"]),
+        skuSafety,
+      },
+    );
+    expect(skuSafety).toHaveBeenCalled();
+    const soy = res.matches.find((m) => m.slug === "soy_sauce")!;
+    expect(soy).toMatchObject({ decision: "blocked_unsafe", match: null, safetyChecked: true });
+    expect(res.matches.find((m) => m.slug === "carrot")!.match).not.toBeNull();
+    expect(res.stats.blocked).toBe(1);
+  });
+
+  it("SKU-level check also covers a replacement SKU (FR-SAFE-004)", async () => {
+    const retail = fakeRetail(
+      { морква: [sku({ productId: "c-oos", name: "Морква", inStock: false })] },
+      { "c-oos": [sku({ productId: "c-alt", name: "Морква мита", inStock: true })] },
+    );
+    const seen: string[] = [];
+    const skuSafety: SkuSafetyCheck = vi.fn(async ({ chosen }) => {
+      seen.push(chosen.productId);
+      return { blocked: false, reason: null };
+    });
+    const res = await mapPlan(
+      { lines: lines([{ slug: "carrot", amount: 300, unit: "g" }]), dict: DICT },
+      {
+        retail,
+        rerank: vi.fn(fallbackRerank),
+        ingredientSafety: ingredientSafetyFor(["milk"]),
+        skuSafety,
+      },
+    );
+    expect(seen).toEqual(["c-alt"]); // the replacement, not the OOS original
+    expect(res.matches[0]).toMatchObject({ decision: "replacement", safetyChecked: true });
+  });
+
+  it("no safety deps → safetyChecked stays false", async () => {
+    const res = await mapPlan(
+      { lines: lines([{ slug: "carrot", amount: 100, unit: "g" }]), dict: DICT },
+      {
+        retail: fakeRetail({ морква: [sku({ productId: "c1", name: "Морква" })] }),
+        rerank: vi.fn(fallbackRerank),
+      },
+    );
+    expect(res.matches[0]!.safetyChecked).toBe(false);
+    expect(res.stats.blocked).toBe(0);
   });
 });

@@ -1,8 +1,21 @@
 import { db, schema } from "@navar/db";
-import type { SkuMatch } from "@navar/domain";
+import type { ProductDetails, SkuMatch, StoredRestriction } from "@navar/domain";
 import { llmRerank } from "@navar/llm";
-import type { MapperDictEntry, RerankFn } from "@navar/mapper";
-import { inArray } from "drizzle-orm";
+import type {
+  IngredientSafetyCheck,
+  MapperDictEntry,
+  RerankFn,
+  SkuSafetyCheck,
+} from "@navar/mapper";
+import type { RetailProvider } from "@navar/retail";
+import {
+  checkIngredient,
+  checkSku,
+  type Exclusions,
+  needsSkuCheck,
+  resolveExclusions,
+} from "@navar/safety";
+import { eq, inArray } from "drizzle-orm";
 
 import { getLlm, getLlmTracer } from "./llm.js";
 
@@ -22,6 +35,7 @@ export async function loadMapperDict(slugs: string[]): Promise<Map<string, Mappe
       densityGMl: schema.canonicalIngredients.densityGMl,
       gramsPerPiece: schema.canonicalIngredients.gramsPerPiece,
       synonyms: schema.canonicalIngredients.synonyms,
+      allergens: schema.canonicalIngredients.allergens,
     })
     .from(schema.canonicalIngredients)
     .where(inArray(schema.canonicalIngredients.slug, slugs));
@@ -37,9 +51,82 @@ export async function loadMapperDict(slugs: string[]): Promise<Map<string, Mappe
         densityGMl: r.densityGMl == null ? null : Number(r.densityGMl),
         gramsPerPiece: r.gramsPerPiece == null ? null : Number(r.gramsPerPiece),
         synonyms: r.synonyms ?? [],
+        allergens: r.allergens ?? [],
       },
     ]),
   );
+}
+
+/** The household's hard exclusions (`@navar/safety`) — empty when the household is unknown. */
+export async function loadExclusions(householdId: string): Promise<Exclusions> {
+  const rows = await db
+    .select({
+      kind: schema.householdRestrictions.kind,
+      code: schema.householdRestrictions.code,
+      severity: schema.householdRestrictions.severity,
+      source: schema.householdRestrictions.source,
+      confirmedAt: schema.householdRestrictions.confirmedAt,
+    })
+    .from(schema.householdRestrictions)
+    .where(eq(schema.householdRestrictions.householdId, householdId));
+
+  const stored: StoredRestriction[] = rows.map((r) => ({
+    kind: r.kind as StoredRestriction["kind"],
+    code: r.code,
+    severity: r.severity as StoredRestriction["severity"],
+    source: r.source as StoredRestriction["source"],
+    confirmed: r.confirmedAt !== null,
+  }));
+  return resolveExclusions(stored);
+}
+
+/** `@navar/mapper`'s `IngredientSafetyCheck` bound to a household's exclusions (T2.2). */
+export function makeIngredientSafety(exclusions: Exclusions): IngredientSafetyCheck {
+  return (entry) => {
+    const v = checkIngredient({
+      slug: entry.slug,
+      allergens: entry.allergens,
+      exclusions,
+    });
+    return v.safe ? { blocked: false, reason: null } : { blocked: true, reason: v.reason };
+  };
+}
+
+/**
+ * `@navar/mapper`'s `SkuSafetyCheck` — targeted: fetch `get_product_details` only for a
+ * chosen SKU in an allergen-risk category, then `checkSku` (fail-closed, ADR-05). A failed
+ * fetch next to a declared allergy is a block, not a pass. Logs every block (`FR-SAFE-006`).
+ */
+export function makeSkuSafety(
+  retail: RetailProvider,
+  exclusions: Exclusions,
+  householdId: string,
+): SkuSafetyCheck {
+  return async ({ slug, category, chosen }) => {
+    if (!needsSkuCheck(category as Parameters<typeof needsSkuCheck>[0], exclusions)) {
+      return { blocked: false, reason: null };
+    }
+    let details: ProductDetails;
+    try {
+      details = await retail.getProductDetails(chosen.slug);
+    } catch (err) {
+      console.warn(
+        `[safety] blocked ${slug} (${chosen.slug}) hh=${householdId}: details fetch failed — ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return {
+        blocked: true,
+        reason: "Не додано: не вдалося перевірити склад товару, а вказано алергію.",
+      };
+    }
+    const v = checkSku({ details, exclusions });
+    if (v.safe) return { blocked: false, reason: null };
+    console.warn(
+      `[safety] blocked ${slug} (${chosen.slug}) hh=${householdId}: ` +
+        `${v.allergens.join(",")} via ${v.source}`,
+    );
+    return { blocked: true, reason: v.reason };
+  };
 }
 
 /** The LLM re-rank function for the mapper's close-call branch, wired to the API singletons. */

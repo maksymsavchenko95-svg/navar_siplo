@@ -1,11 +1,11 @@
 import { db } from "@navar/db";
-import type { ProductMatch, ProductSearchResult } from "@navar/domain";
+import type { ProductDetails, ProductMatch, ProductSearchResult } from "@navar/domain";
 import { AuthRequiredError } from "@navar/retail";
 import { describe, expect, it, vi } from "vitest";
 
 import { getLlm, getLlmTracer } from "../llm.js";
-import { appRouter } from "./router.js";
 import type { Context } from "./context.js";
+import { appRouter } from "./router.js";
 
 const sku = (
   over: Partial<ProductMatch> & Pick<ProductMatch, "productId" | "name">,
@@ -24,13 +24,40 @@ const sku = (
   ...over,
 });
 
-function ctxWith(retail: Partial<Context["retail"]>): Context {
+/** A clean product card — no allergens, composition present → the SKU gate passes it. */
+const cleanDetails = (slug: string): ProductDetails => ({
+  slug,
+  name: slug,
+  price: 30,
+  oldPrice: null,
+  inStock: true,
+  weighted: false,
+  packSize: "500г",
+  attributes: {},
+  composition: "інгредієнти",
+  allergens: [],
+  kcal100: null,
+  protein100: null,
+  fat100: null,
+  carbs100: null,
+});
+
+function fakeRetail(over: Partial<Context["retail"]> = {}): Context["retail"] {
   return {
-    db,
-    retail: retail as Context["retail"],
-    llm: getLlm(),
-    tracer: getLlmTracer(),
-  } as Context;
+    findProducts: vi.fn(async (queries: string[]): Promise<ProductSearchResult[]> =>
+      queries.map((query) => ({
+        query,
+        products: [sku({ productId: `${query}-1`, name: query })],
+      })),
+    ),
+    getReplacements: async () => [],
+    getProductDetails: vi.fn(async (slug: string) => cleanDetails(slug)),
+    ...over,
+  } as Context["retail"];
+}
+
+function ctxWith(retail: Partial<Context["retail"]>): Context {
+  return { db, retail: fakeRetail(retail), llm: getLlm(), tracer: getLlmTracer() } as Context;
 }
 
 describe.skipIf(!process.env.DATABASE_URL)("recipes.skuCandidates (integration)", () => {
@@ -38,24 +65,33 @@ describe.skipIf(!process.env.DATABASE_URL)("recipes.skuCandidates (integration)"
     const recipe = await db.query.recipes.findFirst();
     if (!recipe) throw new Error("no recipes — run pnpm db:seed");
 
-    const findProducts = vi.fn(async (queries: string[]): Promise<ProductSearchResult[]> =>
-      queries.map((query) => ({
-        query,
-        products: [sku({ productId: `${query}-1`, name: query })],
-      })),
-    );
-    const caller = appRouter.createCaller(
-      ctxWith({ findProducts, getReplacements: async () => [] }),
-    );
-
+    const caller = appRouter.createCaller(ctxWith({}));
     const res = await caller.recipes.skuCandidates({ recipeId: recipe.id });
+
     expect(res.status).toBe("ok");
     if (res.status !== "ok") return;
     expect(res.items.length).toBeGreaterThan(0);
     expect(res.items[0]).toHaveProperty("confidence");
-    expect(res.items[0]).toHaveProperty("packCount");
+    expect(res.items[0]).toHaveProperty("blocked");
     expect(res.matchedCount).toBeGreaterThan(0);
-    expect(findProducts).toHaveBeenCalled();
+  });
+
+  it("blocks a gluten-bearing ingredient for the seeded (gluten-allergic) demo household", async () => {
+    const recipe = await db.query.recipes.findFirst({
+      where: (r, { eq }) => eq(r.slug, "cottage_cheese_syrniki"),
+      with: { ingredients: { with: { ingredient: true } } },
+    });
+    if (!recipe) throw new Error("recipe cottage_cheese_syrniki missing — run pnpm db:seed");
+
+    const caller = appRouter.createCaller(ctxWith({}));
+    const res = await caller.recipes.skuCandidates({ recipeId: recipe.id });
+    if (res.status !== "ok") throw new Error(`expected ok, got ${res.status}`);
+
+    const flour = res.items.find((i) => i.ingredient.toLowerCase().includes("борошно"));
+    expect(flour?.blocked).toBe(true);
+    expect(flour?.blockReason).toMatch(/глютен/);
+    expect(flour?.match).toBeNull();
+    expect(res.blockedCount).toBeGreaterThanOrEqual(1);
   });
 
   it("surfaces AuthRequiredError as auth_required", async () => {
@@ -67,7 +103,6 @@ describe.skipIf(!process.env.DATABASE_URL)("recipes.skuCandidates (integration)"
         findProducts: async () => {
           throw new AuthRequiredError("run mcp:auth");
         },
-        getReplacements: async () => [],
       }),
     );
     const res = await caller.recipes.skuCandidates({ recipeId: recipe.id });
@@ -75,7 +110,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recipes.skuCandidates (integration)"
   });
 
   it("returns an error for an unknown recipe id", async () => {
-    const caller = appRouter.createCaller(ctxWith({ findProducts: async () => [] }));
+    const caller = appRouter.createCaller(ctxWith({}));
     const res = await caller.recipes.skuCandidates({
       recipeId: "00000000-0000-0000-0000-000000000000",
     });
