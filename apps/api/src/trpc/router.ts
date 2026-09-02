@@ -5,9 +5,11 @@ import type {
   RecipeShoppingResult,
   RecipeSummary,
 } from "@navar/domain";
+import { mapPlan, type MapperRetail, type PlanIngredientLine } from "@navar/mapper";
 import { AuthRequiredError, NoCartError } from "@navar/retail";
 import { z } from "zod";
 
+import { getRerankFn, loadMapperDict } from "../mapper.js";
 import { householdRouter } from "./routers/household.js";
 import { publicProcedure, router } from "./trpc.js";
 
@@ -50,10 +52,10 @@ export const appRouter = router({
     }),
 
     /**
-     * For each ingredient of a recipe, the single Silpo SKU to buy it (naive first-match:
-     * first in-stock candidate, else first candidate). This is a demo of the live MCP —
-     * the real ingredient↔SKU mapping (pg_trgm + pgvector + scoring + safety gate) is
-     * `@navar/mapper` (TDD §5), still a stub.
+     * Map a recipe's ingredients to concrete Silpo SKUs via `@navar/mapper` (TDD §5):
+     * consolidate → head-noun query → deterministic score → LLM re-rank on a close call →
+     * flag low-confidence matches (`FR-MAP-006`). Pack-size aware; `totalUah` is the basket
+     * cost (price × packs). The SKU-level safety gate is T2.2.
      */
     skuCandidates: publicProcedure
       .input(z.object({ recipeId: z.string().uuid() }))
@@ -64,22 +66,39 @@ export const appRouter = router({
         });
         if (!recipe) return { status: "error", message: "recipe not found" };
 
-        const ingredients = recipe.ingredients.map((ri) => ri.ingredient.nameUk);
+        const lines: PlanIngredientLine[] = recipe.ingredients.map((ri) => ({
+          slug: ri.ingredient.slug,
+          amount: Number(ri.amount),
+          unit: ri.unit as PlanIngredientLine["unit"],
+          optional: ri.optional,
+        }));
 
         try {
-          const results = await ctx.retail.findProducts(ingredients);
-          const items: IngredientSkuCandidate[] = results.map((res) => {
-            const match = res.products.find((p) => p.inStock) ?? res.products[0] ?? null;
-            return { ingredient: res.query, query: res.query, match };
-          });
-          const matched = items.filter((i) => i.match !== null);
+          const dict = await loadMapperDict(lines.map((l) => l.slug));
+          const result = await mapPlan(
+            { lines, dict },
+            { retail: ctx.retail as MapperRetail, rerank: getRerankFn() },
+          );
+          const items: IngredientSkuCandidate[] = result.matches.map((m) => ({
+            ingredient: m.ingredientNameUk,
+            query: m.query,
+            match: m.match,
+            confidence: m.confidence,
+            needsConfirmation: m.needsConfirmation,
+            packCount: m.packCount,
+            surplusAmount: m.surplusAmount,
+          }));
+          const totalUah =
+            Math.round(
+              result.matches.reduce((s, m) => s + (m.match ? m.match.price * m.packCount : 0), 0) *
+                100,
+            ) / 100;
           return {
             status: "ok",
-            branchId: results[0]?.products[0]?.branchId ?? "",
+            branchId: result.branchId,
             items,
-            totalUah:
-              Math.round(matched.reduce((s, i) => s + (i.match?.price ?? 0), 0) * 100) / 100,
-            matchedCount: matched.length,
+            totalUah,
+            matchedCount: result.stats.matched,
           };
         } catch (err) {
           if (err instanceof AuthRequiredError) return { status: "auth_required", hint: err.hint };

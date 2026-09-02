@@ -32,6 +32,9 @@ importers:
       '@navar/llm':
         specifier: workspace:*
         version: link:../../packages/llm
+      '@navar/mapper':
+        specifier: workspace:*
+        version: link:../../packages/mapper
       '@navar/retail':
         specifier: workspace:*
         version: link:../../packages/retail
@@ -199,10 +202,25 @@ importers:
       '@navar/domain':
         specifier: workspace:*
         version: link:../domain
+      yaml:
+        specifier: ^2.6.1
+        version: 2.9.0
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
     devDependencies:
+      '@navar/db':
+        specifier: workspace:*
+        version: link:../db
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)
 
   packages/planner:
     dependencies:

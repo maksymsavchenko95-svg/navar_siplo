@@ -1,13 +1,39 @@
 /**
- * @navar/mapper — ingredient ↔ SKU. Consolidate the plan's ingredients (unit conversion
- * via density, `@navar/domain`), then match each to a concrete Silpo SKU: lexical
- * (pg_trgm) + vector (pgvector) candidates → deterministic scoring → LLM re-rank only
- * when the top-1/top-2 gap is small. Respect pack sizes; low-confidence matches are
- * flagged for the guest, never added silently. Replacements go through the same funnel.
+ * @navar/mapper — ingredient ↔ SKU (T2.1, TDD §5, SRS §6.6, `FR-MAP-001..006`).
  *
- * Spec: TDD §5, SRS §6.6. Consolidation and conversion are deterministic (ADR-02).
+ * Consolidate a plan's `CanonicalIngredient`s (unit conversion, deterministic) → normalise
+ * each to a head-noun search query (M0 audit follow-up #1) → score the `find_products_batch`
+ * candidates deterministically (ADR-02) → LLM re-rank only when the top-1/top-2 gap ≤ 0.25
+ * → flag `confidence < 0.6` for the Guest, never add silently (`FR-MAP-006`). Pack-size
+ * aware (`FR-MAP-003`); out-of-stock picks go through the replacement funnel (`FR-MAP-005`).
+ *
+ * The core is pure and dependency-injected: `mapPlan(input, { retail, rerank })`. `retail`
+ * is any `RetailProvider`; `rerank` is `@navar/llm`'s `llmRerank(...)` (its deterministic
+ * fallback keeps the pipeline reproducible — ADR-03). `pgvector` candidate generation is
+ * dormant in P0 (no embeddings) — trigram similarity does the SKU-name scoring.
  */
 
-export function mapIngredientsToSkus(): never {
-  throw new Error("mapper not implemented — P0 (TDD §5)");
-}
+export { consolidate, toBaseAmount, ConsolidationError } from "./consolidate.js";
+export { buildQuery, chunkQueries, MODIFIER_STOPWORDS } from "./normalize-query.js";
+export { parsePackSize, computePack, type PackPlan } from "./pack.js";
+export { scoreCandidate, rankCandidates, type ScoredCandidate } from "./score.js";
+export { decideMatch, type Decision } from "./decide.js";
+export { mapPlan, type MapPlanInput, type MapPlanDeps } from "./map.js";
+export {
+  loadGolden,
+  evaluateQuery,
+  goldenPairSchema,
+  GOLDEN_DIR,
+  type GoldenPair,
+  type GoldenQueryOutcome,
+} from "./golden.js";
+export {
+  ACCEPT_GAP,
+  MIN_CONFIDENCE,
+  BATCH_SIZE,
+  OVERSIZE_PACK_RATIO,
+  type MapperDictEntry,
+  type PlanIngredientLine,
+  type MapperRetail,
+  type RerankFn,
+} from "./types.js";

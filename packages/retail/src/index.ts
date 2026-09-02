@@ -17,7 +17,9 @@ export {
   parseProfile,
   parseRestrictionsRaw,
   toCartContext,
+  toProductDetails,
   toProductSearchResults,
+  toReplacementResults,
 } from "./silpo/parse.js";
 export { SilpoRetailProvider, type SilpoRetailProviderOptions } from "./silpo/adapter.js";
 export { SilpoOAuthProvider } from "./silpo/oauth.js";

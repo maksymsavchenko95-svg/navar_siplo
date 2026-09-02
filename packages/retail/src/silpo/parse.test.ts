@@ -10,7 +10,9 @@ import {
   parseRestrictionsRaw,
   parseToolResult,
   toCartContext,
+  toProductDetails,
   toProductSearchResults,
+  toReplacementResults,
 } from "./parse.js";
 
 describe("parseToolResult", () => {
@@ -95,6 +97,102 @@ describe("toProductSearchResults", () => {
       ["q"],
     );
     expect(out[0]!.products[0]!.inStock).toBe(false);
+  });
+
+  it("maps weighted / step for loose goods and defaults them otherwise", () => {
+    const out = toProductSearchResults(
+      {
+        queries: [
+          {
+            query: "q",
+            products: [
+              { id: "w", available: true, stock: 5, weighted: true, step: 0.4 },
+              { id: "p", available: true, stock: 5 },
+            ],
+          },
+        ],
+      },
+      ["q"],
+    );
+    expect(out[0]!.products[0]).toMatchObject({ weighted: true, step: 0.4 });
+    expect(out[0]!.products[1]).toMatchObject({ weighted: false, step: null });
+  });
+});
+
+describe("toProductDetails", () => {
+  it("flattens attributes: macros, kcal from the kcal/kJ string, allergens split", () => {
+    const d = toProductDetails({
+      product: {
+        slug: "khlib-zhytnii-1",
+        name: "Хліб житній",
+        price: 45.31,
+        oldPrice: 51.49,
+        stock: 2,
+        available: true,
+        weighted: false,
+        displayRatio: "300г",
+        attributes: {
+          Склад: "борошно житнє, вода",
+          "Містить алергени": "ГЛЮТЕН, ПШЕНИЦЯ",
+          "Енергетична цінність (кКал/кДЖ)": "189/801",
+          "Білки (г)": 5.7,
+          "Жири (г)": 0.8,
+          "Вуглеводи (г)": 39.7,
+        },
+      },
+    });
+    expect(d).toMatchObject({
+      slug: "khlib-zhytnii-1",
+      composition: "борошно житнє, вода",
+      allergens: ["ГЛЮТЕН", "ПШЕНИЦЯ"],
+      kcal100: 189,
+      protein100: 5.7,
+      fat100: 0.8,
+      carbs100: 39.7,
+      inStock: true,
+    });
+  });
+
+  it("is fail-safe when attributes is null (weighed produce)", () => {
+    const d = toProductDetails({
+      product: {
+        slug: "banan-1",
+        name: "Банан",
+        price: 62.3,
+        stock: 10,
+        available: true,
+        attributes: null,
+      },
+    });
+    expect(d).toMatchObject({
+      composition: null,
+      allergens: [],
+      kcal100: null,
+      protein100: null,
+      fat100: null,
+      carbs100: null,
+    });
+  });
+});
+
+describe("toReplacementResults", () => {
+  it("aligns to the requested id order; an id with no risk gets []", () => {
+    const out = toReplacementResults(
+      {
+        items: [
+          {
+            productId: "p2",
+            replacements: [
+              { id: "r1", name: "Замінник", slug: "r-1", price: 30, available: true, stock: 4 },
+            ],
+          },
+        ],
+      },
+      ["p1", "p2"],
+    );
+    expect(out.map((r) => r.productId)).toEqual(["p1", "p2"]);
+    expect(out[0]!.replacements).toEqual([]);
+    expect(out[1]!.replacements[0]).toMatchObject({ productId: "r1", slug: "r-1", inStock: true });
   });
 });
 

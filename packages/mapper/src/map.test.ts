@@ -1,0 +1,204 @@
+import type { ProductMatch, ProductSearchResult, ReplacementResult } from "@navar/domain";
+import { describe, expect, it, vi } from "vitest";
+
+import { mapPlan } from "./map.js";
+import type { MapperDictEntry, MapperRetail, PlanIngredientLine, RerankFn } from "./types.js";
+
+const dictEntry = (
+  over: Partial<MapperDictEntry> & Pick<MapperDictEntry, "slug" | "nameUk">,
+): MapperDictEntry => ({
+  category: "other",
+  baseUnit: "g",
+  densityGMl: null,
+  gramsPerPiece: null,
+  synonyms: [],
+  ...over,
+});
+
+const DICT = new Map(
+  [
+    dictEntry({ slug: "carrot", nameUk: "Морква", category: "vegetable" }),
+    dictEntry({
+      slug: "milk",
+      nameUk: "Молоко",
+      category: "dairy_eggs",
+      baseUnit: "ml",
+      densityGMl: 1.03,
+    }),
+    dictEntry({ slug: "dill", nameUk: "Кріп", category: "vegetable" }),
+  ].map((e) => [e.slug, e]),
+);
+
+const sku = (
+  over: Partial<ProductMatch> & Pick<ProductMatch, "productId" | "name">,
+): ProductMatch => ({
+  externalProductId: null,
+  companyId: "co",
+  branchId: "br-1",
+  slug: over.productId,
+  price: 40,
+  oldPrice: null,
+  packSize: "500г",
+  imageUrl: null,
+  inStock: true,
+  weighted: false,
+  step: null,
+  ...over,
+});
+
+/** A fake retail whose search answers from a fixed `query → products` table. */
+function fakeRetail(
+  table: Record<string, ProductMatch[]>,
+  replacements: Record<string, ProductMatch[]> = {},
+): MapperRetail & { findSpy: ReturnType<typeof vi.fn>; repSpy: ReturnType<typeof vi.fn> } {
+  const findSpy = vi.fn(async (queries: string[]): Promise<ProductSearchResult[]> =>
+    queries.map((query) => ({ query, products: table[query] ?? [] })),
+  );
+  const repSpy = vi.fn(
+    async (items: { productId: string; companyId: string }[]): Promise<ReplacementResult[]> =>
+      items.map((i) => ({ productId: i.productId, replacements: replacements[i.productId] ?? [] })),
+  );
+  return { findProducts: findSpy, getReplacements: repSpy, findSpy, repSpy };
+}
+
+const fallbackRerank: RerankFn = async (input) => ({
+  index: 0,
+  confidence: 0.45 + ((input.candidates[0]?.score ?? 0) - (input.candidates[1]?.score ?? 0)),
+  source: "fallback",
+});
+
+const lines = (xs: PlanIngredientLine[]) => xs;
+
+describe("mapPlan", () => {
+  it("clear winner: accepts top-1 and does not call the re-ranker", async () => {
+    const retail = fakeRetail({
+      морква: [
+        sku({ productId: "carrot-ok", name: "Морква" }),
+        sku({ productId: "carrot-cake", name: "Морквяний торт заморожений", inStock: true }),
+      ],
+    });
+    const rerank = vi.fn(fallbackRerank);
+    const res = await mapPlan(
+      { lines: lines([{ slug: "carrot", amount: 300, unit: "g" }]), dict: DICT },
+      { retail, rerank },
+    );
+    expect(rerank).not.toHaveBeenCalled();
+    expect(res.matches[0]).toMatchObject({
+      decision: "accepted",
+      match: { productId: "carrot-ok" },
+    });
+    expect(res.branchId).toBe("br-1");
+  });
+
+  it("close call: calls the re-ranker once with ≤5 candidates and takes its pick", async () => {
+    const retail = fakeRetail({
+      молоко: [
+        sku({ productId: "m1", name: "Молоко Яготинське відбіркове" }),
+        sku({ productId: "m2", name: "Молоко Селянське відбіркове" }),
+      ],
+    });
+    // pick whichever candidate the LLM was shown as "Селянське"
+    const rerank = vi.fn<RerankFn>(async (input) => ({
+      index: input.candidates.findIndex((c) => c.name.includes("Селянське")),
+      confidence: 0.82,
+      source: "llm",
+    }));
+    const res = await mapPlan(
+      { lines: lines([{ slug: "milk", amount: 500, unit: "ml" }]), dict: DICT },
+      { retail, rerank },
+    );
+    expect(rerank).toHaveBeenCalledTimes(1);
+    expect(rerank.mock.calls[0]![0].candidates.length).toBeLessThanOrEqual(5);
+    expect(res.matches[0]).toMatchObject({
+      decision: "reranked",
+      confidence: 0.82,
+      rerankSource: "llm",
+      match: { productId: "m2" },
+    });
+  });
+
+  it("low confidence → needs_confirmation, match still populated and counted", async () => {
+    const retail = fakeRetail({
+      молоко: [
+        sku({ productId: "m1", name: "Молоко Яготинське відбіркове" }),
+        sku({ productId: "m2", name: "Молоко Селянське відбіркове" }),
+      ],
+    });
+    const rerank = vi.fn<RerankFn>(async () => ({ index: 0, confidence: 0.3, source: "llm" }));
+    const res = await mapPlan(
+      { lines: lines([{ slug: "milk", amount: 500, unit: "ml" }]), dict: DICT },
+      { retail, rerank },
+    );
+    expect(res.matches[0]).toMatchObject({
+      decision: "needs_confirmation",
+      needsConfirmation: true,
+    });
+    expect(res.matches[0]!.match).not.toBeNull();
+    expect(res.stats.needsConfirmation).toBe(1);
+  });
+
+  it("no search results → no_match", async () => {
+    const res = await mapPlan(
+      { lines: lines([{ slug: "dill", amount: 10, unit: "g" }]), dict: DICT },
+      { retail: fakeRetail({}), rerank: vi.fn(fallbackRerank) },
+    );
+    expect(res.matches[0]).toMatchObject({ decision: "no_match", match: null });
+    expect(res.stats).toMatchObject({ total: 1, matched: 0, noMatch: 1 });
+  });
+
+  it("out-of-stock pick → replacement funnel chooses a new SKU", async () => {
+    const retail = fakeRetail(
+      { морква: [sku({ productId: "carrot-oos", name: "Морква", inStock: false })] },
+      { "carrot-oos": [sku({ productId: "carrot-alt", name: "Морква мита", inStock: true })] },
+    );
+    const res = await mapPlan(
+      { lines: lines([{ slug: "carrot", amount: 300, unit: "g" }]), dict: DICT },
+      { retail, rerank: vi.fn(fallbackRerank) },
+    );
+    expect(retail.repSpy).toHaveBeenCalledWith([{ productId: "carrot-oos", companyId: "co" }]);
+    expect(res.matches[0]).toMatchObject({
+      decision: "replacement",
+      match: { productId: "carrot-alt" },
+    });
+  });
+
+  it("is deterministic with the offline fallback re-ranker", async () => {
+    const table = {
+      молоко: [
+        sku({ productId: "m1", name: "Молоко Яготинське відбіркове" }),
+        sku({ productId: "m2", name: "Молоко Селянське відбіркове" }),
+      ],
+      морква: [sku({ productId: "c1", name: "Морква" })],
+    };
+    const run = () =>
+      mapPlan(
+        {
+          lines: lines([
+            { slug: "milk", amount: 500, unit: "ml" },
+            { slug: "carrot", amount: 300, unit: "g" },
+          ]),
+          dict: DICT,
+        },
+        { retail: fakeRetail(table), rerank: fallbackRerank },
+      );
+    expect(await run()).toEqual(await run());
+  });
+
+  it("consolidates identical ingredients into one SkuMatch with pack/surplus", async () => {
+    const retail = fakeRetail({
+      морква: [sku({ productId: "c1", name: "Морква", packSize: "400г" })],
+    });
+    const res = await mapPlan(
+      {
+        lines: lines([
+          { slug: "carrot", amount: 500, unit: "g" },
+          { slug: "carrot", amount: 400, unit: "g" },
+        ]),
+        dict: DICT,
+      },
+      { retail, rerank: vi.fn(fallbackRerank) },
+    );
+    expect(res.matches).toHaveLength(1);
+    expect(res.matches[0]).toMatchObject({ neededAmount: 900, packCount: 3, surplusAmount: 300 });
+  });
+});

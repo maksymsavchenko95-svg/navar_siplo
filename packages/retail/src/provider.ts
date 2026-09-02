@@ -1,8 +1,10 @@
 import type {
   CartContext,
   McpToolsResult,
+  ProductDetails,
   ProductSearchResult,
   RawRestriction,
+  ReplacementResult,
   RetailAddress,
   RetailFamily,
   RetailFavorite,
@@ -29,6 +31,20 @@ export interface RetailProvider {
 
   /** Search the catalogue for each query (batched). Result order matches the input. */
   findProducts(queries: string[]): Promise<ProductSearchResult[]>;
+
+  /**
+   * Cart-gated. Composition + nutrition for one SKU (`silpo_get_product_details`). Feeds
+   * the SKU-level safety gate (T2.2) and the replacement funnel — not the mapper's
+   * scoring path. Throws `NoCartError` / `AuthRequiredError`.
+   */
+  getProductDetails(slug: string): Promise<ProductDetails>;
+
+  /**
+   * Cart-gated. Picking-risk replacement candidates for the given SKUs
+   * (`silpo_get_replacements`). `replacements: []` per id is the normal "no known risk"
+   * outcome, not an error. Result order matches the input.
+   */
+  getReplacements(items: { productId: string; companyId: string }[]): Promise<ReplacementResult[]>;
 }
 
 /**

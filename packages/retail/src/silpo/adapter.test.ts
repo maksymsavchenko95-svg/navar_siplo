@@ -238,3 +238,80 @@ describe("SilpoRetailProvider household reads", () => {
     await expect(provider.getFavorites()).rejects.toBeInstanceOf(NoCartError);
   });
 });
+
+describe("SilpoRetailProvider.getProductDetails / getReplacements", () => {
+  it("getProductDetails is cart-gated and passes branch/delivery/timeslot/slug", async () => {
+    const spy = vi.fn(
+      cartAwareStub({
+        silpo_get_product_details: {
+          product: {
+            slug: "hard-cheese-1",
+            name: "Сир твердий",
+            price: 120,
+            stock: 4,
+            available: true,
+            attributes: { "Білки (г)": 25, "Енергетична цінність (кКал/кДЖ)": "364/1520" },
+          },
+        },
+      }),
+    );
+    const provider = providerWith(spy, { withToken: true });
+    const d = await provider.getProductDetails("hard-cheese-1");
+    expect(d).toMatchObject({ slug: "hard-cheese-1", protein100: 25, kcal100: 364 });
+    expect(spy).toHaveBeenCalledWith({
+      name: "silpo_get_product_details",
+      arguments: {
+        branchId: "b1",
+        deliveryType: "DeliveryHome",
+        timeslotStart: "2026-09-02T10:00:00Z",
+        timeslotEnd: "2026-09-02T12:00:00Z",
+        slug: "hard-cheese-1",
+      },
+    });
+  });
+
+  it("getProductDetails throws AuthRequiredError without a token", async () => {
+    const provider = providerWith(cartAwareStub({}), { withToken: false });
+    await expect(provider.getProductDetails("x")).rejects.toBeInstanceOf(AuthRequiredError);
+  });
+
+  it("getReplacements takes companyId from the first item and aligns to input order", async () => {
+    const spy = vi.fn(
+      cartAwareStub({
+        silpo_get_replacements: {
+          items: [
+            {
+              productId: "p2",
+              replacements: [
+                { id: "r1", name: "Замінник", slug: "r-1", price: 30, available: true, stock: 2 },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    const provider = providerWith(spy, { withToken: true });
+    const out = await provider.getReplacements([
+      { productId: "p1", companyId: "co-1" },
+      { productId: "p2", companyId: "co-1" },
+    ]);
+    expect(out.map((r) => r.productId)).toEqual(["p1", "p2"]);
+    expect(out[1]!.replacements[0]).toMatchObject({ slug: "r-1" });
+    expect(spy).toHaveBeenCalledWith({
+      name: "silpo_get_replacements",
+      arguments: {
+        branchId: "b1",
+        companyId: "co-1",
+        deliveryType: "DeliveryHome",
+        productIds: ["p1", "p2"],
+      },
+    });
+  });
+
+  it("getReplacements returns [] without calling the tool for an empty input", async () => {
+    const spy = vi.fn(cartAwareStub({}));
+    const provider = providerWith(spy, { withToken: true });
+    expect(await provider.getReplacements([])).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});

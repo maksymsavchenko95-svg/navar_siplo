@@ -26,6 +26,8 @@ export const productMatchSchema = z.object({
   packSize: z.string().nullable(), // Silpo `displayRatio`, e.g. "400мл"
   imageUrl: z.string().nullable(),
   inStock: z.boolean(),
+  weighted: z.boolean().default(false), // priced by weight (meat / loose produce)
+  step: z.number().positive().nullable().default(null), // weighing increment, kg (e.g. 0.4)
 });
 export type ProductMatch = z.infer<typeof productMatchSchema>;
 
@@ -36,11 +38,49 @@ export const productSearchResultSchema = z.object({
 });
 export type ProductSearchResult = z.infer<typeof productSearchResultSchema>;
 
-/** One recipe ingredient → the single SKU picked to buy it (naive first-match, P0). */
+/**
+ * `silpo_get_product_details` for one SKU, flattened from `product.attributes`. Feeds the
+ * SKU-level safety gate (T2.2) and the replacement funnel — **not** the mapper's P0
+ * scoring path (composition coverage is ~22% per the M0 audit). No fibre is exposed.
+ */
+export const productDetailsSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  price: z.number(),
+  oldPrice: z.number().nullable(),
+  inStock: z.boolean(),
+  weighted: z.boolean(),
+  packSize: z.string().nullable(), // Silpo `displayRatio`
+  attributes: z.record(z.union([z.string(), z.number()])), // raw key→value
+  composition: z.string().nullable(), // "Склад"
+  allergens: z.array(z.string()), // "Містить алергени: ГЛЮТЕН,ПШЕНИЦЯ" → ["ГЛЮТЕН","ПШЕНИЦЯ"]
+  kcal100: z.number().nullable(), // parseKcal("189/801") → 189
+  protein100: z.number().nullable(),
+  fat100: z.number().nullable(),
+  carbs100: z.number().nullable(),
+});
+export type ProductDetails = z.infer<typeof productDetailsSchema>;
+
+/** `silpo_get_replacements` → one entry per requested SKU. `replacements: []` is normal. */
+export const replacementResultSchema = z.object({
+  productId: z.string(),
+  replacements: z.array(productMatchSchema),
+});
+export type ReplacementResult = z.infer<typeof replacementResultSchema>;
+
+/**
+ * One recipe ingredient → the single SKU picked to buy it. `confidence` /
+ * `needsConfirmation` / `packCount` / `surplusAmount` are populated by `@navar/mapper`
+ * (T2.1); the defaults keep the pre-mapper naive shape valid.
+ */
 export const ingredientSkuCandidateSchema = z.object({
   ingredient: z.string(),
   query: z.string(),
   match: productMatchSchema.nullable(),
+  confidence: z.number().min(0).max(1).nullable().default(null),
+  needsConfirmation: z.boolean().default(false),
+  packCount: z.number().int().nonnegative().default(1),
+  surplusAmount: z.number().nonnegative().default(0),
 });
 export type IngredientSkuCandidate = z.infer<typeof ingredientSkuCandidateSchema>;
 

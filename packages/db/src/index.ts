@@ -13,3 +13,4 @@ export {
   synonymIndex,
   type SynonymEntry,
 } from "./receipt-lines.js";
+export { CANONICAL_INGREDIENTS } from "./data/canonical-ingredients.js";

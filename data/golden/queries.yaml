@@ -1,0 +1,254 @@
+# Golden mapping dataset — ingredient → expected Silpo SKU (NFR-MNT-003, TDD §5).
+#
+# Seeded in T2.1 (~40 pairs from the recipe corpus); grown to ≥100 under T5.3.
+# Without a committed catalogue snapshot, an "expected SKU" is expressed as:
+#   expectQueryContains / expectQueryExcludes — assertions on buildQuery(dictEntry),
+#     checked on every run (packages/mapper/src/golden.test.ts). This is the regression
+#     guard for query-normalisation and prompt edits.
+#   expectCategory                            — the dictionary category (sanity).
+#   acceptSkuKeywords                         — for the live hit-rate probe
+#     (pnpm --filter @navar/api mapper:probe): ≥1 must appear in a returned SKU name.
+#
+# The M0 audit failure cases ("пучок кропу", "куряче філе охолоджене", "сметана 20%",
+# "гречка ядриця") are pinned here as regression fixtures.
+
+- slug: chicken_breast
+  expectQueryContains: ["куряче", "філе"]
+  expectQueryExcludes: ["охолоджен", "грудка"]
+  expectCategory: meat
+  acceptSkuKeywords: ["філе", "куряч"]
+
+- slug: chicken_mince
+  expectQueryContains: ["фарш"]
+  expectCategory: meat
+  acceptSkuKeywords: ["фарш"]
+
+- slug: turkey_fillet
+  expectQueryContains: ["індич"]
+  expectCategory: meat
+  acceptSkuKeywords: ["індич"]
+
+- slug: beef_stewing
+  expectQueryContains: ["яловичина"]
+  expectQueryExcludes: ["тушкуванн"]
+  expectCategory: meat
+  acceptSkuKeywords: ["яловичина"]
+
+- slug: pork_loin
+  expectQueryContains: ["свинина"]
+  expectCategory: meat
+  acceptSkuKeywords: ["свинина", "корейка"]
+
+- slug: hake
+  expectQueryContains: ["хек"]
+  expectCategory: fish
+  acceptSkuKeywords: ["хек"]
+
+- slug: salmon_fillet
+  expectQueryContains: ["лосос"]
+  expectCategory: fish
+  acceptSkuKeywords: ["лосос", "сьомга"]
+
+- slug: tuna_canned
+  expectQueryContains: ["тунець"]
+  expectCategory: fish
+  acceptSkuKeywords: ["тунець"]
+
+- slug: milk
+  expectQueryContains: ["молоко"]
+  expectQueryExcludes: ["2", "пастеризован"]
+  expectCategory: dairy_eggs
+  acceptSkuKeywords: ["молоко"]
+
+- slug: sour_cream
+  expectQueryContains: ["сметана"]
+  expectQueryExcludes: ["20", "15"]
+  expectCategory: dairy_eggs
+  acceptSkuKeywords: ["сметана"]
+
+- slug: hard_cheese
+  expectQueryContains: ["сир"]
+  expectCategory: dairy_eggs
+  acceptSkuKeywords: ["сир"]
+
+- slug: feta_cheese
+  expectQueryContains: ["бринза"]
+  expectCategory: dairy_eggs
+  acceptSkuKeywords: ["бринза", "фета"]
+
+- slug: butter
+  expectQueryContains: ["масло"]
+  expectQueryExcludes: ["82"]
+  expectCategory: dairy_eggs
+  acceptSkuKeywords: ["масло"]
+
+- slug: egg
+  expectQueryContains: ["яйця"]
+  expectQueryExcludes: ["с0", "c0"]
+  expectCategory: dairy_eggs
+  acceptSkuKeywords: ["яйц"]
+
+- slug: onion
+  expectQueryContains: ["цибуля"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["цибуля"]
+
+- slug: garlic
+  expectQueryContains: ["часник"]
+  expectQueryExcludes: ["зубчик", "головк"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["часник"]
+
+- slug: carrot
+  expectQueryContains: ["морква"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["морква"]
+
+- slug: potato
+  expectQueryContains: ["картопля"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["картопля"]
+
+- slug: bell_pepper
+  expectQueryContains: ["перець"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["перець"]
+
+- slug: tomato
+  expectQueryContains: ["помідор"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["помідор", "томат"]
+
+- slug: cucumber
+  expectQueryContains: ["огірк"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["огірк"]
+
+- slug: zucchini
+  expectQueryContains: ["кабачок"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["кабачок", "цукіні"]
+
+- slug: white_cabbage
+  expectQueryContains: ["капуста"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["капуста"]
+
+- slug: champignon
+  expectQueryContains: ["печериці"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["печериці", "гриби"]
+
+- slug: spinach
+  expectQueryContains: ["шпинат"]
+  expectQueryExcludes: ["листя"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["шпинат"]
+
+- slug: dill
+  expectQueryContains: ["кріп"]
+  expectQueryExcludes: ["пучок", "зелень"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["кріп"]
+
+- slug: parsley
+  expectQueryContains: ["петрушка"]
+  expectQueryExcludes: ["пучок", "зелень"]
+  expectCategory: vegetable
+  acceptSkuKeywords: ["петрушка"]
+
+- slug: lemon
+  expectQueryContains: ["лимон"]
+  expectCategory: fruit
+  acceptSkuKeywords: ["лимон"]
+
+- slug: rice_long_grain
+  expectQueryContains: ["рис"]
+  expectCategory: grain
+  acceptSkuKeywords: ["рис"]
+
+- slug: rice_round_grain
+  expectQueryContains: ["рис"]
+  expectCategory: grain
+  acceptSkuKeywords: ["рис"]
+
+- slug: buckwheat_groats
+  expectQueryContains: ["гречка"]
+  expectQueryExcludes: ["ядриц", "крупа"]
+  expectCategory: grain
+  acceptSkuKeywords: ["гречка"]
+
+- slug: pearl_barley
+  expectQueryContains: ["перлов"]
+  expectCategory: grain
+  acceptSkuKeywords: ["перлов"]
+
+- slug: pasta
+  expectQueryContains: ["макарони"]
+  expectCategory: grain
+  acceptSkuKeywords: ["макарони", "паста", "спагеті"]
+
+- slug: wheat_flour
+  expectQueryContains: ["борошно"]
+  expectQueryExcludes: ["мука"]
+  expectCategory: grain
+  acceptSkuKeywords: ["борошно"]
+
+- slug: red_beans
+  expectQueryContains: ["квасоля"]
+  expectCategory: legume
+  acceptSkuKeywords: ["квасоля"]
+
+- slug: lentils
+  expectQueryContains: ["сочевиця"]
+  expectCategory: legume
+  acceptSkuKeywords: ["сочевиця"]
+
+- slug: sunflower_oil
+  expectQueryContains: ["олія", "соняшникова"]
+  expectCategory: fat_oil
+  acceptSkuKeywords: ["олія"]
+
+- slug: olive_oil
+  expectQueryContains: ["олія", "оливкова"]
+  expectCategory: fat_oil
+  acceptSkuKeywords: ["олія", "олив"]
+
+- slug: tomato_paste
+  expectQueryContains: ["паста", "томатна"]
+  expectQueryExcludes: ["пюре"]
+  expectCategory: pantry
+  acceptSkuKeywords: ["томатна паста", "паста томатна"]
+
+- slug: canned_tomatoes
+  expectQueryContains: ["помідори"]
+  expectCategory: pantry
+  acceptSkuKeywords: ["помідори", "томати"]
+
+- slug: soy_sauce
+  expectQueryContains: ["соус", "соєвий"]
+  expectCategory: pantry
+  acceptSkuKeywords: ["соєвий"]
+
+- slug: honey
+  expectQueryContains: ["мед"]
+  expectQueryExcludes: ["натуральн"]
+  expectCategory: pantry
+  acceptSkuKeywords: ["мед"]
+
+- slug: salt
+  expectQueryContains: ["сіль"]
+  expectQueryExcludes: ["кухонна", "морська"]
+  expectCategory: pantry
+  acceptSkuKeywords: ["сіль"]
+
+- slug: bay_leaf
+  expectQueryContains: ["лавр"]
+  expectCategory: spice_herb
+  acceptSkuKeywords: ["лавр"]
+
+- slug: paprika_ground
+  expectQueryContains: ["паприка"]
+  expectQueryExcludes: ["мелен"]
+  expectCategory: spice_herb
+  acceptSkuKeywords: ["паприка"]

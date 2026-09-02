@@ -24,3 +24,4 @@ export { llmEnv } from "./env.js";
 export { explainPlanStep } from "./steps/explainPlan.js";
 export { inferConsumptionStep, deriveTags } from "./steps/inferConsumption.js";
 export { parseRestrictionsStep, matchDictionary } from "./steps/parseRestrictions.js";
+export { rerankSkuMatchStep, llmRerank, type RerankResult } from "./steps/rerankSkuMatch.js";

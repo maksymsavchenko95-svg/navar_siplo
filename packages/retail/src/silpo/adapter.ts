@@ -5,8 +5,10 @@ import type {
   CartContext,
   CredentialStore,
   McpToolsResult,
+  ProductDetails,
   ProductSearchResult,
   RawRestriction,
+  ReplacementResult,
   RetailAddress,
   RetailFamily,
   RetailFavorite,
@@ -26,7 +28,9 @@ import {
   parseRestrictionsRaw,
   parseToolResult,
   toCartContext,
+  toProductDetails,
   toProductSearchResults,
+  toReplacementResults,
 } from "./parse.js";
 
 export interface SilpoRetailProviderOptions {
@@ -63,6 +67,7 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
   private toolsCache: McpToolsResult | undefined;
   private cartCache: { at: number; value: CartContext } | undefined;
   private productCache = new Map<string, { at: number; value: ProductSearchResult }>();
+  private detailsCache = new Map<string, { at: number; value: ProductDetails }>();
 
   constructor(private readonly opts: SilpoRetailProviderOptions) {}
 
@@ -147,6 +152,41 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
     }
 
     return queries.map((query) => fresh.get(query) ?? { query, products: [] });
+  }
+
+  async getProductDetails(slug: string): Promise<ProductDetails> {
+    const ctx = await this.getCartContext(); // throws NoCartError
+    if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
+    const key = `${ctx.branchId}|${slug}`;
+    const hit = this.detailsCache.get(key);
+    if (hit && Date.now() - hit.at < PRODUCT_TTL_MS) return hit.value;
+    const raw = await this.callTool("silpo_get_product_details", {
+      branchId: ctx.branchId,
+      deliveryType: ctx.deliveryType,
+      timeslotStart: ctx.timeslot.start,
+      timeslotEnd: ctx.timeslot.end,
+      slug,
+    });
+    const value = toProductDetails(raw);
+    this.detailsCache.set(key, { at: Date.now(), value });
+    return value;
+  }
+
+  async getReplacements(
+    items: { productId: string; companyId: string }[],
+  ): Promise<ReplacementResult[]> {
+    if (items.length === 0) return [];
+    const ctx = await this.getCartContext();
+    if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
+    const companyId = items[0]!.companyId; // one branch → one company
+    const productIds = items.map((i) => i.productId);
+    const raw = await this.callTool("silpo_get_replacements", {
+      branchId: ctx.branchId,
+      companyId,
+      deliveryType: ctx.deliveryType,
+      productIds,
+    });
+    return toReplacementResults(raw, productIds);
   }
 
   // ─── Household reads (HouseholdReader, T1.4) ────────────────────────────────

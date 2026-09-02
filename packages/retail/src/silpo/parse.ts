@@ -1,14 +1,17 @@
-import type {
-  CartContext,
-  ProductMatch,
-  ProductSearchResult,
-  RawRestriction,
-  RetailAddress,
-  RetailFamily,
-  RetailFavorite,
-  RetailLine,
-  RetailOrder,
-  RetailProfile,
+import {
+  type CartContext,
+  parseKcal,
+  type ProductDetails,
+  type ProductMatch,
+  type ProductSearchResult,
+  type RawRestriction,
+  type ReplacementResult,
+  type RetailAddress,
+  type RetailFamily,
+  type RetailFavorite,
+  type RetailLine,
+  type RetailOrder,
+  type RetailProfile,
 } from "@navar/domain";
 
 import { NoCartError } from "../provider.js";
@@ -64,29 +67,29 @@ export function toCartContext(myCart: MyCart, cartById: CartById, slots: TimeSlo
   return { branchId, deliveryType, timeslot: { start: chosen.start, end: chosen.end } };
 }
 
-interface FindBatch {
-  queries?: {
-    query?: string;
-    products?: {
-      id?: string;
-      externalProductId?: number;
-      companyId?: string;
-      branchId?: string;
-      slug?: string;
-      name?: string;
-      price?: number;
-      oldPrice?: number | null;
-      displayRatio?: string | null;
-      image?: string | null;
-      stock?: number;
-      available?: boolean;
-    }[];
-  }[];
+/** The product shape shared by `find_products_batch`, `get_replacements`, `get_similar_products`. */
+interface RawProduct {
+  id?: string;
+  externalProductId?: number | null;
+  companyId?: string | null;
+  branchId?: string | null;
+  slug?: string;
+  name?: string;
+  price?: number;
+  oldPrice?: number | null;
+  displayRatio?: string | null;
+  image?: string | null;
+  stock?: number;
+  available?: boolean;
+  weighted?: boolean;
+  step?: number;
 }
 
-function toMatch(
-  p: NonNullable<NonNullable<FindBatch["queries"]>[number]["products"]>[number],
-): ProductMatch {
+interface FindBatch {
+  queries?: { query?: string; products?: RawProduct[] }[];
+}
+
+function toMatch(p: RawProduct): ProductMatch {
   return {
     productId: p.id ?? "",
     externalProductId: typeof p.externalProductId === "number" ? p.externalProductId : null,
@@ -99,6 +102,8 @@ function toMatch(
     packSize: p.displayRatio ?? null,
     imageUrl: p.image ?? null,
     inStock: p.available === true && (p.stock ?? 0) > 0,
+    weighted: p.weighted === true,
+    step: typeof p.step === "number" && p.step > 0 ? p.step : null,
   };
 }
 
@@ -111,6 +116,69 @@ export function toProductSearchResults(
   return queries.map((query) => ({
     query,
     products: (byQuery.get(query) ?? []).map(toMatch),
+  }));
+}
+
+function attrNum(attributes: Record<string, unknown>, key: string): number | null {
+  const v = attributes[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * `silpo_get_product_details` → `ProductDetails`. `attributes` is a raw key→value object
+ * (or `null`); macros live under the Ukrainian attribute names, energy as a `"kcal/kJ"`
+ * string (`parseKcal`). Composition + allergen coverage is thin (M0 audit) — read
+ * defensively and let the caller fail closed.
+ */
+export function toProductDetails(raw: unknown): ProductDetails {
+  const p = (raw as { product?: Record<string, unknown> }).product ?? {};
+  const attributes: Record<string, string | number> = {};
+  const rawAttrs = p.attributes;
+  if (rawAttrs && typeof rawAttrs === "object") {
+    for (const [k, v] of Object.entries(rawAttrs)) {
+      if (typeof v === "string" || typeof v === "number") attributes[k] = v;
+    }
+  }
+  const allergenRaw = attributes["Містить алергени"];
+  return {
+    slug: typeof p.slug === "string" ? p.slug : "",
+    name: typeof p.name === "string" ? p.name : "",
+    price: typeof p.price === "number" ? p.price : 0,
+    oldPrice: typeof p.oldPrice === "number" ? p.oldPrice : null,
+    inStock: p.available === true && (typeof p.stock === "number" ? p.stock : 0) > 0,
+    weighted: p.weighted === true,
+    packSize: typeof p.displayRatio === "string" ? p.displayRatio : null,
+    attributes,
+    composition: typeof attributes["Склад"] === "string" ? (attributes["Склад"] as string) : null,
+    allergens:
+      typeof allergenRaw === "string"
+        ? allergenRaw
+            .split(/[,;/]/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [],
+    kcal100: parseKcal(String(attributes["Енергетична цінність (кКал/кДЖ)"] ?? "")),
+    protein100: attrNum(attributes, "Білки (г)"),
+    fat100: attrNum(attributes, "Жири (г)"),
+    carbs100: attrNum(attributes, "Вуглеводи (г)"),
+  };
+}
+
+interface ReplacementsResponse {
+  items?: { productId?: string; replacements?: RawProduct[] }[];
+}
+
+/** `silpo_get_replacements` → one `ReplacementResult` per requested id, in request order. */
+export function toReplacementResults(raw: unknown, productIds: string[]): ReplacementResult[] {
+  const byId = new Map(
+    ((raw as ReplacementsResponse).items ?? []).map((it) => [
+      it.productId ?? "",
+      (it.replacements ?? []).map(toMatch),
+    ]),
+  );
+  return productIds.map((productId) => ({
+    productId,
+    replacements: byId.get(productId) ?? [],
   }));
 }
 
