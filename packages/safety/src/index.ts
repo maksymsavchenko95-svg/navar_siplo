@@ -22,7 +22,7 @@
 
 export { assertKcalFloor, KcalFloorError } from "@navar/domain";
 
-export { normalizeAllergenToken, mapSkuAllergens } from "./allergens.js";
+export { normalizeAllergenToken, mapSkuAllergens, scanCompositionText } from "./allergens.js";
 export { resolveExclusions, hasHardExclusion, type Exclusions } from "./restrictions.js";
 export {
   type SafetyVerdict,

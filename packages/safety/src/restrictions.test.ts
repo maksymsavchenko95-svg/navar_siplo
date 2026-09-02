@@ -1,5 +1,5 @@
 import type { StoredRestriction } from "@navar/domain";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { hasHardExclusion, resolveExclusions } from "./restrictions.js";
 
@@ -61,5 +61,23 @@ describe("resolveExclusions", () => {
   it("hasHardExclusion reflects allergens or ingredients", () => {
     expect(hasHardExclusion(resolveExclusions([]))).toBe(false);
     expect(hasHardExclusion(resolveExclusions([r({ kind: "allergen", code: "milk" })]))).toBe(true);
+  });
+
+  describe("non-canonical allergen codes are not dropped silently (F2)", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("remaps a known synonym and warns", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const x = resolveExclusions([r({ kind: "allergen", code: "lactose" })]);
+      expect(x.allergens).toEqual(["milk"]); // never []
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("lactose"));
+    });
+
+    it("warns loudly when a code cannot be remapped", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const x = resolveExclusions([r({ kind: "allergen", code: "???" })]);
+      expect(x.allergens).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("needs review"));
+    });
   });
 });

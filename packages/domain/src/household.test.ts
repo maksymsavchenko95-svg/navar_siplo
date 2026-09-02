@@ -86,6 +86,29 @@ describe("parseRestrictionsOutputSchema", () => {
       parsedRestrictionSchema.parse({ kind: "diet", code: "", severity: "soft", sourceText: "x" }),
     ).toThrow();
   });
+
+  it("enforces the code vocabulary per kind (F2)", () => {
+    const base = { severity: "strict", sourceText: "x" } as const;
+    // allergen code must be an EU-14 value
+    expect(() =>
+      parsedRestrictionSchema.parse({ kind: "allergen", code: "lactose", ...base }),
+    ).toThrow();
+    expect(() =>
+      parsedRestrictionSchema.parse({ kind: "allergen", code: "gluten ", ...base }),
+    ).toThrow();
+    expect(() =>
+      parsedRestrictionSchema.parse({ kind: "allergen", code: "milk", ...base }),
+    ).not.toThrow();
+    // diet code must be a dietCodeSchema value
+    expect(() => parsedRestrictionSchema.parse({ kind: "diet", code: "paleo", ...base })).toThrow();
+    expect(() =>
+      parsedRestrictionSchema.parse({ kind: "diet", code: "vegan", ...base }),
+    ).not.toThrow();
+    // dislike stays a free ingredient slug / name key
+    expect(() =>
+      parsedRestrictionSchema.parse({ kind: "dislike", code: "name:кріп", ...base }),
+    ).not.toThrow();
+  });
 });
 
 describe("inferConsumptionOutputSchema", () => {

@@ -177,6 +177,35 @@ describe("mapPlan", () => {
     });
   });
 
+  it("out-of-stock pick, no replacement found → needs_confirmation, outOfStock flagged (F5)", async () => {
+    const retail = fakeRetail(
+      { морква: [sku({ productId: "carrot-oos", name: "Морква", inStock: false })] },
+      { "carrot-oos": [] }, // funnel returns nothing
+    );
+    const res = await mapPlan(
+      { lines: lines([{ slug: "carrot", amount: 300, unit: "g" }]), dict: DICT },
+      { retail, rerank: vi.fn(fallbackRerank) },
+    );
+    expect(res.matches[0]).toMatchObject({
+      decision: "needs_confirmation",
+      needsConfirmation: true,
+      outOfStock: true,
+    });
+    expect(res.matches[0]!.match).not.toBeNull(); // still recorded
+  });
+
+  it("out-of-stock pick with no companyId → funnel skipped, still flagged (F5)", async () => {
+    const retail = fakeRetail({
+      морква: [sku({ productId: "carrot-oos", name: "Морква", inStock: false, companyId: "" })],
+    });
+    const res = await mapPlan(
+      { lines: lines([{ slug: "carrot", amount: 300, unit: "g" }]), dict: DICT },
+      { retail, rerank: vi.fn(fallbackRerank) },
+    );
+    expect(retail.repSpy).not.toHaveBeenCalled();
+    expect(res.matches[0]).toMatchObject({ decision: "needs_confirmation", outOfStock: true });
+  });
+
   it("is deterministic with the offline fallback re-ranker", async () => {
     const table = {
       молоко: [

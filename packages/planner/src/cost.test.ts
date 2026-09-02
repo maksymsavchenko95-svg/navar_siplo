@@ -82,7 +82,7 @@ describe("recipeCost — pack sizes, not grams (TDD §4 step 2)", () => {
     expect(recipeCost(c, input).costUah).toBe(0); // fully covered by pantry
   });
 
-  it("treats an unmapped non-optional line as 0 cost and reports it", () => {
+  it("prices an unmapped non-optional line at 0 only when the basket has no prices (F3)", () => {
     const c = candidate({
       recipeId: "u",
       servings: 3,
@@ -91,6 +91,64 @@ describe("recipeCost — pack sizes, not grams (TDD §4 step 2)", () => {
     const cost = recipeCost(c, solverInput({ candidates: [c], prices: new Map(), servings: 3 }));
     expect(cost.costUah).toBe(0);
     expect(cost.unmappedIds).toEqual(["exotic"]);
+    expect(cost.estimatedIds).toEqual([]);
+    expect(cost.estimatedCostUah).toBe(0);
+  });
+
+  it("estimates an unmapped line at the category-median SKU price (F3)", () => {
+    const c = candidate({
+      recipeId: "u2",
+      servings: 3,
+      ingredients: [
+        line({ id: "carrot", amount: 100, category: "vegetable" }),
+        line({ id: "kohlrabi", amount: 100, category: "vegetable" }), // unmapped
+      ],
+    });
+    // two priced vegetables in the basket → median 30; kohlrabi has no price
+    const other = candidate({
+      recipeId: "o",
+      servings: 3,
+      ingredients: [line({ id: "beet", amount: 100, category: "vegetable" })],
+    });
+    const input = solverInput({
+      candidates: [c, other],
+      servings: 3,
+      prices: new Map([
+        ["carrot", { uah: 20, promo: false, packSize: 500 }],
+        ["beet", { uah: 40, promo: false, packSize: 500 }],
+      ]),
+    });
+    const cost = recipeCost(c, input);
+    expect(cost.unmappedIds).toEqual(["kohlrabi"]);
+    expect(cost.estimatedIds).toEqual(["kohlrabi"]);
+    expect(cost.estimatedCostUah).toBe(30); // median(20, 40)
+    expect(cost.costUah).toBe(20 + 30); // carrot pack + estimate
+  });
+
+  it("falls back to the global median when the category has no priced peer (F3)", () => {
+    const c = candidate({
+      recipeId: "u3",
+      servings: 3,
+      ingredients: [line({ id: "saffron", amount: 1, category: "spice_herb" })], // unmapped, lone category
+    });
+    const other = candidate({
+      recipeId: "o3",
+      servings: 3,
+      ingredients: [
+        line({ id: "rice", amount: 100, category: "grain" }),
+        line({ id: "chicken", amount: 100, category: "meat" }),
+      ],
+    });
+    const input = solverInput({
+      candidates: [c, other],
+      servings: 3,
+      prices: new Map([
+        ["rice", { uah: 25, promo: false, packSize: 500 }],
+        ["chicken", { uah: 95, promo: false, packSize: 500 }],
+      ]),
+    });
+    const cost = recipeCost(c, input);
+    expect(cost.estimatedCostUah).toBe(60); // global median(25, 95)
   });
 
   it("is deterministic", () => {

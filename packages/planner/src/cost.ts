@@ -1,3 +1,5 @@
+import type { IngredientCategory } from "@navar/domain";
+
 import type { RecipeCandidate, SolverInput } from "./contract.js";
 
 /** Guard against float dust so determinism tests deep-equal cleanly (mapper's idiom). */
@@ -10,6 +12,47 @@ export interface RecipeCost {
   /** ingredientId → base-unit amount left in the pantry **after** cooking this recipe. */
   pantryAfter: Map<string, number>;
   unmappedIds: string[]; // non-optional lines with no price entry
+  /** Non-optional lines priced by a category-median estimate rather than a real SKU (F3). */
+  estimatedIds: string[];
+  /** The portion of `costUah` that came from those estimates. */
+  estimatedCostUah: number;
+}
+
+const median = (xs: readonly number[]): number => {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
+};
+
+/**
+ * Median SKU price per ingredient category across the whole `SolverInput` basket, plus a
+ * global median fallback. Used to price a recipe line that the mapper could not resolve
+ * (F3) so it is not treated as free — the hard filter already vetted that ≤ 20 % of a
+ * recipe's lines are unmapped. Deterministic (order-independent). Returns `null` when the
+ * basket carries no prices at all — nothing to estimate from.
+ */
+export function categoryMedianPrices(
+  input: SolverInput,
+): { byCategory: Map<IngredientCategory, number>; global: number } | null {
+  if (input.prices.size === 0) return null;
+  const catById = new Map<string, IngredientCategory>();
+  for (const c of input.candidates) {
+    for (const l of c.ingredients) if (!catById.has(l.id)) catById.set(l.id, l.category);
+  }
+  const byCat = new Map<IngredientCategory, number[]>();
+  const all: number[] = [];
+  for (const [id, price] of input.prices) {
+    all.push(price.uah);
+    const cat = catById.get(id);
+    if (cat == null) continue;
+    const bucket = byCat.get(cat);
+    if (bucket) bucket.push(price.uah);
+    else byCat.set(cat, [price.uah]);
+  }
+  const byCategory = new Map<IngredientCategory, number>();
+  for (const [cat, xs] of byCat) byCategory.set(cat, median(xs));
+  return { byCategory, global: median(all) };
 }
 
 /**
@@ -18,20 +61,34 @@ export interface RecipeCost {
  * whatever the running `pantry` (surplus from earlier picks) covers is not re-bought, and
  * the new surplus is returned so the greedy can carry it forward — this is the economic
  * side of "reuse an ingredient across ≥2 dishes" (`FR-PLAN-003`). A non-optional line with
- * no `prices` entry contributes 0 cost (the &gt;20% unmapped rule already vetted the recipe).
+ * no `prices` entry is priced at the category-median SKU price (F3) — the &gt;20% unmapped
+ * rule already vetted the recipe — and only contributes 0 when the basket has no prices.
  */
 export function recipeCost(candidate: RecipeCandidate, input: SolverInput): RecipeCost {
   const scale = candidate.servings > 0 ? input.servings / candidate.servings : 1;
+  const medians = categoryMedianPrices(input);
   let costUah = 0;
   let promoShareUah = 0;
+  let estimatedCostUah = 0;
   const pantryAfter = new Map<string, number>();
   const unmappedIds: string[] = [];
+  const estimatedIds: string[] = [];
 
   for (const line of candidate.ingredients) {
     if (line.optional) continue;
     const price = input.prices.get(line.id);
     if (!price) {
       unmappedIds.push(line.id);
+      // F3: don't treat an unmapped non-optional line as free. Estimate one "pack" at the
+      // category-median SKU price (global median as fallback); 0 only when the basket has
+      // no prices to learn from. The estimate feeds `costUah` so the greedy's budget
+      // feasibility and totals stop being optimistic.
+      if (medians) {
+        const est = round2(medians.byCategory.get(line.category) ?? medians.global);
+        costUah += est;
+        estimatedCostUah += est;
+        estimatedIds.push(line.id);
+      }
       continue;
     }
     const needed = line.amount * scale;
@@ -49,5 +106,7 @@ export function recipeCost(candidate: RecipeCandidate, input: SolverInput): Reci
     promoShareUah: round2(promoShareUah),
     pantryAfter,
     unmappedIds,
+    estimatedIds,
+    estimatedCostUah: round2(estimatedCostUah),
   };
 }

@@ -1,4 +1,4 @@
-import { parseRestrictionsOutputSchema } from "@navar/domain";
+import { parsedRestrictionSchema, parseRestrictionsOutputSchema } from "@navar/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import { type LlmProvider, LlmUnavailableError } from "../provider.js";
@@ -63,5 +63,30 @@ describe("matchDictionary", () => {
   it("can yield two restrictions from one phrase", () => {
     const codes = matchDictionary("no eggs or fish").map((r) => r.code);
     expect(codes).toEqual(["fish", "egg"]);
+  });
+
+  it("every dictionary hit is a valid discriminated ParsedRestriction (F2 — guards the table)", () => {
+    const phrases = [
+      "без глютену",
+      "лактоза",
+      "арахіс, горіхи, кунжут",
+      "соя",
+      "риба та морепродукти",
+      "vegan halal no pork no beef",
+      "гриби, кінза",
+    ];
+    for (const hit of phrases.flatMap(matchDictionary)) {
+      expect(() => parsedRestrictionSchema.parse(hit)).not.toThrow();
+    }
+  });
+
+  it("a non-canonical allergen code fails the output schema, so the LLM path falls back (F2)", () => {
+    expect(() =>
+      parseRestrictionsOutputSchema.parse({
+        restrictions: [
+          { kind: "allergen", code: "lactose", severity: "strict", sourceText: "без лактози" },
+        ],
+      }),
+    ).toThrow();
   });
 });

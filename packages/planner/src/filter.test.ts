@@ -35,16 +35,21 @@ describe("hardFilter (TDD §4 step 1)", () => {
     expect(droppedReasons.get("slow")).toMatch(/activeMinutes/);
   });
 
-  it("form mode: hard-filters on the per-dinner protein floor, not the kcal corridor (T3.3)", () => {
+  it("form mode: hard-filters on the protein floor and the widened kcal corridor (F4)", () => {
     const lowProt = candidate({ recipeId: "lowp", macrosPerServing: macros({ protein: 20 }) });
-    const hotKcal = candidate({
-      recipeId: "hot",
-      macrosPerServing: macros({ protein: 50, kcal: 1600 }),
+    // kcalRange [600, 1200] → widened filter band [360, 1680] (±40% slack, T3.3 tightens it)
+    const nearHot = candidate({
+      recipeId: "near",
+      macrosPerServing: macros({ protein: 50, kcal: 1600 }), // inside the widened band → kept
+    });
+    const wayHot = candidate({
+      recipeId: "way",
+      macrosPerServing: macros({ protein: 50, kcal: 2000 }), // beyond widened band → dropped
     });
     const ok = candidate({ recipeId: "ok", macrosPerServing: macros({ protein: 55, kcal: 800 }) });
     const input = solverInput({
       goal: "form",
-      candidates: [lowProt, hotKcal, ok],
+      candidates: [lowProt, nearHot, wayHot, ok],
       hardConstraints: {
         excludedAllergens: [],
         excludedIngredients: [],
@@ -53,9 +58,10 @@ describe("hardFilter (TDD §4 step 1)", () => {
         kcalRange: [600, 1200],
       },
     });
-    const { kept } = hardFilter(input);
-    // lowProt dropped (protein < 45); hotKcal stays (kcal corridor is not a hard filter yet)
-    expect(kept.map((c) => c.recipeId).sort()).toEqual(["hot", "ok"]);
+    const { kept, droppedReasons } = hardFilter(input);
+    expect(kept.map((c) => c.recipeId).sort()).toEqual(["near", "ok"]);
+    expect(droppedReasons.get("lowp")).toMatch(/protein/);
+    expect(droppedReasons.get("way")).toMatch(/kcal .* outside widened corridor/);
   });
 
   it("drops a recipe with >20% of ingredients unmapped", () => {

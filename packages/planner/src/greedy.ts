@@ -1,6 +1,6 @@
 import type { Macros } from "@navar/domain";
 
-import { recipeCost } from "./cost.js";
+import { recipeCost, type RecipeCost } from "./cost.js";
 import type {
   PlanDayPick,
   PlanTotals,
@@ -27,11 +27,14 @@ function cheapestRemainder(pool: { costUah: number }[], k: number): number | nul
 
 function computeTotals(
   picks: PlanDayPick[],
+  pickCosts: readonly RecipeCost[],
   finalPantry: Map<string, number>,
   input: SolverInput,
 ): PlanTotals {
   const costUah = round2(picks.reduce((s, p) => s + p.costUah, 0));
   const promoShareUah = round2(picks.reduce((s, p) => s + p.promoShareUah, 0));
+  const unpricedLineCount = pickCosts.reduce((s, c) => s + c.estimatedIds.length, 0);
+  const estimatedCostUah = round2(pickCosts.reduce((s, c) => s + c.estimatedCostUah, 0));
 
   const macroSum = { ...ZERO };
   for (const p of picks) {
@@ -71,6 +74,8 @@ function computeTotals(
     avgDinnerMacros,
     proteinFloorMet,
     kcalCorridorMet,
+    unpricedLineCount,
+    estimatedCostUah,
   };
 }
 
@@ -102,6 +107,7 @@ export function greedyPlan(kept: RecipeCandidate[], input: SolverInput): SolverR
     pickedRecipeIds: new Set(),
   };
   const picks: PlanDayPick[] = [];
+  const pickCosts: RecipeCost[] = [];
 
   for (let day = 1; day <= input.days; day++) {
     const withPantry: SolverInput = { ...input, pantry };
@@ -157,6 +163,7 @@ export function greedyPlan(kept: RecipeCandidate[], input: SolverInput): SolverR
       promoShareUah: chosen.cost.promoShareUah,
       macrosPerServing: chosen.c.macrosPerServing,
     });
+    pickCosts.push(chosen.cost);
     state.budgetLeft = round2(state.budgetLeft - chosen.cost.costUah);
     state.daysLeft -= 1;
     state.pickedRecipeIds.add(chosen.c.recipeId);
@@ -168,6 +175,6 @@ export function greedyPlan(kept: RecipeCandidate[], input: SolverInput): SolverR
     ...base,
     feasible: true,
     days: picks,
-    totals: computeTotals(picks, pantry, input),
+    totals: computeTotals(picks, pickCosts, pantry, input),
   };
 }

@@ -64,9 +64,18 @@ describe("decideMatch", () => {
     expect(d.chosen!.candidate.productId).toBe("a");
   });
 
-  it("single candidate → accepted with a score-derived confidence", () => {
+  it("single strong candidate → accepted with a score-derived confidence", () => {
     const d = decideMatch({ ranked: [scored("only", 0.8)] });
     expect(d.decision).toBe("accepted");
     expect(d.chosen!.candidate.productId).toBe("only");
+    expect(d.needsConfirmation).toBe(false);
+  });
+
+  it("single weak candidate → flagged, not silently accepted (F6)", () => {
+    const d = decideMatch({ ranked: [scored("weak", 0.3)] });
+    expect(d.confidence).toBeLessThan(0.6);
+    expect(d.decision).toBe("needs_confirmation");
+    expect(d.needsConfirmation).toBe(true);
+    expect(d.chosen!.candidate.productId).toBe("weak"); // still recorded
   });
 });

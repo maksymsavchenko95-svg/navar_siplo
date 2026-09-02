@@ -81,6 +81,25 @@ describe("checkSku — fail-closed (ADR-05)", () => {
     expect(v).toEqual({ safe: true });
   });
 
+  it("blocks on an allergen named only in the composition, structured list empty (F1)", () => {
+    const v = checkSku({
+      details: details({
+        allergens: [],
+        composition: "борошно пшеничне, вода, сіль, дріжджі",
+      }),
+      exclusions: GLUTEN,
+    });
+    expect(v).toMatchObject({ safe: false, source: "sku", allergens: ["gluten"] });
+  });
+
+  it("passes when the composition is present and names no declared allergen", () => {
+    const v = checkSku({
+      details: details({ allergens: [], composition: "вода, морква, цибуля, сіль" }),
+      exclusions: GLUTEN,
+    });
+    expect(v).toEqual({ safe: true });
+  });
+
   it("passes any SKU when the household declares no allergy", () => {
     expect(checkSku({ details: details({ allergens: [] }), exclusions: NONE })).toEqual({
       safe: true,

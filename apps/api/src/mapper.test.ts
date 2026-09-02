@@ -44,6 +44,7 @@ const match = (over: Partial<SkuMatch> & Pick<SkuMatch, "slug">): SkuMatch => ({
   rerankSource: null,
   safetyChecked: false,
   blockReason: null,
+  outOfStock: false,
   ...over,
 });
 

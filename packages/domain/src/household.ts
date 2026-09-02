@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { goalSchema } from "./schemas.js";
+import { allergenSchema, goalSchema } from "./schemas.js";
 
 /**
  * Household-domain vocabulary (ADR-01): the raw Silpo MCP reads, the derived
@@ -162,14 +162,25 @@ export const dietCodeSchema = z.enum([
 ]);
 export type DietCode = z.infer<typeof dietCodeSchema>;
 
-export const parsedRestrictionSchema = z.object({
-  kind: restrictionKindSchema,
-  /** An `allergenSchema` value, a `dietCodeSchema` value, or an ingredient slug (`dislike`). */
-  code: z.string().min(1),
+/**
+ * The LLM's parsed restriction (`parseRestrictions`, TDD §6). Discriminated on `kind` so
+ * the `code` vocabulary is enforced at parse time, not trusted from the prompt
+ * (`.claude/rules/food-safety.md` rule 1): an `allergen` code MUST be an EU-14
+ * `allergenSchema` value, a `diet` code MUST be a `dietCodeSchema` value. A model that
+ * emits `"lactose"` / `"dairy"` for `kind:"allergen"` now fails validation and `runStep`
+ * falls back to the deterministic keyword dictionary (`INT-LLM-003`), instead of persisting
+ * a code that `resolveExclusions` would silently drop.
+ */
+const parsedRestrictionBase = {
   severity: restrictionSeveritySchema,
   /** The input phrase this was derived from — kept for the audit trail and the UI. */
   sourceText: z.string(),
-});
+};
+export const parsedRestrictionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("allergen"), code: allergenSchema, ...parsedRestrictionBase }),
+  z.object({ kind: z.literal("diet"), code: dietCodeSchema, ...parsedRestrictionBase }),
+  z.object({ kind: z.literal("dislike"), code: z.string().min(1), ...parsedRestrictionBase }),
+]);
 export type ParsedRestriction = z.infer<typeof parsedRestrictionSchema>;
 
 /** A restriction as stored + read back (`household_restrictions` row + `confirmedAt`). */

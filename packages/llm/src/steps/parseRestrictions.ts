@@ -2,6 +2,7 @@ import {
   type ParseRestrictionsInput,
   type ParseRestrictionsOutput,
   type ParsedRestriction,
+  parsedRestrictionSchema,
   parseRestrictionsOutputSchema,
 } from "@navar/domain";
 
@@ -19,6 +20,7 @@ const PROMPT = loadPrompt("parseRestrictions", 1);
 interface DictEntry {
   re: RegExp;
   kind: ParsedRestriction["kind"];
+  /** Must be a valid code for `kind` — `parsedRestrictionSchema` re-checks each hit. */
   code: string;
   severity: ParsedRestriction["severity"];
 }
@@ -94,7 +96,15 @@ export function matchDictionary(phrase: string): ParsedRestriction[] {
     const dedupe = `${e.kind}:${e.code}`;
     if (seen.has(dedupe)) continue;
     seen.add(dedupe);
-    hits.push({ kind: e.kind, code: e.code, severity: e.severity, sourceText: phrase });
+    // The table is hand-authored with valid codes; parse re-checks it (and satisfies the
+    // discriminated `parsedRestrictionSchema` — a bad table entry is dropped, not shipped).
+    const parsed = parsedRestrictionSchema.safeParse({
+      kind: e.kind,
+      code: e.code,
+      severity: e.severity,
+      sourceText: phrase,
+    });
+    if (parsed.success) hits.push(parsed.data);
   }
   return hits;
 }

@@ -51,7 +51,10 @@ export function decideMatch(args: {
     rerankSource = reranked.source;
   } else if (ranked.length === 1) {
     chosen = ranked[0]!;
-    confidence = clamp(0.6 + chosen.score * 0.3, 0, 0.9);
+    // F6: a lone candidate must still be able to fall below MIN_CONFIDENCE — no 0.6 floor.
+    // A weak sole match (score ≈ 0.3 → ≈ 0.45) is flagged; a strong one (≈ 0.8 → ≈ 0.77)
+    // is accepted. `FR-MAP-006` — never add a low-confidence match silently.
+    confidence = clamp(0.25 + chosen.score * 0.65, 0, 0.9);
     decision = "accepted";
   } else {
     const gap = ranked[0]!.score - ranked[1]!.score;

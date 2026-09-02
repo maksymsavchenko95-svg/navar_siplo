@@ -115,7 +115,11 @@ export interface PlanTotals {
   surplus: Record<string, number>; // ingredientId → leftover base-unit amount (future pantry)
   avgDinnerMacros: Macros;
   proteinFloorMet: boolean; // form: every day ≥ proteinMinPerDay
-  kcalCorridorMet: boolean; // form: every day within kcalRange
+  kcalCorridorMet: boolean; // form: every day within kcalRange (true corridor, not the widened filter)
+  /** F3: non-optional recipe lines the mapper couldn't price, covered by a category-median estimate. */
+  unpricedLineCount: number;
+  /** The portion of `costUah` that is an estimate rather than a real SKU price. */
+  estimatedCostUah: number;
 }
 
 export type SolverResult =

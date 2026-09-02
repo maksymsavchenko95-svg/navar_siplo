@@ -58,6 +58,8 @@ export const skuMatchSchema = z.object({
   safetyChecked: z.boolean(),
   /** Guest-facing reason a line was blocked (`decision: "blocked_unsafe"`); non-medical. */
   blockReason: z.string().nullable(),
+  /** The chosen SKU is out of stock and the replacement funnel found nothing (F5, `FR-MAP-005`). */
+  outOfStock: z.boolean().default(false),
 });
 export type SkuMatch = z.infer<typeof skuMatchSchema>;
 

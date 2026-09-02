@@ -53,6 +53,35 @@ describe("greedyPlan (TDD §4 step 4)", () => {
     expect(res.totals.kcalCorridorMet).toBe(true);
   });
 
+  it("form: a plan inside the widened filter but outside the true kcal range is issuable, flagged (F4)", () => {
+    // true range [700, 800]; widened filter band [420, 1120] → all dishes pass the filter
+    const cands = Array.from({ length: 8 }, (_, i) =>
+      candidate({
+        recipeId: `r${i}`,
+        slug: `r${i}`,
+        macrosPerServing: macros({ protein: 50, kcal: 950 }), // > 800, still ≤ 1120
+      }),
+    );
+    const input = solverInput({
+      goal: "form",
+      candidates: cands,
+      prices: priceMapFor(cands, 30, { packSize: 500 }),
+      budget: 3000,
+      hardConstraints: {
+        excludedAllergens: [],
+        excludedIngredients: [],
+        maxActiveMinutes: 60,
+        proteinMinPerDay: 45,
+        kcalRange: [700, 800],
+      },
+    });
+    const res = greedyPlan(input.candidates, input);
+    expect(res.feasible).toBe(true);
+    if (!res.feasible) return;
+    expect(res.totals.proteinFloorMet).toBe(true);
+    expect(res.totals.kcalCorridorMet).toBe(false); // reported against the true range
+  });
+
   it("infeasible on too-small a budget → verdict, not a partial plan", () => {
     const cands = corpus();
     const input = solverInput({

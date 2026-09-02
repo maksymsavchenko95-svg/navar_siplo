@@ -124,6 +124,35 @@ const STEMS: readonly (readonly [string, Allergen])[] = [
   ["ЛАНГУСТ", "crustaceans"],
 ];
 
+/** Substring-match a single normalised token against every stem. */
+function stemsFor(norm: string): Allergen[] {
+  const out: Allergen[] = [];
+  for (const [stem, code] of STEMS) if (norm.includes(stem)) out.push(code);
+  return out;
+}
+
+/**
+ * Recall-oriented scan of a SKU's `Склад` free-text for EU-14 allergens (`FR-SAFE-002`,
+ * ADR-05). Silpo's structured `Містить алергени` attribute is present on a minority of
+ * cards (M0 audit) and is often thinner than the composition itself, so `checkSku` unions
+ * these hits with the structured ones before the exclusion check. Split on non-alphanumeric
+ * runs, normalise each word, substring-match the `STEMS` table. Unlike `mapSkuAllergens`
+ * this returns **no `unknown`** — an ordinary ingredient list is not an ambiguity signal,
+ * only a positive-match signal (feeding it into `ambiguous` would fail-close every SKU that
+ * ships a composition).
+ */
+export function scanCompositionText(text: string): { codes: Allergen[] } {
+  const codes = new Set<Allergen>();
+  for (const word of text.split(/[^\p{L}\p{N}]+/u)) {
+    const norm = normalizeAllergenToken(word);
+    if (norm.length < 3) continue;
+    for (const code of stemsFor(norm)) codes.add(code);
+  }
+  return {
+    codes: [...codes].filter((c) => allergenSchema.safeParse(c).success).sort(),
+  };
+}
+
 /**
  * Map raw Silpo allergen tokens → EU-14 codes. `codes` is sorted + deduped; `unknown`
  * holds normalised tokens that matched nothing.

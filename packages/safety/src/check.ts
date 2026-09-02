@@ -1,6 +1,6 @@
 import type { Allergen, IngredientCategory, ProductDetails } from "@navar/domain";
 
-import { mapSkuAllergens } from "./allergens.js";
+import { mapSkuAllergens, scanCompositionText } from "./allergens.js";
 import type { Exclusions } from "./restrictions.js";
 
 /**
@@ -114,8 +114,13 @@ export function checkSku(args: { details: ProductDetails; exclusions: Exclusions
   if (exclusions.allergens.length === 0) return { safe: true };
 
   const { codes, unknown } = mapSkuAllergens(details.allergens);
+  // Union the structured `Містить алергени` codes with a free-text scan of `Склад` — the
+  // structured attribute is thin and often omits what the composition spells out (F1).
+  const compositionCodes =
+    details.composition != null ? scanCompositionText(details.composition).codes : [];
+  const allCodes = [...new Set([...codes, ...compositionCodes])];
 
-  const hit = intersect(codes, exclusions.allergens);
+  const hit = intersect(allCodes, exclusions.allergens);
   if (hit.length > 0) {
     return {
       safe: false,

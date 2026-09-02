@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mapSkuAllergens, normalizeAllergenToken } from "./allergens.js";
+import { mapSkuAllergens, normalizeAllergenToken, scanCompositionText } from "./allergens.js";
 
 describe("normalizeAllergenToken", () => {
   it("uppercases, folds ё, strips punctuation and spaces", () => {
@@ -32,5 +32,27 @@ describe("mapSkuAllergens", () => {
     const b = mapSkuAllergens(["СОЯ", "ГЛЮТЕН", "МОЛОКО"]);
     expect(a).toEqual(b);
     expect(a.codes).toEqual(["gluten", "milk", "soybeans"]);
+  });
+});
+
+describe("scanCompositionText", () => {
+  it("finds allergens named only in the Склад free-text", () => {
+    expect(scanCompositionText("Борошно пшеничне, вода, сіль, дріжджі").codes).toEqual(["gluten"]);
+    expect(scanCompositionText("вершкове масло, цукор, сухе знежирене молоко").codes).toEqual([
+      "milk",
+    ]);
+    expect(scanCompositionText("вода, соєвий соус, кунжутна олія").codes).toEqual(
+      ["sesame", "soybeans"].sort(),
+    );
+  });
+
+  it("returns no codes for a composition with no allergens", () => {
+    expect(scanCompositionText("вода, морква, цибуля, сіль").codes).toEqual([]);
+  });
+
+  it("is order-independent and sorted", () => {
+    expect(scanCompositionText("молоко, пшениця").codes).toEqual(
+      scanCompositionText("пшениця, молоко").codes,
+    );
   });
 });

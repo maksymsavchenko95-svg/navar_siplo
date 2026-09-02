@@ -89,6 +89,7 @@ function blockedMatch(c: ConsolidatedIngredient, query: string, reason: string):
     rerankSource: null,
     safetyChecked: true,
     blockReason: reason,
+    outOfStock: false,
   };
 }
 
@@ -171,12 +172,19 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
         const dRep = decideMatch({ ranked: repRanked, reranked: repReranked });
         if (dRep.chosen) {
           ranked = repRanked;
-          d = {
-            ...dRep,
-            decision: dRep.needsConfirmation ? "needs_confirmation" : "replacement",
-          };
+          // Keep the `replacement` label even when it needs confirmation — `needsConfirmation`
+          // carries the "ask the Guest" signal, and collapsing to `needs_confirmation` would
+          // hide that the pick is a substitution (`FR-MAP-005`).
+          d = { ...dRep, decision: "replacement" };
         }
       }
+    }
+
+    // F5 / `FR-MAP-005`: the pick is still out of stock (no companyId, or the funnel found
+    // nothing / an out-of-stock replacement). Never accept it silently — flag for the Guest.
+    const chosenOutOfStock = Boolean(d.chosen && !d.chosen.candidate.inStock);
+    if (chosenOutOfStock) {
+      d = { ...d, decision: "needs_confirmation", needsConfirmation: true };
     }
 
     // SKU-level safety gate (`FR-SAFE-002` second pass, `FR-SAFE-004` for replacements).
@@ -221,6 +229,7 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
       rerankSource: d.rerankSource,
       safetyChecked: safetyOn, // the ingredient-level gate ran for this line
       blockReason: null,
+      outOfStock: chosenOutOfStock,
     });
   }
 
