@@ -70,7 +70,11 @@ function portraitFrom(
 }
 
 export const householdRouter = router({
-  /** Enqueue the async bootstrap job. Idempotent — `jobId = householdId` dedupes. */
+  /**
+   * Enqueue the async bootstrap job. Re-runnable: a job already in flight is not
+   * re-enqueued (the DB `running` status is the guard); a finished job is removed before
+   * the new one is added so a stale `jobId` can't block a re-run.
+   */
   bootstrap: publicProcedure.mutation(
     async ({
       ctx,
@@ -78,14 +82,32 @@ export const householdRouter = router({
       const householdId = await resolveHouseholdId();
       if (!householdId) return { status: "error", message: "no household — run pnpm db:seed" };
       try {
+        const [row] = await ctx.db
+          .select({ status: schema.households.bootstrapStatus })
+          .from(schema.households)
+          .where(eq(schema.households.id, householdId));
+        const queue = bootstrapQueue();
+
+        if (row?.status === "running") {
+          const active = await queue.getJob(householdId);
+          const state = await active?.getState();
+          // A genuinely in-flight job — let it finish, don't double-enqueue.
+          if (state === "active" || state === "waiting" || state === "delayed") {
+            return { status: "running", jobId: householdId };
+          }
+        }
+
+        // Drop any finished/stale job so `jobId: householdId` can be reused.
+        await queue.remove(householdId).catch(() => {});
+
         await ctx.db
           .update(schema.households)
           .set({ bootstrapStatus: "running", bootstrapError: null })
           .where(eq(schema.households.id, householdId));
-        const job = await bootstrapQueue().add(
+        const job = await queue.add(
           "bootstrap",
           { householdId },
-          { jobId: householdId, removeOnComplete: 100, removeOnFail: 100 },
+          { jobId: householdId, removeOnComplete: 20, removeOnFail: 20 },
         );
         return { status: "running", jobId: job.id ?? householdId };
       } catch (err) {

@@ -162,15 +162,28 @@ export async function runBootstrap(
       if (rows.length > 0) await db.insert(schema.householdMembers).values(rows);
     }
 
-    // 7. Identity fields.
-    await db
-      .update(schema.households)
-      .set({
-        ...(profile?.silpoProfileId ? { silpoUserRef: profile.silpoProfileId } : {}),
-        ...(branchId ? { branchId } : {}),
-        ...(deliveryType ? { deliveryType } : {}),
-      })
-      .where(eq(schema.households.id, householdId));
+    // 7. Identity fields. `silpoUserRef` is only set when unset — it's the seed's
+    // idempotency key (`'demo'`), and clobbering it makes `pnpm db:seed` create a duplicate.
+    if (branchId || deliveryType) {
+      await db
+        .update(schema.households)
+        .set({
+          ...(branchId ? { branchId } : {}),
+          ...(deliveryType ? { deliveryType } : {}),
+        })
+        .where(eq(schema.households.id, householdId));
+    }
+    if (profile?.silpoProfileId) {
+      await db
+        .update(schema.households)
+        .set({ silpoUserRef: profile.silpoProfileId })
+        .where(
+          and(
+            eq(schema.households.id, householdId),
+            sql`${schema.households.silpoUserRef} IS NULL`,
+          ),
+        );
+    }
 
     // 8. Restrictions — LLM parse + dictionary fallback, then idempotent upsert.
     const parsed = await runStep(

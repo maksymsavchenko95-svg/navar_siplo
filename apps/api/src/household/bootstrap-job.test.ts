@@ -181,6 +181,18 @@ describe.skipIf(!HAS_DB)("runBootstrap (integration)", () => {
     expect(res.outcome).toBe("done");
   });
 
+  it("does not overwrite an existing silpo_user_ref (the seed's 'demo' key)", async () => {
+    await db
+      .update(schema.households)
+      .set({ silpoUserRef: `demo-${householdId}` })
+      .where(eq(schema.households.id, householdId));
+
+    await runBootstrap(householdId, deps(fakeReader()));
+
+    const hh = await readBack();
+    expect(hh.silpoUserRef).toBe(`demo-${householdId}`); // untouched
+  });
+
   it("idempotent: re-run keeps member/restriction counts and a prior confirmation", async () => {
     await runBootstrap(householdId, deps(fakeReader()));
     // Guest confirms the milk allergy.
