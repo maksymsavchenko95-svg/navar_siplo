@@ -36,25 +36,28 @@ export const ALLERGEN_LABEL_UK: Record<Allergen, string> = {
 };
 
 /**
- * Ingredient categories where a branded / processed SKU can plausibly carry a declared
- * allergen that the raw `CanonicalIngredient` does not list. A chosen SKU is fetched for a
- * SKU-level check only when its category is here for one of the household's allergens.
+ * Ingredient categories where a **processed / branded** SKU can plausibly carry a declared
+ * allergen that the raw `CanonicalIngredient` does not list (sauces & pantry staples, baked
+ * goods, spice blends with anti-caking agents). A chosen SKU gets a `get_product_details`
+ * SKU-level check only when its category is here for one of the household's allergens —
+ * deliberately narrow so a plain-meat / produce / dairy card missing its composition
+ * doesn't fail-close a whole plan (raw chicken is not a gluten vector).
  */
 export const ALLERGEN_RISK_CATEGORIES: Record<Allergen, readonly IngredientCategory[]> = {
-  gluten: ["pantry", "bakery", "spice_herb", "meat", "beverage", "other"],
-  milk: ["pantry", "bakery", "meat", "spice_herb", "other"],
-  egg: ["pantry", "bakery", "meat", "other"],
-  soybeans: ["pantry", "meat", "spice_herb", "other"],
-  sesame: ["pantry", "bakery", "spice_herb", "other"],
-  mustard: ["pantry", "spice_herb", "other"],
-  celery: ["pantry", "spice_herb", "other"],
-  sulphites: ["pantry", "beverage", "fruit", "other"],
-  tree_nuts: ["pantry", "bakery", "other"],
-  peanuts: ["pantry", "bakery", "other"],
-  fish: ["pantry", "other"],
-  crustaceans: ["pantry", "other"],
-  molluscs: ["pantry", "other"],
-  lupin: ["pantry", "bakery", "other"],
+  gluten: ["pantry", "bakery", "spice_herb"],
+  milk: ["pantry", "bakery", "spice_herb"],
+  egg: ["pantry", "bakery"],
+  soybeans: ["pantry", "spice_herb"],
+  sesame: ["pantry", "bakery", "spice_herb"],
+  mustard: ["pantry", "spice_herb"],
+  celery: ["pantry", "spice_herb"],
+  sulphites: ["pantry", "beverage"],
+  tree_nuts: ["pantry", "bakery"],
+  peanuts: ["pantry", "bakery"],
+  fish: ["pantry"],
+  crustaceans: ["pantry"],
+  molluscs: ["pantry"],
+  lupin: ["pantry", "bakery"],
 };
 
 const intersect = <T>(a: readonly T[], b: readonly T[]): T[] => a.filter((x) => b.includes(x));

@@ -19,7 +19,8 @@
     "mcp:tools-snapshot": "tsx src/scripts/mcp-tools-snapshot.ts",
     "mcp:audit": "tsx src/scripts/mcp-audit.ts",
     "mcp:audit:cart": "tsx src/scripts/mcp-audit-cart.ts",
-    "mapper:probe": "tsx src/scripts/mapper-probe.ts"
+    "mapper:probe": "tsx src/scripts/mapper-probe.ts",
+    "plan:probe": "tsx src/scripts/plan-probe.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
@@ -27,6 +28,7 @@
     "@navar/domain": "workspace:*",
     "@navar/llm": "workspace:*",
     "@navar/mapper": "workspace:*",
+    "@navar/planner": "workspace:*",
     "@navar/retail": "workspace:*",
     "@navar/safety": "workspace:*",
     "@trpc/server": "^11.0.0",

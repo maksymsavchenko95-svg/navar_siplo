@@ -1,5 +1,5 @@
 import { db, schema } from "@navar/db";
-import type { ProductDetails, SkuMatch, StoredRestriction } from "@navar/domain";
+import type { Macros, ProductDetails, SkuMatch, StoredRestriction } from "@navar/domain";
 import { llmRerank } from "@navar/llm";
 import type {
   IngredientSafetyCheck,
@@ -55,6 +55,44 @@ export async function loadMapperDict(slugs: string[]): Promise<Map<string, Mappe
       },
     ]),
   );
+}
+
+/** `slug → canonical_ingredients.id` for the slugs given (T2.3 SolverInput assembly). */
+export async function loadIdBySlug(slugs: string[]): Promise<Map<string, string>> {
+  if (slugs.length === 0) return new Map();
+  const rows = await db
+    .select({ id: schema.canonicalIngredients.id, slug: schema.canonicalIngredients.slug })
+    .from(schema.canonicalIngredients)
+    .where(inArray(schema.canonicalIngredients.slug, slugs));
+  return new Map(rows.map((r) => [r.slug, r.id]));
+}
+
+/** Per-100g `Macros` by `canonical_ingredients.id` — fills `SolverInput.nutrition` (T2.3). */
+export async function loadIngredientMacros(ids: string[]): Promise<Map<string, Macros>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select({
+      id: schema.canonicalIngredients.id,
+      kcal100: schema.canonicalIngredients.kcal100,
+      protein100: schema.canonicalIngredients.protein100,
+      fat100: schema.canonicalIngredients.fat100,
+      carbs100: schema.canonicalIngredients.carbs100,
+      fiber100: schema.canonicalIngredients.fiber100,
+    })
+    .from(schema.canonicalIngredients)
+    .where(inArray(schema.canonicalIngredients.id, ids));
+  const out = new Map<string, Macros>();
+  for (const r of rows) {
+    if (r.kcal100 == null) continue;
+    out.set(r.id, {
+      kcal: Number(r.kcal100),
+      protein: Number(r.protein100 ?? 0),
+      fat: Number(r.fat100 ?? 0),
+      carbs: Number(r.carbs100 ?? 0),
+      fiber: Number(r.fiber100 ?? 0),
+    });
+  }
+  return out;
 }
 
 /** The household's hard exclusions (`@navar/safety`) — empty when the household is unknown. */
