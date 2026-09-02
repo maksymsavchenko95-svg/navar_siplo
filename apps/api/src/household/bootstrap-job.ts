@@ -34,6 +34,8 @@ import { buildConsumptionModel, toInferConsumptionInput } from "./consumption.js
 
 const MIN_ORDERS = 3;
 const ONLINE_PAGE_CAP = 200;
+/** Live MCP caps `silpo_get_my_online_orders` `limit` at 50 (snapshot says 100). */
+const ONLINE_PAGE_SIZE = 50;
 
 /** Tools `runBootstrap` needs — validated live at start (`INT-MCP-001`), never hardcoded elsewhere. */
 export const REQUIRED_TOOLS = [
@@ -113,8 +115,8 @@ export async function runBootstrap(
 
     // 4. Online orders (primary signal), paginated to a cap.
     const online = await paginate(
-      (offset) => reader.getOnlineOrders({ limit: 100, offset }),
-      100,
+      (offset) => reader.getOnlineOrders({ limit: ONLINE_PAGE_SIZE, offset }),
+      ONLINE_PAGE_SIZE,
       ONLINE_PAGE_CAP,
     );
 

@@ -3,9 +3,10 @@ import type { ProductDetails, ProductMatch, ProductSearchResult } from "@navar/d
 import { AuthRequiredError } from "@navar/retail";
 import { describe, expect, it, vi } from "vitest";
 
-import { getLlm, getLlmTracer } from "../llm.js";
+import { resolveHouseholdId } from "../household.js";
 import type { Context } from "./context.js";
 import { appRouter } from "./router.js";
+import { testContext } from "./test-context.js";
 
 const sku = (
   over: Partial<ProductMatch> & Pick<ProductMatch, "productId" | "name">,
@@ -56,8 +57,9 @@ function fakeRetail(over: Partial<Context["retail"]> = {}): Context["retail"] {
   } as Context["retail"];
 }
 
-function ctxWith(retail: Partial<Context["retail"]>): Context {
-  return { db, retail: fakeRetail(retail), llm: getLlm(), tracer: getLlmTracer() } as Context;
+async function ctxWith(retail: Partial<Context["retail"]>): Promise<Context> {
+  const householdId = (await resolveHouseholdId()) ?? "test-household";
+  return testContext({ householdId, retail: fakeRetail(retail) });
 }
 
 describe.skipIf(!process.env.DATABASE_URL)("recipes.skuCandidates (integration)", () => {
@@ -65,7 +67,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recipes.skuCandidates (integration)"
     const recipe = await db.query.recipes.findFirst();
     if (!recipe) throw new Error("no recipes — run pnpm db:seed");
 
-    const caller = appRouter.createCaller(ctxWith({}));
+    const caller = appRouter.createCaller(await ctxWith({}));
     const res = await caller.recipes.skuCandidates({ recipeId: recipe.id });
 
     expect(res.status).toBe("ok");
@@ -83,7 +85,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recipes.skuCandidates (integration)"
     });
     if (!recipe) throw new Error("recipe cottage_cheese_syrniki missing — run pnpm db:seed");
 
-    const caller = appRouter.createCaller(ctxWith({}));
+    const caller = appRouter.createCaller(await ctxWith({}));
     const res = await caller.recipes.skuCandidates({ recipeId: recipe.id });
     if (res.status !== "ok") throw new Error(`expected ok, got ${res.status}`);
 
@@ -99,7 +101,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recipes.skuCandidates (integration)"
     if (!recipe) throw new Error("no recipes — run pnpm db:seed");
 
     const caller = appRouter.createCaller(
-      ctxWith({
+      await ctxWith({
         findProducts: async () => {
           throw new AuthRequiredError("run mcp:auth");
         },
@@ -110,7 +112,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recipes.skuCandidates (integration)"
   });
 
   it("returns an error for an unknown recipe id", async () => {
-    const caller = appRouter.createCaller(ctxWith({}));
+    const caller = appRouter.createCaller(await ctxWith({}));
     const res = await caller.recipes.skuCandidates({
       recipeId: "00000000-0000-0000-0000-000000000000",
     });

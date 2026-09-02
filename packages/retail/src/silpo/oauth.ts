@@ -10,10 +10,16 @@ import type { CredentialStore, StoredMcpTokens } from "@navar/domain";
 export interface SilpoOAuthOptions {
   store: CredentialStore;
   householdId: string;
-  /** Loopback URL the one-time interactive flow listens on. */
+  /** Redirect URL — the loopback for the CLI flow, or `${PUBLIC_API_URL}/auth/silpo/callback` for the web flow. */
   redirectUrl: string;
   /** Called with the authorization URL during the interactive flow. */
   onAuthorizationUrl?: (url: URL) => void | Promise<void>;
+  /**
+   * The shared app-level OAuth client (web flow). When set, `clientInformation()` returns
+   * it and `saveClientInformation()` is a no-op — the per-household blob only holds tokens
+   * + the transient PKCE verifier. Absent → per-household DCR into the blob (CLI flow).
+   */
+  appClientInformation?: () => Promise<OAuthClientInformationFull>;
 }
 
 /**
@@ -51,10 +57,12 @@ export class SilpoOAuthProvider implements OAuthClientProvider {
   }
 
   async clientInformation(): Promise<OAuthClientInformation | undefined> {
+    if (this.opts.appClientInformation) return this.opts.appClientInformation();
     return (await this.#loadState()).clientInformation as OAuthClientInformation | undefined;
   }
 
   async saveClientInformation(info: OAuthClientInformationFull): Promise<void> {
+    if (this.opts.appClientInformation) return; // shared client — nothing to persist per household
     await this.#merge({ clientInformation: info });
   }
 

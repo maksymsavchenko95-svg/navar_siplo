@@ -21,6 +21,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@fastify/cookie": "^11.0.2",
     "@navar/db": "workspace:*",
     "@navar/llm": "workspace:*",
     "@navar/retail": "workspace:*",

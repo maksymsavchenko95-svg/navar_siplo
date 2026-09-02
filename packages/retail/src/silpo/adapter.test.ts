@@ -169,6 +169,16 @@ describe("SilpoRetailProvider household reads", () => {
     });
   });
 
+  it("getOnlineOrders clamps limit to the live MCP max of 50", async () => {
+    const spy = vi.fn(cartAwareStub({ silpo_get_my_online_orders: { orders: [] } }));
+    const provider = providerWith(spy, { withToken: true });
+    await provider.getOnlineOrders({ limit: 100 });
+    expect(spy).toHaveBeenCalledWith({
+      name: "silpo_get_my_online_orders",
+      arguments: { limit: 50, offset: 0 },
+    });
+  });
+
   it("getOfflineOrders is cart-gated — passes branch/delivery/timeslot", async () => {
     const spy = vi.fn(
       cartAwareStub({

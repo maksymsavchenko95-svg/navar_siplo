@@ -18,6 +18,7 @@ import type {
 
 import { AuthRequiredError, type HouseholdReader, type RetailProvider } from "../provider.js";
 import { toToolSummaries } from "../summaries.js";
+import type { SilpoOAuthClient } from "./app-client.js";
 import { SilpoOAuthProvider } from "./oauth.js";
 import {
   parseAddresses,
@@ -37,8 +38,10 @@ export interface SilpoRetailProviderOptions {
   mcpUrl: string;
   store: CredentialStore;
   householdId: string;
-  /** Loopback redirect for the interactive auth flow; unused at runtime once connected. */
+  /** Redirect URI registered for this household's OAuth client; unused at runtime once connected. */
   redirectUrl: string;
+  /** The shared app-level OAuth client (web flow). See `SilpoOAuthOptions.appClientInformation`. */
+  appClientInformation?: () => Promise<SilpoOAuthClient>;
 }
 
 const AUTH_HINT = "run `pnpm mcp:auth` (one-time Silpo login)";
@@ -207,9 +210,10 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
     return parseAddresses(await this.callToolAuthed("silpo_get_my_delivery_addresses"));
   }
 
+  /** Live MCP caps `limit` at 50 (the committed snapshot still says 100 — docs lag reality). */
   async getOnlineOrders(opts: { limit?: number; offset?: number } = {}): Promise<RetailOrder[]> {
     const raw = await this.callToolAuthed("silpo_get_my_online_orders", {
-      limit: Math.min(opts.limit ?? 100, 100),
+      limit: Math.min(opts.limit ?? 50, 50),
       offset: opts.offset ?? 0,
     });
     return parseOrders(raw);
@@ -295,6 +299,7 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
         store: this.opts.store,
         householdId: this.opts.householdId,
         redirectUrl: this.opts.redirectUrl,
+        appClientInformation: this.opts.appClientInformation,
       }),
     });
     await client.connect(transport);

@@ -22,10 +22,9 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { buildPortrait } from "../../household/portrait.js";
-import { resolveHouseholdId } from "../../household.js";
 import { bootstrapQueue } from "../../queue/bootstrap-queue.js";
 // bootstrapQueue() is lazy — constructed on first enqueue, not on import.
-import { publicProcedure, router } from "../trpc.js";
+import { protectedProcedure, router } from "../trpc.js";
 
 const BOOTSTRAP_STATUS = ["idle", "running", "onboarding_required", "done", "error"] as const;
 
@@ -75,12 +74,11 @@ export const householdRouter = router({
    * re-enqueued (the DB `running` status is the guard); a finished job is removed before
    * the new one is added so a stale `jobId` can't block a re-run.
    */
-  bootstrap: publicProcedure.mutation(
+  bootstrap: protectedProcedure.mutation(
     async ({
       ctx,
     }): Promise<{ status: "running"; jobId: string } | { status: "error"; message: string }> => {
-      const householdId = await resolveHouseholdId();
-      if (!householdId) return { status: "error", message: "no household — run pnpm db:seed" };
+      const { householdId } = ctx;
       try {
         const [row] = await ctx.db
           .select({ status: schema.households.bootstrapStatus })
@@ -116,7 +114,7 @@ export const householdRouter = router({
     },
   ),
 
-  bootstrapStatus: publicProcedure.query(
+  bootstrapStatus: protectedProcedure.query(
     async ({
       ctx,
     }): Promise<{
@@ -124,8 +122,7 @@ export const householdRouter = router({
       error?: string;
       orderCount?: number;
     }> => {
-      const householdId = await resolveHouseholdId();
-      if (!householdId) return { status: "idle" };
+      const { householdId } = ctx;
       const [row] = await ctx.db
         .select({
           status: schema.households.bootstrapStatus,
@@ -145,9 +142,8 @@ export const householdRouter = router({
     },
   ),
 
-  get: publicProcedure.query(async ({ ctx }): Promise<HouseholdResult> => {
-    const householdId = await resolveHouseholdId();
-    if (!householdId) return { status: "not_bootstrapped" };
+  get: protectedProcedure.query(async ({ ctx }): Promise<HouseholdResult> => {
+    const { householdId } = ctx;
     const hh = await loadHousehold(ctx.db, householdId);
     if (!hh) return { status: "not_bootstrapped" };
     return {
@@ -180,7 +176,7 @@ export const householdRouter = router({
     };
   }),
 
-  inferredTastes: publicProcedure.query(
+  inferredTastes: protectedProcedure.query(
     async ({
       ctx,
     }): Promise<
@@ -188,8 +184,7 @@ export const householdRouter = router({
       | { status: "onboarding_required" }
       | { status: "not_bootstrapped" }
     > => {
-      const householdId = await resolveHouseholdId();
-      if (!householdId) return { status: "not_bootstrapped" };
+      const { householdId } = ctx;
       const hh = await loadHousehold(ctx.db, householdId);
       if (!hh || hh.bootstrapStatus === "idle") return { status: "not_bootstrapped" };
       if (hh.bootstrapStatus === "onboarding_required") return { status: "onboarding_required" };
@@ -197,7 +192,7 @@ export const householdRouter = router({
     },
   ),
 
-  confirmTastes: publicProcedure
+  confirmTastes: protectedProcedure
     .input(confirmTastesInputSchema)
     .mutation(
       async ({
@@ -206,8 +201,7 @@ export const householdRouter = router({
       }): Promise<
         { status: "ok"; portrait: HouseholdPortrait } | { status: "not_bootstrapped" }
       > => {
-        const householdId = await resolveHouseholdId();
-        if (!householdId) return { status: "not_bootstrapped" };
+        const { householdId } = ctx;
         const disliked = new Set<string>();
 
         for (const edit of input.edits) {
@@ -284,11 +278,10 @@ export const householdRouter = router({
       },
     ),
 
-  submitOnboarding: publicProcedure
+  submitOnboarding: protectedProcedure
     .input(onboardingAnswersSchema)
     .mutation(async ({ ctx, input }): Promise<{ status: "ok" }> => {
-      const householdId = await resolveHouseholdId();
-      if (!householdId) throw new Error("no household");
+      const { householdId } = ctx;
 
       const parsed = await runStep(
         parseRestrictionsStep,
@@ -408,15 +401,14 @@ export const householdRouter = router({
   /** Flip `households.goal`. Idempotent. Does not touch `nutrition_targets` (a stale row is
    *  ignored while `goal='routine'`); the "form plan needs targets" check is the solver's
    *  (T2.3). */
-  setGoal: publicProcedure
+  setGoal: protectedProcedure
     .input(z.object({ goal: goalSchema }))
     .mutation(
       async ({
         ctx,
         input,
       }): Promise<{ status: "ok"; goal: Goal } | { status: "error"; message: string }> => {
-        const householdId = await resolveHouseholdId();
-        if (!householdId) return { status: "error", message: "no household — run pnpm db:seed" };
+        const { householdId } = ctx;
         await ctx.db
           .update(schema.households)
           .set({ goal: input.goal })
@@ -430,7 +422,7 @@ export const householdRouter = router({
    * (`FR-SAFE-009`): a sub-floor target is **rejected with a reason**, never clamped, and
    * nothing is written. Idempotent — re-running with the same metrics upserts the same row.
    */
-  computeNutrition: publicProcedure
+  computeNutrition: protectedProcedure
     .input(nutritionComputedFromSchema)
     .mutation(
       async ({
@@ -441,8 +433,7 @@ export const householdRouter = router({
         | { status: "rejected"; reason: string; floorKcal: number; computedKcal: number }
         | { status: "error"; message: string }
       > => {
-        const householdId = await resolveHouseholdId();
-        if (!householdId) return { status: "error", message: "no household — run pnpm db:seed" };
+        const { householdId } = ctx;
 
         let targets: NutritionTargets;
         try {

@@ -22,5 +22,12 @@ export {
   toReplacementResults,
 } from "./silpo/parse.js";
 export { SilpoRetailProvider, type SilpoRetailProviderOptions } from "./silpo/adapter.js";
-export { SilpoOAuthProvider } from "./silpo/oauth.js";
+export { SilpoOAuthProvider, type SilpoOAuthOptions } from "./silpo/oauth.js";
 export { runInteractiveAuth, type InteractiveAuthOptions } from "./silpo/auth-flow.js";
+export {
+  registerAppClient,
+  resolveAppOAuthClient,
+  type AppClientStore,
+  type SilpoOAuthClient,
+} from "./silpo/app-client.js";
+export { beginWebLogin, finishWebLogin, type WebAuthOptions } from "./silpo/web-auth.js";

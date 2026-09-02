@@ -1,6 +1,5 @@
 import { HelloCard } from "@/components/HelloCard";
 import { HouseholdPortrait } from "@/components/HouseholdPortrait";
-import { McpStatus } from "@/components/McpStatus";
 import { RecipesSection } from "@/components/RecipesSection";
 
 export default function HomePage() {
@@ -10,7 +9,6 @@ export default function HomePage() {
       <HelloCard />
       <HouseholdPortrait />
       <RecipesSection />
-      <McpStatus />
     </main>
   );
 }

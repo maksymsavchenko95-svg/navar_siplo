@@ -1,7 +1,6 @@
 import type {
   HelloResult,
   IngredientSkuCandidate,
-  McpToolsResult,
   RecipeShoppingResult,
   RecipeSummary,
 } from "@navar/domain";
@@ -10,7 +9,6 @@ import { hasHardExclusion } from "@navar/safety";
 import { AuthRequiredError, NoCartError } from "@navar/retail";
 import { z } from "zod";
 
-import { resolveHouseholdId } from "../household.js";
 import {
   getRerankFn,
   loadExclusions,
@@ -18,11 +16,13 @@ import {
   makeIngredientSafety,
   makeSkuSafety,
 } from "../mapper.js";
+import { authRouter } from "./routers/auth.js";
 import { householdRouter } from "./routers/household.js";
 import { planRouter } from "./routers/plan.js";
-import { publicProcedure, router } from "./trpc.js";
+import { protectedProcedure, publicProcedure, router } from "./trpc.js";
 
 export const appRouter = router({
+  auth: authRouter,
   household: householdRouter,
   plan: planRouter,
 
@@ -68,7 +68,7 @@ export const appRouter = router({
      * resolved household's allergen exclusions — blocked lines come back `blocked: true`
      * with a Guest-facing reason. Pack-size aware; `totalUah` is basket cost (price × packs).
      */
-    skuCandidates: publicProcedure
+    skuCandidates: protectedProcedure
       .input(z.object({ recipeId: z.string().uuid() }))
       .query(async ({ ctx, input }): Promise<RecipeShoppingResult> => {
         const recipe = await ctx.db.query.recipes.findFirst({
@@ -85,10 +85,8 @@ export const appRouter = router({
         }));
 
         try {
-          const householdId = await resolveHouseholdId();
-          const exclusions = householdId
-            ? await loadExclusions(householdId)
-            : { allergens: [], ingredients: [], strictMode: false };
+          const { householdId } = ctx;
+          const exclusions = await loadExclusions(householdId);
           const dict = await loadMapperDict(lines.map((l) => l.slug));
           const result = await mapPlan(
             { lines, dict },
@@ -98,7 +96,7 @@ export const appRouter = router({
               ...(hasHardExclusion(exclusions)
                 ? {
                     ingredientSafety: makeIngredientSafety(exclusions),
-                    skuSafety: makeSkuSafety(ctx.retail, exclusions, householdId!),
+                    skuSafety: makeSkuSafety(ctx.retail, exclusions, householdId),
                   }
                 : {}),
             },
@@ -133,10 +131,6 @@ export const appRouter = router({
           return { status: "error", message: err instanceof Error ? err.message : String(err) };
         }
       }),
-  }),
-
-  mcp: router({
-    listTools: publicProcedure.query(({ ctx }): Promise<McpToolsResult> => ctx.retail.listTools()),
   }),
 });
 

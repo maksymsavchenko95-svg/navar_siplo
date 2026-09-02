@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests --no-file-parallelism",
     "mcp:auth": "tsx src/scripts/mcp-auth.ts",
+    "mcp:register": "tsx src/scripts/mcp-register.ts",
     "mcp:tools-snapshot": "tsx src/scripts/mcp-tools-snapshot.ts",
     "mcp:audit": "tsx src/scripts/mcp-audit.ts",
     "mcp:audit:cart": "tsx src/scripts/mcp-audit-cart.ts",
@@ -23,6 +24,7 @@
     "plan:probe": "tsx src/scripts/plan-probe.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^10.0.1",
     "@navar/db": "workspace:*",
     "@navar/domain": "workspace:*",

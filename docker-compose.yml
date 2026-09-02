@@ -19,8 +19,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6379:6379"
+    volumes:
+      - navar-redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
@@ -45,6 +48,10 @@ services:
       SILPO_MCP_URL: ${SILPO_MCP_URL:-https://mcp.silpo.ua/mcp}
       MCP_OAUTH_CALLBACK_PORT: "8765"
       MCP_TOKEN_KEY: ${MCP_TOKEN_KEY:-}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      COOKIE_SECRET: ${COOKIE_SECRET:-}
+      SILPO_OAUTH_CLIENT: ${SILPO_OAUTH_CLIENT:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       NAVAR_LLM_MODEL: ${NAVAR_LLM_MODEL:-claude-sonnet-5}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
@@ -68,3 +75,4 @@ services:
 
 volumes:
   navar-pgdata:
+  navar-redis:

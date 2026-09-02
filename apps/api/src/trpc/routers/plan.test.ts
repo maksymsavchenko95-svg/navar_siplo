@@ -2,9 +2,10 @@ import { db } from "@navar/db";
 import type { ProductDetails, ProductMatch, ProductSearchResult } from "@navar/domain";
 import { describe, expect, it, vi } from "vitest";
 
-import { getLlm, getLlmTracer } from "../../llm.js";
+import { resolveHouseholdId } from "../../household.js";
 import type { Context } from "../context.js";
 import { appRouter } from "../router.js";
+import { testContext } from "../test-context.js";
 
 const sku = (
   over: Partial<ProductMatch> & Pick<ProductMatch, "productId" | "name">,
@@ -40,27 +41,24 @@ const cleanDetails = (slug: string): ProductDetails => ({
   carbs100: null,
 });
 
-function ctx(): Context {
-  return {
-    db,
-    retail: {
-      findProducts: vi.fn(async (queries: string[]): Promise<ProductSearchResult[]> =>
-        queries.map((query) => ({
-          query,
-          products: [sku({ productId: `${query}-1`, name: query })],
-        })),
-      ),
-      getReplacements: async () => [],
-      getProductDetails: vi.fn(async (s: string) => cleanDetails(s)),
-    },
-    llm: getLlm(),
-    tracer: getLlmTracer(),
-  } as unknown as Context;
+async function ctx(): Promise<Context> {
+  const householdId = (await resolveHouseholdId()) ?? "test-household";
+  const retail = {
+    findProducts: vi.fn(async (queries: string[]): Promise<ProductSearchResult[]> =>
+      queries.map((query) => ({
+        query,
+        products: [sku({ productId: `${query}-1`, name: query })],
+      })),
+    ),
+    getReplacements: async () => [],
+    getProductDetails: vi.fn(async (s: string) => cleanDetails(s)),
+  } as unknown as Context["retail"];
+  return testContext({ householdId, retail });
 }
 
 describe.skipIf(!process.env.DATABASE_URL)("plan router (integration)", () => {
   it("generate → get round-trips a persisted plan with an explanation", async () => {
-    const caller = appRouter.createCaller(ctx());
+    const caller = appRouter.createCaller(await ctx());
     const gen = await caller.plan.generate({ goal: "routine", budgetUah: 6000, seed: 11 });
     expect(gen.status).toBe("ok");
     if (gen.status !== "ok") return;
@@ -81,7 +79,7 @@ describe.skipIf(!process.env.DATABASE_URL)("plan router (integration)", () => {
   }, 120_000);
 
   it("get with a foreign planId → not_found", async () => {
-    const caller = appRouter.createCaller(ctx());
+    const caller = appRouter.createCaller(await ctx());
     const res = await caller.plan.get({ planId: "00000000-0000-0000-0000-000000000000" });
     expect(res).toEqual({ status: "not_found" });
   });

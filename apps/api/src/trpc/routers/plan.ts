@@ -7,9 +7,8 @@ import {
 } from "@navar/domain";
 import { z } from "zod";
 
-import { resolveHouseholdId } from "../../household.js";
 import { generateAndPersistPlan } from "../../plan.js";
-import { publicProcedure, router } from "../trpc.js";
+import { protectedProcedure, router } from "../trpc.js";
 
 /**
  * `plan.*` (roadmap T2.4 / T2.6, TDD §7). `generate` runs the deterministic solver
@@ -19,30 +18,24 @@ import { publicProcedure, router } from "../trpc.js";
  * generation with progress stages is T4.5.
  */
 export const planRouter = router({
-  generate: publicProcedure
+  generate: protectedProcedure
     .input(planGenerateInputSchema.optional())
     .mutation(async ({ ctx, input }): Promise<PlanGenerateResult> => {
-      const householdId = await resolveHouseholdId();
-      if (!householdId) return { status: "error", message: "no household — run pnpm db:seed" };
       try {
-        return await generateAndPersistPlan(householdId, ctx.retail, input ?? {});
+        return await generateAndPersistPlan(ctx.householdId, ctx.retail, input ?? {});
       } catch (err) {
         return { status: "error", message: err instanceof Error ? err.message : String(err) };
       }
     }),
 
-  get: publicProcedure
+  get: protectedProcedure
     .input(z.object({ planId: z.string().uuid() }))
-    .query(async ({ input }): Promise<PlanGetResult> => {
-      const householdId = await resolveHouseholdId();
-      if (!householdId) return { status: "not_found" };
-      const plan = await getPlanDetail(input.planId, householdId);
+    .query(async ({ ctx, input }): Promise<PlanGetResult> => {
+      const plan = await getPlanDetail(input.planId, ctx.householdId);
       return plan ? { status: "ok", plan } : { status: "not_found" };
     }),
 
-  list: publicProcedure.query(async (): Promise<Plan[]> => {
-    const householdId = await resolveHouseholdId();
-    if (!householdId) return [];
-    return listPlans(householdId);
+  list: protectedProcedure.query(async ({ ctx }): Promise<Plan[]> => {
+    return listPlans(ctx.householdId);
   }),
 });

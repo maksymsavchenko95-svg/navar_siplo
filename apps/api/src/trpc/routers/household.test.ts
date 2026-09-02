@@ -4,8 +4,8 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { resolveHouseholdId } from "../../household.js";
-import { createContext } from "../context.js";
 import { appRouter } from "../router.js";
+import { testContext } from "../test-context.js";
 import { parseCardId } from "./household.js";
 
 describe("parseCardId", () => {
@@ -44,10 +44,10 @@ describe.skipIf(!process.env.DATABASE_URL)("household router (integration)", () 
   let snapshot: { goal: string; targets: typeof schema.nutritionTargets.$inferSelect | undefined };
 
   beforeAll(async () => {
-    caller = appRouter.createCaller(await createContext({} as never));
     const id = await resolveHouseholdId();
     if (!id) throw new Error("no demo household — run pnpm db:seed");
     householdId = id;
+    caller = appRouter.createCaller(testContext({ householdId }));
     const [hh] = await db
       .select({ goal: schema.households.goal })
       .from(schema.households)
