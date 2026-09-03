@@ -17,6 +17,7 @@ import {
   makeSkuSafety,
 } from "../mapper.js";
 import { authRouter } from "./routers/auth.js";
+import { cartRouter } from "./routers/cart.js";
 import { householdRouter } from "./routers/household.js";
 import { planRouter } from "./routers/plan.js";
 import { protectedProcedure, publicProcedure, router } from "./trpc.js";
@@ -25,6 +26,7 @@ export const appRouter = router({
   auth: authRouter,
   household: householdRouter,
   plan: planRouter,
+  cart: cartRouter,
 
   hello: publicProcedure
     .input(z.object({ name: z.string().trim().min(1).max(80).optional() }).optional())

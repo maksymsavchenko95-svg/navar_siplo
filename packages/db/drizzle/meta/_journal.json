@@ -43,6 +43,13 @@
       "when": 1788364149844,
       "tag": "0005_great_kabuki",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788393373382,
+      "tag": "0006_workable_anita_blake",
+      "breakpoints": true
     }
   ]
 }

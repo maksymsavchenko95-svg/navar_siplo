@@ -9,6 +9,7 @@ export {
   AuthRequiredError,
 } from "./provider.js";
 export { toToolSummaries } from "./summaries.js";
+export { isRateLimit } from "./silpo/errors.js";
 export {
   parseAddresses,
   parseFamily,
@@ -17,6 +18,8 @@ export {
   parseProfile,
   parseRestrictionsRaw,
   toCartContext,
+  toCartView,
+  toCartWriteResult,
   toProductDetails,
   toProductSearchResults,
   toReplacementResults,

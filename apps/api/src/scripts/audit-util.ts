@@ -7,6 +7,10 @@
 // harness share one implementation. Re-exported here so callers keep importing from one place.
 export { PII_KEYS, redact } from "@navar/domain";
 
+// The Silpo cart-write rate-limit check lives in `@navar/retail` (the write path uses it
+// too). Re-exported so the audit scripts keep importing from one place.
+export { isRateLimit } from "@navar/retail";
+
 /** Structural sketch of a value: keys + leaf types; arrays collapse to `[shape, "×N"]`. */
 export function shape(value: unknown, depth = 0): unknown {
   if (depth > 6) return "…";
@@ -25,17 +29,6 @@ export function shape(value: unknown, depth = 0): unknown {
 export function errMsg(err: unknown): string {
   const e = err as { code?: number; message?: string };
   return e.code ? `[${e.code}] ${e.message ?? ""}` : (e.message ?? String(err));
-}
-
-/**
- * True when an error is the Silpo cart-write rate limit. The server sends this as a
- * plain-text message ("Rate limit exceeded"), NOT a JSON-RPC 429, so
- * `SilpoRetailProvider.withBackoff` (which matches `err.code === 429`) does not catch it.
- */
-export function isRateLimit(err: unknown): boolean {
-  const e = err as { code?: number; message?: string };
-  if (e.code === 429) return true;
-  return /rate limit/i.test(e.message ?? String(err));
 }
 
 export interface CartLine {

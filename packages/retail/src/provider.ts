@@ -1,5 +1,8 @@
 import type {
   CartContext,
+  CartView,
+  CartWriteItem,
+  CartWriteResult,
   McpToolsResult,
   ProductDetails,
   ProductSearchResult,
@@ -45,6 +48,32 @@ export interface RetailProvider {
    * outcome, not an error. Result order matches the input.
    */
   getReplacements(items: { productId: string; companyId: string }[]): Promise<ReplacementResult[]>;
+
+  // ── cart writes (T3.1 / T3.2, ADR-07, FR-CART-*) ──────────────────────────
+
+  /**
+   * The whole live cart — lines, totals, `validations[]`, `loyalty`, checkout links, and
+   * the delivery echo `updateCartBonus` needs. Throws `NoCartError` if the Guest has no
+   * cart (never creates one). `AuthRequiredError` without a token.
+   */
+  getCart(): Promise<CartView>;
+
+  /**
+   * Set absolute quantities for the given SKUs (`silpo_add_or_update_cart_products` with
+   * `addQuantity:false`). Idempotent — a retry does not double a line. Never clears the
+   * cart. Re-read with `getCart()` afterwards: `success` means accepted, not valid.
+   */
+  addCartProducts(items: CartWriteItem[]): Promise<CartWriteResult>;
+
+  /** Remove the given SKUs (`silpo_remove_cart_products`). Cleanup / script use only. */
+  removeCartProducts(productIds: string[]): Promise<CartWriteResult>;
+
+  /**
+   * Apply (`bonusRequested`) or clear (`null`) balabonuses via `silpo_update_shopping_cart`,
+   * echoing the cart's delivery/address/shipments. Throws if the cart has no usable
+   * delivery context.
+   */
+  updateCartBonus(bonusRequested: number | null): Promise<CartWriteResult>;
 }
 
 /**

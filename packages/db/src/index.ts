@@ -18,6 +18,7 @@ export {
   toPlanRows,
   savePlan,
   setPlanExplanation,
+  markPlanMaterialized,
   getPlanDetail,
   listPlans,
   type ToPlanRowsInput,

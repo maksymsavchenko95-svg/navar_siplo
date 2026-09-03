@@ -325,3 +325,133 @@ describe("SilpoRetailProvider.getProductDetails / getReplacements", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+describe("SilpoRetailProvider cart writes (T3.1 / T3.2)", () => {
+  const cartByIdPayload = {
+    cart: {
+      deliveryType: "DeliveryHome",
+      timeslot: { start: "2026-09-04T10:00:00Z", end: "2026-09-04T12:00:00Z" },
+      address: { addressType: "home", latitude: "50", longitude: "30" },
+      shipments: [{ companyId: "co-1", branchId: "br-1", products: [] }],
+      calculation: { total: 850, totalAfterDiscounts: 820, validations: [] },
+    },
+    loyalty: { bonusAvailable: 30, bonusTotal: 30, bonusRequested: null, isEnabled: true },
+    checkoutWebLink: "https://silpo.ua/checkout",
+  };
+
+  function cartWriteStub(named: Record<string, unknown> = {}) {
+    return ({ name }: { name: string }) => {
+      if (name === "silpo_get_my_shopping_cart")
+        return env({ exists: true, shoppingCartId: "cart-1" });
+      if (name === "silpo_get_shopping_cart_by_id") return env(cartByIdPayload);
+      if (name in named) return env(named[name]);
+      return env({ success: true, summary: "ok", products: [] });
+    };
+  }
+
+  it("getCart parses lines/validations/loyalty/links and the delivery echo", async () => {
+    const provider = providerWith(cartWriteStub(), { withToken: true });
+    const cart = await provider.getCart();
+    expect(cart.shoppingCartId).toBe("cart-1");
+    expect(cart.totalAfterDiscountsUah).toBe(820);
+    expect(cart.loyalty).toMatchObject({ bonusAvailable: 30, isEnabled: true });
+    expect(cart.checkoutWebLink).toBe("https://silpo.ua/checkout");
+    expect(cart.delivery).toMatchObject({ deliveryType: "DeliveryHome" });
+  });
+
+  it("getCart throws NoCartError when the Guest has no cart", async () => {
+    const { NoCartError } = await import("../provider.js");
+    const provider = providerWith(
+      ({ name }) => (name === "silpo_get_my_shopping_cart" ? env({ exists: false }) : env({})),
+      { withToken: true },
+    );
+    await expect(provider.getCart()).rejects.toBeInstanceOf(NoCartError);
+  });
+
+  it("addCartProducts sends addQuantity:false and the three ids per item", async () => {
+    const spy = vi.fn(cartWriteStub());
+    const provider = providerWith(spy, { withToken: true });
+    await provider.addCartProducts([
+      { productId: "p1", companyId: "c1", branchId: "b1", quantity: 2 },
+    ]);
+    expect(spy).toHaveBeenCalledWith({
+      name: "silpo_add_or_update_cart_products",
+      arguments: {
+        shoppingCartId: "cart-1",
+        products: [
+          { productId: "p1", companyId: "c1", branchId: "b1", quantity: 2, addQuantity: false },
+        ],
+      },
+    });
+  });
+
+  it("addCartProducts is a no-op for an empty item list", async () => {
+    const spy = vi.fn(cartWriteStub());
+    const provider = providerWith(spy, { withToken: true });
+    const r = await provider.addCartProducts([]);
+    expect(r).toEqual({ success: true, summary: "nothing to add", products: [] });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("retries a write past the plain-text rate limit, then succeeds", async () => {
+    let calls = 0;
+    const provider = providerWith(
+      ({ name }) => {
+        if (name === "silpo_get_my_shopping_cart")
+          return env({ exists: true, shoppingCartId: "cart-1" });
+        if (name === "silpo_add_or_update_cart_products") {
+          calls++;
+          if (calls === 1)
+            return { isError: true, content: [{ type: "text", text: "Rate limit exceeded" }] };
+          return env({ success: true, summary: "Updated 1 product(s)", products: [] });
+        }
+        return env({});
+      },
+      { withToken: true },
+    );
+    vi.stubGlobal("setTimeout", (fn: () => void) => {
+      fn();
+      return 0;
+    });
+    const r = await provider.addCartProducts([
+      { productId: "p1", companyId: "c1", branchId: "b1", quantity: 1 },
+    ]);
+    expect(calls).toBe(2);
+    expect(r.success).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("removeCartProducts sends { productId } per id", async () => {
+    const spy = vi.fn(cartWriteStub());
+    const provider = providerWith(spy, { withToken: true });
+    await provider.removeCartProducts(["p1", "p2"]);
+    expect(spy).toHaveBeenCalledWith({
+      name: "silpo_remove_cart_products",
+      arguments: { shoppingCartId: "cart-1", products: [{ productId: "p1" }, { productId: "p2" }] },
+    });
+  });
+
+  it("updateCartBonus echoes the cart's delivery fields + bonusRequested", async () => {
+    const spy = vi.fn(cartWriteStub());
+    const provider = providerWith(spy, { withToken: true });
+    await provider.updateCartBonus(30);
+    expect(spy).toHaveBeenCalledWith({
+      name: "silpo_update_shopping_cart",
+      arguments: {
+        shoppingCartId: "cart-1",
+        deliveryType: "DeliveryHome",
+        timeslot: { start: "2026-09-04T10:00:00Z", end: "2026-09-04T12:00:00Z" },
+        address: { addressType: "home", latitude: "50", longitude: "30" },
+        shipments: [{ companyId: "co-1", branchId: "br-1" }],
+        bonusRequested: 30,
+      },
+    });
+  });
+
+  it("cart writes throw AuthRequiredError without a token", async () => {
+    const provider = providerWith(cartWriteStub(), { withToken: false });
+    await expect(
+      provider.addCartProducts([{ productId: "p", companyId: "c", branchId: "b", quantity: 1 }]),
+    ).rejects.toBeInstanceOf(AuthRequiredError);
+  });
+});

@@ -3,6 +3,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type {
   CartContext,
+  CartView,
+  CartWriteItem,
+  CartWriteResult,
   CredentialStore,
   McpToolsResult,
   ProductDetails,
@@ -16,9 +19,15 @@ import type {
   RetailProfile,
 } from "@navar/domain";
 
-import { AuthRequiredError, type HouseholdReader, type RetailProvider } from "../provider.js";
+import {
+  AuthRequiredError,
+  type HouseholdReader,
+  NoCartError,
+  type RetailProvider,
+} from "../provider.js";
 import { toToolSummaries } from "../summaries.js";
 import type { SilpoOAuthClient } from "./app-client.js";
+import { isRateLimit } from "./errors.js";
 import { SilpoOAuthProvider } from "./oauth.js";
 import {
   parseAddresses,
@@ -29,6 +38,8 @@ import {
   parseRestrictionsRaw,
   parseToolResult,
   toCartContext,
+  toCartView,
+  toCartWriteResult,
   toProductDetails,
   toProductSearchResults,
   toReplacementResults,
@@ -47,6 +58,7 @@ export interface SilpoRetailProviderOptions {
 const AUTH_HINT = "run `pnpm mcp:auth` (one-time Silpo login)";
 const CART_TTL_MS = 60_000;
 const PRODUCT_TTL_MS = 5 * 60_000; // prices/stock: never cached beyond 60 min (NFR-DATA-002)
+const WRITE_GAP_MS = 6_000; // the server frees a rate-limited cart write after ~6 s
 
 /** Retry `fn` on JSON-RPC 429 with exponential backoff (rules/mcp-integration.md). */
 async function withBackoff<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
@@ -56,6 +68,21 @@ async function withBackoff<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
     } catch (err) {
       if ((err as { code?: number }).code !== 429 || i >= attempts - 1) throw err;
       await new Promise((r) => setTimeout(r, 500 * 2 ** i));
+    }
+  }
+}
+
+/**
+ * Retry a cart write past the server's plain-text "Rate limit exceeded" (it is NOT a
+ * JSON-RPC 429, so `withBackoff` misses it — M0 audit Block 6). Spaced generously.
+ */
+async function writeWithRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isRateLimit(err) || i >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, WRITE_GAP_MS * i));
     }
   }
 }
@@ -190,6 +217,91 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
       productIds,
     });
     return toReplacementResults(raw, productIds);
+  }
+
+  // ─── Cart writes (RetailProvider, T3.1 / T3.2) ──────────────────────────────
+
+  async getCart(): Promise<CartView> {
+    if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
+    const myCart = (await this.callTool("silpo_get_my_shopping_cart")) as {
+      shoppingCartId?: string;
+      exists?: boolean;
+    };
+    const cartById =
+      myCart.shoppingCartId && myCart.exists !== false
+        ? await this.callTool("silpo_get_shopping_cart_by_id", {
+            shoppingCartId: myCart.shoppingCartId,
+          })
+        : {};
+    return toCartView(myCart, cartById); // throws NoCartError when there is no cart
+  }
+
+  async addCartProducts(items: CartWriteItem[]): Promise<CartWriteResult> {
+    if (items.length === 0) return { success: true, summary: "nothing to add", products: [] };
+    if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
+    const shoppingCartId = await this.myShoppingCartId();
+    const raw = await writeWithRetry(() =>
+      this.callTool("silpo_add_or_update_cart_products", {
+        shoppingCartId,
+        products: items.map((it) => ({
+          productId: it.productId,
+          companyId: it.companyId,
+          branchId: it.branchId,
+          quantity: it.quantity,
+          addQuantity: false, // set semantics → a retry cannot double a line (NFR-REL-003)
+        })),
+      }),
+    );
+    this.clearCartCache();
+    return toCartWriteResult(raw);
+  }
+
+  async removeCartProducts(productIds: string[]): Promise<CartWriteResult> {
+    if (productIds.length === 0)
+      return { success: true, summary: "nothing to remove", products: [] };
+    if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
+    const shoppingCartId = await this.myShoppingCartId();
+    const raw = await writeWithRetry(() =>
+      this.callTool("silpo_remove_cart_products", {
+        shoppingCartId,
+        products: productIds.map((productId) => ({ productId })),
+      }),
+    );
+    this.clearCartCache();
+    return toCartWriteResult(raw);
+  }
+
+  async updateCartBonus(bonusRequested: number | null): Promise<CartWriteResult> {
+    if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
+    const cart = await this.getCart();
+    if (!cart.delivery) {
+      throw new Error("cart has no usable delivery context — cannot apply balabonuses");
+    }
+    const raw = await writeWithRetry(() =>
+      this.callTool("silpo_update_shopping_cart", {
+        shoppingCartId: cart.shoppingCartId,
+        deliveryType: cart.delivery!.deliveryType,
+        timeslot: cart.delivery!.timeslot,
+        address: cart.delivery!.address,
+        shipments: cart.delivery!.shipments,
+        bonusRequested,
+      }),
+    );
+    this.clearCartCache();
+    return toCartWriteResult(raw);
+  }
+
+  private async myShoppingCartId(): Promise<string> {
+    const myCart = (await this.callTool("silpo_get_my_shopping_cart")) as {
+      shoppingCartId?: string;
+      exists?: boolean;
+    };
+    if (!myCart.shoppingCartId || myCart.exists === false) throw new NoCartError();
+    return myCart.shoppingCartId;
+  }
+
+  private clearCartCache(): void {
+    this.cartCache = undefined;
   }
 
   // ─── Household reads (HouseholdReader, T1.4) ────────────────────────────────

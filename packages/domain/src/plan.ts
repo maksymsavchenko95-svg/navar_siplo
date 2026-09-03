@@ -35,6 +35,7 @@ export const listLineSchema = z.object({
   neededAmount: z.number().nonnegative(),
   unit: z.string(),
   productRef: z.string().nullable(),
+  externalProductId: z.string().nullable(),
   companyId: z.string().nullable(),
   branchId: z.string().nullable(),
   productName: z.string().nullable(),
@@ -67,6 +68,9 @@ export const planSchema = z.object({
   proteinFloorMet: z.boolean().nullable(),
   kcalCorridorMet: z.boolean().nullable(),
   explanation: z.string().nullable(),
+  /** The Silpo cart this plan was materialized into (T3.1) — `null` until `cart.materialize`. */
+  cartId: z.string().nullable(),
+  materializedAt: z.string().nullable(),
   createdAt: z.string(),
 });
 export type Plan = z.infer<typeof planSchema>;

@@ -1,5 +1,11 @@
 import {
   type CartContext,
+  type CartDeliveryEcho,
+  type CartLine,
+  type CartLoyalty,
+  type CartValidation,
+  type CartView,
+  type CartWriteResult,
   parseKcal,
   type ProductDetails,
   type ProductMatch,
@@ -161,6 +167,152 @@ export function toProductDetails(raw: unknown): ProductDetails {
     protein100: attrNum(attributes, "Білки (г)"),
     fat100: attrNum(attributes, "Жири (г)"),
     carbs100: attrNum(attributes, "Вуглеводи (г)"),
+  };
+}
+
+// ─── Cart materialize (T3.1 / T3.2) ──────────────────────────────────────────
+
+interface RawCartLine {
+  productId?: string;
+  id?: string;
+  name?: string;
+  title?: string;
+  quantity?: number;
+  count?: number;
+  price?: number;
+  sum?: number;
+}
+interface RawCartShipment {
+  companyId?: string;
+  branchId?: string;
+  address?: Record<string, unknown>;
+  products?: RawCartLine[];
+}
+interface RawValidation {
+  level?: string;
+  type?: string;
+  message?: string;
+  context?: Record<string, unknown>;
+}
+interface CartByIdFull {
+  cart?: {
+    deliveryType?: string;
+    timeslot?: { start?: string; end?: string };
+    address?: Record<string, unknown>;
+    shipments?: RawCartShipment[];
+    calculation?: {
+      total?: number;
+      totalAfterDiscounts?: number;
+      validations?: RawValidation[];
+    };
+  };
+  loyalty?: {
+    bonusAvailable?: number;
+    bonusTotal?: number;
+    bonusRequested?: number | null;
+    isEnabled?: boolean;
+  } | null;
+  checkoutWebLink?: string;
+  checkoutMobileLink?: string;
+}
+
+/**
+ * `silpo_get_my_shopping_cart` + `silpo_get_shopping_cart_by_id` → the whole live cart
+ * (T3.1). `loyalty` / `checkoutWebLink` / `checkoutMobileLink` are **siblings** of `cart`;
+ * `validations[]` / totals live under `cart.calculation`. `delivery` is `null` unless every
+ * field `silpo_update_shopping_cart` needs is present — T3.2 refuses the bonus apply then.
+ * Throws `NoCartError` when the Guest has no cart (never creates one — `FR-CART-004`).
+ */
+export function toCartView(myCart: MyCart, cartById: unknown): CartView {
+  if (myCart.exists === false || !myCart.shoppingCartId) throw new NoCartError();
+  const r = (cartById ?? {}) as CartByIdFull;
+  const cart = r.cart ?? {};
+  const shipments = cart.shipments ?? [];
+
+  const lines: CartLine[] = shipments.flatMap((s) =>
+    (s.products ?? []).map((p) => {
+      const price = p.price ?? p.sum;
+      return {
+        productId: p.productId ?? p.id ?? "",
+        name: str(p.name ?? p.title),
+        quantity: num(p.quantity ?? p.count),
+        price: typeof price === "number" ? price : null,
+      };
+    }),
+  );
+
+  const validations: CartValidation[] = (cart.calculation?.validations ?? [])
+    .filter(
+      (v): v is RawValidation & { level: "error" | "info" } =>
+        v.level === "error" || v.level === "info",
+    )
+    .map((v) => ({
+      level: v.level,
+      type: typeof v.type === "string" ? v.type : "",
+      message: typeof v.message === "string" ? v.message : "",
+      ...(v.context && typeof v.context === "object" ? { context: v.context } : {}),
+    }));
+
+  const l = r.loyalty;
+  const loyalty: CartLoyalty | null =
+    l && typeof l === "object"
+      ? {
+          bonusAvailable: num(l.bonusAvailable),
+          bonusTotal: num(l.bonusTotal),
+          bonusRequested: typeof l.bonusRequested === "number" ? l.bonusRequested : null,
+          isEnabled: l.isEnabled === true,
+        }
+      : null;
+
+  const echoShipments = shipments
+    .map((s) => ({ companyId: s.companyId ?? "", branchId: s.branchId ?? "" }))
+    .filter((s) => s.companyId.length > 0 && s.branchId.length > 0);
+  const address = cart.address ?? shipments[0]?.address;
+  const delivery: CartDeliveryEcho | null =
+    cart.deliveryType &&
+    cart.timeslot?.start &&
+    cart.timeslot?.end &&
+    address &&
+    echoShipments.length > 0
+      ? {
+          deliveryType: cart.deliveryType,
+          timeslot: { start: cart.timeslot.start, end: cart.timeslot.end },
+          address,
+          shipments: echoShipments,
+        }
+      : null;
+
+  const calc = cart.calculation ?? {};
+  return {
+    shoppingCartId: myCart.shoppingCartId,
+    lines,
+    totalUah: typeof calc.total === "number" ? calc.total : null,
+    totalAfterDiscountsUah:
+      typeof calc.totalAfterDiscounts === "number" ? calc.totalAfterDiscounts : null,
+    validations,
+    loyalty,
+    checkoutWebLink: str(r.checkoutWebLink),
+    checkoutMobileLink: str(r.checkoutMobileLink),
+    delivery,
+  };
+}
+
+/** `silpo_add_or_update_cart_products` / `..._remove_cart_products` / `..._update_shopping_cart` payload. */
+export function toCartWriteResult(raw: unknown): CartWriteResult {
+  const r = (raw ?? {}) as {
+    success?: boolean;
+    summary?: string;
+    products?: { productId?: string; quantity?: number }[];
+  };
+  return {
+    success: r.success === true,
+    summary: typeof r.summary === "string" ? r.summary : "",
+    products: (r.products ?? [])
+      .filter((p) => typeof p.productId === "string")
+      .map((p) => ({
+        productId: p.productId as string,
+        ...(typeof p.quantity === "number" ? { quantity: p.quantity } : {}),
+      })),
   };
 }
 

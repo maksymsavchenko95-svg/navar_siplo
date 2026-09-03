@@ -6,6 +6,7 @@ import { closeDb, db } from "./client.js";
 import { importCanonicalIngredients } from "./import-ingredients.js";
 import {
   getPlanDetail,
+  markPlanMaterialized,
   savePlan,
   setPlanExplanation,
   toPlanRows,
@@ -271,6 +272,30 @@ describe.skipIf(!process.env.DATABASE_URL)("savePlan / getPlanDetail (integratio
     await db.delete(plans).where(eq(plans.id, planId));
     expect(await db.$count(planItems, eq(planItems.planId, planId))).toBe(0);
     expect(await db.$count(listLines, eq(listLines.planId, planId))).toBe(0);
+  });
+
+  it("markPlanMaterialized flips status + records cartId/materializedAt, scoped to household", async () => {
+    await setup();
+    const planId = await savePlan(rowsFor());
+
+    const before = await getPlanDetail(planId, householdId);
+    expect(before!.status).toBe("draft");
+    expect(before!.cartId).toBeNull();
+    expect(before!.materializedAt).toBeNull();
+    expect(before!.list[0]!.externalProductId).toBe("12345"); // persisted + read back (was dropped)
+
+    // wrong household → 0 rows, nothing changes
+    expect(
+      await markPlanMaterialized(planId, "00000000-0000-0000-0000-000000000000", "cart-x"),
+    ).toBe(0);
+
+    expect(await markPlanMaterialized(planId, householdId, "cart-abc")).toBe(1);
+    const after = await getPlanDetail(planId, householdId);
+    expect(after!.status).toBe("materialized");
+    expect(after!.cartId).toBe("cart-abc");
+    expect(after!.materializedAt).not.toBeNull();
+
+    await db.delete(plans).where(eq(plans.id, planId));
   });
 
   it("same solver result → identical persisted detail (seeded determinism)", async () => {

@@ -25,6 +25,28 @@ import { listLines, planItems, plans } from "./schema.js";
 const num = (v: number, dp: number): string => v.toFixed(dp);
 const toNum = (v: string | null): number | null => (v == null ? null : Number(v));
 
+/** A `plans` row → the `Plan` header shape (`plan.get` / `plan.list` share it). */
+function toPlanHeader(row: typeof plans.$inferSelect): Plan {
+  return {
+    id: row.id,
+    goal: row.goal as Plan["goal"],
+    seed: Number(row.seed),
+    days: row.days,
+    budgetUah: Number(row.budgetUah),
+    status: row.status as Plan["status"],
+    totalEstUah: toNum(row.totalEstUah),
+    promoSharePct: row.promoShare == null ? null : Number(row.promoShare) * 100,
+    estimatedCostUah: toNum(row.estimatedCostUah),
+    unpricedLineCount: row.unpricedLineCount,
+    proteinFloorMet: row.proteinFloorMet,
+    kcalCorridorMet: row.kcalCorridorMet,
+    explanation: row.explanation,
+    cartId: row.cartId,
+    materializedAt: row.materializedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 // ─── structural solver types (no @navar/planner import) ───────────────────────
 
 interface DayPick {
@@ -179,6 +201,26 @@ export async function setPlanExplanation(
   await database.update(plans).set({ explanation: text }).where(eq(plans.id, planId));
 }
 
+/**
+ * Record that a plan's shopping list was written into a Silpo cart (roadmap T3.1). Scoped
+ * to `householdId`; idempotent — a re-materialize just refreshes `materializedAt` (the
+ * Silpo write itself is set-semantics). Returns the number of rows touched (0 = not found /
+ * not this household).
+ */
+export async function markPlanMaterialized(
+  planId: string,
+  householdId: string,
+  cartId: string,
+  database: Db = db,
+): Promise<number> {
+  const rows = await database
+    .update(plans)
+    .set({ status: "materialized", cartId, materializedAt: new Date() })
+    .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)))
+    .returning({ id: plans.id });
+  return rows.length;
+}
+
 /** `plan.get` — a plan + its dinners + shopping list, or `null`. Scoped to `householdId`. */
 export async function getPlanDetail(
   planId: string,
@@ -194,22 +236,7 @@ export async function getPlanDetail(
   });
   if (!row) return null;
 
-  const header: Plan = {
-    id: row.id,
-    goal: row.goal as Plan["goal"],
-    seed: Number(row.seed),
-    days: row.days,
-    budgetUah: Number(row.budgetUah),
-    status: row.status as Plan["status"],
-    totalEstUah: toNum(row.totalEstUah),
-    promoSharePct: row.promoShare == null ? null : Number(row.promoShare) * 100,
-    estimatedCostUah: toNum(row.estimatedCostUah),
-    unpricedLineCount: row.unpricedLineCount,
-    proteinFloorMet: row.proteinFloorMet,
-    kcalCorridorMet: row.kcalCorridorMet,
-    explanation: row.explanation,
-    createdAt: row.createdAt.toISOString(),
-  };
+  const header = toPlanHeader(row);
 
   const items: PlanItem[] = row.items.map((i) => ({
     dayIndex: i.dayIndex,
@@ -239,6 +266,7 @@ export async function getPlanDetail(
     neededAmount: Number(l.neededAmount),
     unit: l.unit,
     productRef: l.productRef,
+    externalProductId: l.externalProductId,
     companyId: l.companyId,
     branchId: l.branchId,
     productName: l.productName,
@@ -269,20 +297,5 @@ export async function listPlans(
     orderBy: (p, { desc }) => desc(p.createdAt),
     limit,
   });
-  return rows.map((row) => ({
-    id: row.id,
-    goal: row.goal as Plan["goal"],
-    seed: Number(row.seed),
-    days: row.days,
-    budgetUah: Number(row.budgetUah),
-    status: row.status as Plan["status"],
-    totalEstUah: toNum(row.totalEstUah),
-    promoSharePct: row.promoShare == null ? null : Number(row.promoShare) * 100,
-    estimatedCostUah: toNum(row.estimatedCostUah),
-    unpricedLineCount: row.unpricedLineCount,
-    proteinFloorMet: row.proteinFloorMet,
-    kcalCorridorMet: row.kcalCorridorMet,
-    explanation: row.explanation,
-    createdAt: row.createdAt.toISOString(),
-  }));
+  return rows.map(toPlanHeader);
 }

@@ -10,6 +10,8 @@ import {
   parseRestrictionsRaw,
   parseToolResult,
   toCartContext,
+  toCartView,
+  toCartWriteResult,
   toProductDetails,
   toProductSearchResults,
   toReplacementResults,
@@ -432,5 +434,111 @@ describe("parseFavorites", () => {
         branchId: null,
       },
     ]);
+  });
+});
+
+describe("toCartView", () => {
+  const myCart = { exists: true, shoppingCartId: "cart-1" };
+  const byId = {
+    cart: {
+      deliveryType: "DeliveryHome",
+      timeslot: { start: "2026-09-04T10:00:00Z", end: "2026-09-04T12:00:00Z" },
+      address: { addressType: "home", latitude: "50.4", longitude: "30.5" },
+      shipments: [
+        {
+          companyId: "co-1",
+          branchId: "br-1",
+          products: [
+            { productId: "p1", name: "Молоко", quantity: 1, price: 42.5 },
+            { id: "p2", title: "Хліб", count: 2, sum: 38 },
+          ],
+        },
+      ],
+      calculation: {
+        total: 196,
+        totalAfterDiscounts: 180,
+        validations: [
+          {
+            level: "error",
+            type: "order",
+            message: "order.cost.min",
+            context: { orderCostMin: 799 },
+          },
+          { level: "info", type: "order", message: "order.payment_types.disabled" },
+          { level: "debug", message: "ignored" },
+        ],
+      },
+    },
+    loyalty: { bonusAvailable: 22.53, bonusTotal: 22.53, bonusRequested: null, isEnabled: true },
+    checkoutWebLink: "https://silpo.ua/checkout/web",
+  };
+
+  it("flattens lines, keeps only error/info validations, reads top-level loyalty + links", () => {
+    const v = toCartView(myCart, byId);
+    expect(v.shoppingCartId).toBe("cart-1");
+    expect(v.lines).toEqual([
+      { productId: "p1", name: "Молоко", quantity: 1, price: 42.5 },
+      { productId: "p2", name: "Хліб", quantity: 2, price: 38 },
+    ]);
+    expect(v.validations.map((x) => x.message)).toEqual([
+      "order.cost.min",
+      "order.payment_types.disabled",
+    ]);
+    expect(v.validations[0]!.context).toEqual({ orderCostMin: 799 });
+    expect(v.totalUah).toBe(196);
+    expect(v.totalAfterDiscountsUah).toBe(180);
+    expect(v.loyalty).toEqual({
+      bonusAvailable: 22.53,
+      bonusTotal: 22.53,
+      bonusRequested: null,
+      isEnabled: true,
+    });
+    expect(v.checkoutWebLink).toBe("https://silpo.ua/checkout/web");
+    expect(v.checkoutMobileLink).toBeNull();
+  });
+
+  it("builds the delivery echo when every field is present, else null", () => {
+    expect(toCartView(myCart, byId).delivery).toEqual({
+      deliveryType: "DeliveryHome",
+      timeslot: { start: "2026-09-04T10:00:00Z", end: "2026-09-04T12:00:00Z" },
+      address: { addressType: "home", latitude: "50.4", longitude: "30.5" },
+      shipments: [{ companyId: "co-1", branchId: "br-1" }],
+    });
+    const noAddr = { cart: { ...byId.cart, address: undefined }, loyalty: null };
+    expect(toCartView(myCart, noAddr).delivery).toBeNull();
+  });
+
+  it("throws NoCartError when the Guest has no cart", () => {
+    expect(() => toCartView({ exists: false }, {})).toThrow(NoCartError);
+    expect(() => toCartView({ exists: true }, {})).toThrow(NoCartError);
+  });
+
+  it("tolerates a missing cart / loyalty object", () => {
+    const v = toCartView(myCart, { cart: {}, loyalty: null });
+    expect(v.lines).toEqual([]);
+    expect(v.validations).toEqual([]);
+    expect(v.loyalty).toBeNull();
+    expect(v.totalUah).toBeNull();
+    expect(v.delivery).toBeNull();
+  });
+});
+
+describe("toCartWriteResult", () => {
+  it("normalises the write payload", () => {
+    expect(
+      toCartWriteResult({
+        success: true,
+        summary: "Updated 3 product(s)",
+        products: [{ productId: "a", quantity: 1 }, { productId: "b" }, { quantity: 9 }],
+      }),
+    ).toEqual({
+      success: true,
+      summary: "Updated 3 product(s)",
+      products: [{ productId: "a", quantity: 1 }, { productId: "b" }],
+    });
+  });
+
+  it("defaults an empty / missing payload", () => {
+    expect(toCartWriteResult({})).toEqual({ success: false, summary: "", products: [] });
   });
 });
