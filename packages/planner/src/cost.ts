@@ -57,15 +57,21 @@ export function categoryMedianPrices(
 
 /**
  * `COST(recipe)` (TDD §4 step 2) — computed in **pack sizes, not grams**. A recipe needing
- * 5 g of dill costs a whole bunch. Scales every ingredient by `servings / recipe.servings`;
- * whatever the running `pantry` (surplus from earlier picks) covers is not re-bought, and
- * the new surplus is returned so the greedy can carry it forward — this is the economic
- * side of "reuse an ingredient across ≥2 dishes" (`FR-PLAN-003`). A non-optional line with
- * no `prices` entry is priced at the category-median SKU price (F3) — the &gt;20% unmapped
- * rule already vetted the recipe — and only contributes 0 when the basket has no prices.
+ * 5 g of dill costs a whole bunch. Scales every ingredient by `servings / recipe.servings`
+ * and, on top, by `portionScale` (T3.3 — buying more/less of everything for a bigger/
+ * smaller portion); whatever the running `pantry` (surplus from earlier picks) covers is
+ * not re-bought, and the new surplus is returned so the greedy can carry it forward — this
+ * is the economic side of "reuse an ingredient across ≥2 dishes" (`FR-PLAN-003`). A
+ * non-optional line with no `prices` entry is priced at the category-median SKU price
+ * (F3) — the &gt;20% unmapped rule already vetted the recipe — and only contributes 0 when
+ * the basket has no prices.
  */
-export function recipeCost(candidate: RecipeCandidate, input: SolverInput): RecipeCost {
-  const scale = candidate.servings > 0 ? input.servings / candidate.servings : 1;
+export function recipeCost(
+  candidate: RecipeCandidate,
+  input: SolverInput,
+  portionScale = 1,
+): RecipeCost {
+  const scale = (candidate.servings > 0 ? input.servings / candidate.servings : 1) * portionScale;
   const medians = categoryMedianPrices(input);
   let costUah = 0;
   let promoShareUah = 0;

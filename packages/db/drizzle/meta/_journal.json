@@ -50,6 +50,13 @@
       "when": 1788393373382,
       "tag": "0006_workable_anita_blake",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788563362885,
+      "tag": "0007_illegal_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }

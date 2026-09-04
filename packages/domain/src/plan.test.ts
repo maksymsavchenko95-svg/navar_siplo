@@ -13,6 +13,7 @@ const item = {
   slug: "borshch",
   titleUk: "Борщ",
   servings: 3,
+  portionScale: 1,
   costUah: 120.5,
   promoShareUah: 40,
   macrosPerServing: { kcal: 520, protein: 28, fat: 18, carbs: 60 },
@@ -110,6 +111,17 @@ describe("plan schemas", () => {
       },
     };
     expect(planGenerateResultSchema.parse(infeasible)).toEqual(infeasible);
+  });
+
+  it("accepts the T3.3 'portion' binding", () => {
+    const result = {
+      status: "infeasible" as const,
+      binding: "portion" as const,
+      reason:
+        "на 180 ₴ більше — інакше калорійність не вкладається в коридор навіть з урахуванням розміру порції",
+      shortfallUah: 180,
+    };
+    expect(planGenerateResultSchema.parse(result)).toEqual(result);
   });
 
   it("requires binding on an infeasible result", () => {

@@ -19,6 +19,7 @@ export const planItemSchema = z.object({
   slug: z.string(),
   titleUk: z.string(),
   servings: z.number().int().positive(),
+  portionScale: z.number().min(0.6).max(1.4),
   costUah: z.number().nonnegative(),
   promoShareUah: z.number().nonnegative(),
   macrosPerServing: servingMacrosSchema.nullable(),
@@ -96,6 +97,7 @@ export type PlanGenerateInput = z.infer<typeof planGenerateInputSchema>;
 export const infeasibleBindingSchema = z.enum([
   "budget",
   "protein",
+  "portion",
   "kcal",
   "excluded_ingredients",
   "candidates",

@@ -75,9 +75,13 @@ function withHardConstraints(
 }
 
 /** Does a plan fit the original budget once `over` relaxes one hard constraint? */
-function fitsWithout(input: SolverInput, over: Partial<SolverInput["hardConstraints"]>): boolean {
+function fitsWithout(
+  input: SolverInput,
+  over: Partial<SolverInput["hardConstraints"]>,
+  filterOpts?: { kcalSlack?: number },
+): boolean {
   const relaxed = withHardConstraints(input, over);
-  return greedyPlan(hardFilter(relaxed).kept, relaxed).feasible;
+  return greedyPlan(hardFilter(relaxed, filterOpts).kept, relaxed).feasible;
 }
 
 function reasonFor(
@@ -88,6 +92,8 @@ function reasonFor(
   switch (binding) {
     case "protein":
       return `на ${uah} ₴ більше — інакше не набрати ${n.proteinTargetWeek} г білка за тиждень`;
+    case "portion":
+      return `на ${uah} ₴ більше — інакше калорійність не вкладається в коридор навіть з урахуванням розміру порції`;
     case "kcal":
       return `на ${uah} ₴ більше — інакше калорійність страв виходить за коридор`;
     case "excluded_ingredients":
@@ -165,7 +171,25 @@ export function diagnoseInfeasible(input: SolverInput, hf: HardFilterResult): So
     }
   }
 
-  // (c) form: the kcal corridor?
+  // (c) form: would portion-scaling alone (T3.3, no filter slack on top) have rescued the
+  // corridor? Narrower and more specific than (d) — tried first so it can't be masked by
+  // the wider relaxation. `kcalSlack: 0` avoids double-widening: `hardFilter` would otherwise
+  // widen whatever `kcalRange` we substitute here by another `KCAL_FILTER_SLACK` on top.
+  if (hc.kcalRange != null) {
+    const maxPortionRange: [number, number] = [hc.kcalRange[0] / 1.4, hc.kcalRange[1] / 0.6];
+    if (fitsWithout(input, { kcalRange: maxPortionRange }, { kcalSlack: 0 })) {
+      return {
+        ...base,
+        feasible: false,
+        binding: "portion",
+        reason: reasonFor("portion", { shortfallUah, days }),
+        nearest,
+        shortfallUah,
+      };
+    }
+  }
+
+  // (d) form: the kcal corridor at all — even generous portion-scaling can't reconcile it.
   if (hc.kcalRange != null && fitsWithout(input, { kcalRange: undefined })) {
     return {
       ...base,
@@ -177,7 +201,7 @@ export function diagnoseInfeasible(input: SolverInput, hf: HardFilterResult): So
     };
   }
 
-  // (d) the corpus just costs more.
+  // (e) the corpus just costs more.
   return {
     ...base,
     feasible: false,

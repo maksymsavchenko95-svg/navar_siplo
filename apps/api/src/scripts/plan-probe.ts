@@ -79,6 +79,7 @@ async function main(): Promise<void> {
     "\n" +
       col("day", 4) +
       col("dish", 34) +
+      col("portion", 8) +
       col("cost", 9) +
       col("promo₴", 9) +
       col("kcal", 7) +
@@ -88,6 +89,7 @@ async function main(): Promise<void> {
     console.log(
       col(String(d.day), 4) +
         col(d.titleUk, 34) +
+        col(`${d.portionScale.toFixed(2)}×`, 8) +
         col(`${d.costUah}₴`, 9) +
         col(`${d.promoShareUah}₴`, 9) +
         col(String(Math.round(d.macrosPerServing.kcal)), 7) +

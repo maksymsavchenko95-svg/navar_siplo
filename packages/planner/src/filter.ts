@@ -20,7 +20,12 @@ const UNMAPPED_TOLERANCE = 0.2; // >20% ingredients unmapped → drop (TDD §4 s
 const KCAL_FILTER_SLACK = 0.4;
 
 /** Reasons a candidate fails the hard filter, or `null` if it passes at `maxMinutes`. */
-function rejectReason(c: RecipeCandidate, input: SolverInput, maxMinutes: number): string | null {
+function rejectReason(
+  c: RecipeCandidate,
+  input: SolverInput,
+  maxMinutes: number,
+  kcalSlack: number,
+): string | null {
   const excludedIds = new Set(input.hardConstraints.excludedIngredients);
   const nonOptional = c.ingredients.filter((l) => !l.optional);
 
@@ -36,8 +41,8 @@ function rejectReason(c: RecipeCandidate, input: SolverInput, maxMinutes: number
     return `protein ${Math.round(c.macrosPerServing.protein)} < ${proteinMinPerDay}`;
   }
   if (kcalRange != null) {
-    const lo = kcalRange[0] * (1 - KCAL_FILTER_SLACK);
-    const hi = kcalRange[1] * (1 + KCAL_FILTER_SLACK);
+    const lo = kcalRange[0] * (1 - kcalSlack);
+    const hi = kcalRange[1] * (1 + kcalSlack);
     const kcal = c.macrosPerServing.kcal;
     if (kcal < lo || kcal > hi) {
       return `kcal ${Math.round(kcal)} outside widened corridor [${Math.round(lo)}, ${Math.round(hi)}]`;
@@ -59,18 +64,24 @@ function rejectReason(c: RecipeCandidate, input: SolverInput, maxMinutes: number
  * whose `recipes.allergens` intersect the household's exclusions), so this pass covers
  * excluded ingredients, prep-time, the `form` kcal/protein corridor, and catalogue
  * coverage. If fewer than `days * 3` recipes survive, `maxActiveMinutes` is relaxed in
- * 15-min steps (up to +60) before giving up.
+ * 15-min steps (up to +60) before giving up. `opts.kcalSlack` overrides `KCAL_FILTER_SLACK`
+ * for one-off diagnosis probes (T2.5's `"portion"` binding test) — every normal call omits
+ * it and gets the default widened band.
  */
-export function hardFilter(input: SolverInput): HardFilterResult {
+export function hardFilter(
+  input: SolverInput,
+  opts: { kcalSlack?: number } = {},
+): HardFilterResult {
   const target = input.days * MIN_CANDIDATES_PER_DAY;
   const baseMax = input.hardConstraints.maxActiveMinutes;
+  const kcalSlack = opts.kcalSlack ?? KCAL_FILTER_SLACK;
 
   for (let extra = 0; extra <= RELAX_MAX_MIN; extra += RELAX_STEP_MIN) {
     const maxMinutes = baseMax + extra;
     const droppedReasons = new Map<string, string>();
     const kept: RecipeCandidate[] = [];
     for (const c of input.candidates) {
-      const reason = rejectReason(c, input, maxMinutes);
+      const reason = rejectReason(c, input, maxMinutes, kcalSlack);
       if (reason) droppedReasons.set(c.recipeId, reason);
       else kept.push(c);
     }

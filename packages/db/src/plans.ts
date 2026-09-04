@@ -54,6 +54,7 @@ interface DayPick {
   recipeId: string;
   slug: string;
   titleUk: string;
+  portionScale: number;
   costUah: number;
   promoShareUah: number;
   macrosPerServing: ServingMacros & { fiber?: number };
@@ -123,6 +124,7 @@ export function toPlanRows(input: ToPlanRowsInput): Omit<PlanRows, "plan"> & {
     slug: p.slug,
     titleUk: p.titleUk,
     servings: input.servings,
+    portionScale: num(p.portionScale, 2),
     costUah: num(p.costUah, 2),
     promoShareUah: num(p.promoShareUah, 2),
     kcalServing: p.macrosPerServing ? num(p.macrosPerServing.kcal, 2) : null,
@@ -244,6 +246,7 @@ export async function getPlanDetail(
     slug: i.slug,
     titleUk: i.titleUk,
     servings: i.servings,
+    portionScale: Number(i.portionScale),
     costUah: Number(i.costUah),
     promoShareUah: Number(i.promoShareUah),
     macrosPerServing:

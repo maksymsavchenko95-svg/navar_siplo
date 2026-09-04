@@ -70,4 +70,17 @@ describe("scoreRecipe (TDD §4 step 3)", () => {
     const loyal = solverInput({ candidates: [c], frequentIngredientIds: ["milk"] });
     expect(scoreOf(c, loyal)).toBeGreaterThan(scoreOf(c, plain));
   });
+
+  it("portionScale (T3.3) scales proteinPerUah — a bigger portion buys more protein per ₴", () => {
+    const c = candidate({
+      recipeId: "portion",
+      macrosPerServing: macros({ protein: 20 }), // kept under the clamp01 ceiling at scale 1
+      ingredients: [line({ id: "p1" })],
+    });
+    const input = solverInput({ goal: "form", candidates: [c] });
+    const cost = recipeCost(c, input);
+    const at1 = scoreRecipe(c, cost, freshState(), input, 1).breakdown.proteinPerUah;
+    const at1_4 = scoreRecipe(c, cost, freshState(), input, 1.4).breakdown.proteinPerUah;
+    expect(at1_4).toBeGreaterThan(at1);
+  });
 });

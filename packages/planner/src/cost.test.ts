@@ -156,4 +156,20 @@ describe("recipeCost — pack sizes, not grams (TDD §4 step 2)", () => {
     const input = solverInput({ candidates: [c], servings: 3 });
     expect(recipeCost(c, input)).toEqual(recipeCost(c, input));
   });
+
+  it("portionScale (T3.3) multiplies the needed amount on top of the servings scale", () => {
+    const c = candidate({
+      recipeId: "portion",
+      servings: 3,
+      ingredients: [line({ id: "rice", amount: 300 })],
+    });
+    const input = solverInput({
+      candidates: [c],
+      prices: new Map([["rice", { uah: 20, promo: false, packSize: 200 }]]),
+      servings: 3,
+    });
+    expect(recipeCost(c, input).costUah).toBe(40); // 300g → 2 packs at scale 1
+    expect(recipeCost(c, input, 0.5).costUah).toBe(20); // 150g → 1 pack at scale 0.5
+    expect(recipeCost(c, input, 1.4).costUah).toBe(60); // 420g → 3 packs at scale 1.4
+  });
 });

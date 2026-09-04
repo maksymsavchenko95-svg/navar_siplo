@@ -24,3 +24,13 @@ export { scoreRecipe, type SolverState, type ScoreBreakdown } from "./score.js";
 export { greedyPlan, planTotals } from "./greedy.js";
 export { cheapestPlan, diagnoseInfeasible } from "./nearest.js";
 export { mulberry32, shuffle, type Rng } from "./rng.js";
+export {
+  bestPortionScale,
+  localSearch,
+  portionFit,
+  refinePlan,
+  replay,
+  safePortionRange,
+  scalePortionMacros,
+  type ReplayResult,
+} from "./refine.js";

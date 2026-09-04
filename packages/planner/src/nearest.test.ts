@@ -143,6 +143,33 @@ describe("diagnoseInfeasible — binding constraint", () => {
     expect(res.reason).toMatch(/коридор/);
   });
 
+  it("portion: portion-scaling alone (T3.3) would rescue the corridor, just not in budget", () => {
+    // true range [600, 800]; default widened band ≈ [360, 1120] excludes kcal=1200;
+    // portion-extended band [600/1.4≈429, 800/0.6≈1333] includes it.
+    const rescuable = corpus(5, { kcal: 1200, protein: 55, idPrefix: "p", slugPrefix: "p" });
+    const ok = corpus(6, { kcal: 700, protein: 55, idPrefix: "o2", slugPrefix: "o2" });
+    const cands = [...rescuable, ...ok];
+    const prices = new Map([...priceTier(rescuable, 50), ...priceTier(ok, 400)]);
+    const input = solverInput({
+      goal: "form",
+      candidates: cands,
+      prices,
+      budget: 2500,
+      hardConstraints: {
+        excludedAllergens: [],
+        excludedIngredients: [],
+        maxActiveMinutes: 60,
+        proteinMinPerDay: 30,
+        kcalRange: [600, 800],
+      },
+    });
+    const res = generatePlan(input);
+    expect(res.feasible).toBe(false);
+    if (res.feasible) return;
+    expect(res.binding).toBe("portion");
+    expect(res.reason).toMatch(/розмір[уі] порції/);
+  });
+
   it("excluded_ingredients: a strict dislike removes the cheap options", () => {
     const banned = corpus(5, { idPrefix: "b", slugPrefix: "b" }).map((c) => ({
       ...c,

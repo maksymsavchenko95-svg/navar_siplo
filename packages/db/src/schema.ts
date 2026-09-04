@@ -322,6 +322,7 @@ export const planItems = pgTable(
     slug: text("slug").notNull(),
     titleUk: text("title_uk").notNull(),
     servings: integer("servings").notNull(),
+    portionScale: numeric("portion_scale", { precision: 3, scale: 2 }).notNull().default("1.00"), // T3.3
     costUah: numeric("cost_uah", { precision: 10, scale: 2 }).notNull(),
     promoShareUah: numeric("promo_share_uah", { precision: 10, scale: 2 }).notNull(),
     kcalServing: numeric("kcal_serving", { precision: 7, scale: 2 }),

@@ -1,0 +1,1 @@
+ALTER TABLE "plan_items" ADD COLUMN "portion_scale" numeric(3, 2) DEFAULT '1.00' NOT NULL;

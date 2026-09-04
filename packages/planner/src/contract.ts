@@ -101,7 +101,7 @@ export interface PlanDayPick {
   recipeId: string;
   slug: string;
   titleUk: string;
-  portionScale: 1; // fixed at 1.0 in T2.3 — T3.3 relaxes it to [0.6, 1.4]
+  portionScale: number; // solver-chosen scale in [0.6, 1.4] (T3.3); 1 outside `form`
   costUah: number;
   promoShareUah: number;
   macrosPerServing: Macros;
@@ -126,7 +126,8 @@ export interface PlanTotals {
 export type InfeasibleBinding =
   | "budget" // the corpus just costs more than the budget; nothing to relax
   | "protein" // form: the daily protein floor pushes the cheapest valid plan over budget
-  | "kcal" // form: the kcal corridor does
+  | "portion" // form: portion-scaling (T3.3) alone would hit the corridor, just not in budget
+  | "kcal" // form: even generous portion-scaling can't reconcile the corridor with budget
   | "excluded_ingredients" // a strict dislike removes the cheap options
   | "candidates"; // fewer than `days` recipes survive the hard filter at all
 

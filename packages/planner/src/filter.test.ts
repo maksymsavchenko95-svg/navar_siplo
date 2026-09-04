@@ -81,6 +81,35 @@ describe("hardFilter (TDD §4 step 1)", () => {
     expect(hardFilter(solverInput({ candidates: [c], prices })).kept).toHaveLength(0);
   });
 
+  it("opts.kcalSlack overrides the default widened band (T3.3 diagnosis probe)", () => {
+    // true range [600, 800]; default 0.4 slack → [360, 1120]; at slack 0 → exactly [600, 800]
+    const inDefaultOnly = candidate({
+      recipeId: "in-default-only",
+      macrosPerServing: macros({ protein: 50, kcal: 1000 }), // inside [360,1120], outside [600,800]
+    });
+    const inBoth = candidate({
+      recipeId: "in-both",
+      macrosPerServing: macros({ protein: 50, kcal: 700 }),
+    });
+    const input = solverInput({
+      goal: "form",
+      candidates: [inDefaultOnly, inBoth],
+      hardConstraints: {
+        excludedAllergens: [],
+        excludedIngredients: [],
+        maxActiveMinutes: 60,
+        proteinMinPerDay: 45,
+        kcalRange: [600, 800],
+      },
+    });
+    expect(
+      hardFilter(input)
+        .kept.map((c) => c.recipeId)
+        .sort(),
+    ).toEqual(["in-both", "in-default-only"]);
+    expect(hardFilter(input, { kcalSlack: 0 }).kept.map((c) => c.recipeId)).toEqual(["in-both"]);
+  });
+
   it("relaxes maxActiveMinutes when fewer than days*3 recipes survive", () => {
     const cands = Array.from({ length: 20 }, (_, i) =>
       candidate({ recipeId: `r${i}`, activeMinutes: 50 }),

@@ -37,6 +37,7 @@ export function scoreRecipe(
   cost: RecipeCost,
   state: SolverState,
   input: SolverInput,
+  portionScale = 1,
 ): { score: number; breakdown: ScoreBreakdown } {
   const w = input.weights;
   const lines = candidate.ingredients;
@@ -59,7 +60,9 @@ export function scoreRecipe(
 
   const proteinPerUah =
     cost.costUah > 0
-      ? clamp01(candidate.macrosPerServing.protein / cost.costUah / PROT_PER_UAH_REF)
+      ? clamp01(
+          (candidate.macrosPerServing.protein * portionScale) / cost.costUah / PROT_PER_UAH_REF,
+        )
       : 0;
 
   const veg = clamp01(lines.filter((l) => VEG_CATEGORIES.has(l.category)).length / n);
