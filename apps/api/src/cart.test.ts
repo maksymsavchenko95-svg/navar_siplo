@@ -26,6 +26,8 @@ const {
   partitionPlanLines,
   previewPlan,
   toCartWriteItems,
+  totalsDiscrepancyPct,
+  withinDataTolerance,
 } = await import("./cart.js");
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -219,6 +221,16 @@ describe("materializePlan", () => {
     expect(r.validations[0]!.message).toBe("order.cost.min");
     expect(r.cartTotalUah).toBe(812.4);
     expect(r.planEstimateUah).toBe(800);
+    expect(r.totalsWithinTolerance).toBe(true); // |812.4-800|/800 ≈ 1.55% ≤ 3% (NFR-DATA-003)
+  });
+
+  it("flags NFR-DATA-003 when the cart total drifts from the plan estimate beyond 3%", async () => {
+    getPlanDetail.mockResolvedValue(planDetail([line({ slug: "a" })]));
+    const retail = fakeRetail({
+      getCart: vi.fn(async () => cartView({ totalAfterDiscountsUah: 900 })), // |900-800|/800 = 12.5%
+    });
+    const r = await materializePlan("p1", "hh", retail, { skipPreviewGuard: true });
+    expect(r.status === "ok" && r.totalsWithinTolerance).toBe(false);
   });
 
   it("is idempotent — a second materialize adds the same set, never removes/clears", async () => {
@@ -307,5 +319,24 @@ describe("offerBonus / applyBonus", () => {
       ),
     });
     expect((await applyBonus("p1", "hh", retail, 10)).status).toBe("unavailable");
+  });
+});
+
+// ── NFR-DATA-003 — plan total vs actual cart total, ≤3% ──────────────────────
+
+describe("totalsDiscrepancyPct / withinDataTolerance", () => {
+  it("is null when either total is missing or the estimate is zero/negative", () => {
+    expect(totalsDiscrepancyPct(null, 100)).toBeNull();
+    expect(totalsDiscrepancyPct(100, null)).toBeNull();
+    expect(totalsDiscrepancyPct(0, 100)).toBeNull();
+    expect(withinDataTolerance(null, 100)).toBeNull();
+  });
+
+  it("is true exactly at the 3% boundary, false just over it", () => {
+    expect(totalsDiscrepancyPct(1000, 1030)).toBeCloseTo(0.03, 10);
+    expect(withinDataTolerance(1000, 1030)).toBe(true);
+    expect(withinDataTolerance(1000, 1030.01)).toBe(false);
+    expect(withinDataTolerance(1000, 970)).toBe(true); // symmetric — under too
+    expect(withinDataTolerance(1000, 969.99)).toBe(false);
   });
 });

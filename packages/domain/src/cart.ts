@@ -156,6 +156,8 @@ export const cartMaterializeResultSchema = z.discriminatedUnion("status", [
     checkoutMobileLink: z.string().nullable(),
     cartTotalUah: z.number().nullable(),
     planEstimateUah: z.number().nullable(),
+    /** `NFR-DATA-003` — plan total vs actual cart total, ≤3%. `null` when not comparable. */
+    totalsWithinTolerance: z.boolean().nullable(),
   }),
   z.object({ status: z.literal("needs_preview") }),
   z.object({ status: z.literal("not_found") }),

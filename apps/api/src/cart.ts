@@ -123,6 +123,37 @@ export function checkoutBlockReason(v: CartValidation): string {
   return v.message;
 }
 
+// ── NFR-DATA-003 — plan total vs actual cart total, ≤3% ──────────────────────
+
+const DATA_TOLERANCE_PCT = 0.03;
+
+/**
+ * `|actual − estimate| / estimate`. `null` when there's nothing meaningful to compare
+ * (either total missing, or a zero/degenerate estimate).
+ */
+export function totalsDiscrepancyPct(
+  estimateUah: number | null,
+  actualUah: number | null,
+): number | null {
+  if (estimateUah == null || actualUah == null || estimateUah <= 0) return null;
+  return Math.abs(actualUah - estimateUah) / estimateUah;
+}
+
+/**
+ * `NFR-DATA-003` — the plan's quoted total vs the real cart total after materialize, ≤3%.
+ * `null` when not comparable (see `totalsDiscrepancyPct`). Meaningful on the golden path
+ * (nothing `skipped`, cart was empty before the write); a large discrepancy when lines were
+ * skipped or the cart already had other items in it is a signal about *what got skipped*,
+ * not proof the mapper's pack-size cost math is wrong.
+ */
+export function withinDataTolerance(
+  estimateUah: number | null,
+  actualUah: number | null,
+): boolean | null {
+  const pct = totalsDiscrepancyPct(estimateUah, actualUah);
+  return pct == null ? null : pct <= DATA_TOLERANCE_PCT;
+}
+
 // ── orchestration ───────────────────────────────────────────────────────────
 
 /**
@@ -237,6 +268,7 @@ export async function materializePlan(
     const cart = await retail.getCart(); // mandatory re-read (FR-CART-005)
     if (items.length > 0) await markPlanMaterialized(planId, householdId, cart.shoppingCartId);
 
+    const cartTotalUah = cart.totalAfterDiscountsUah ?? cart.totalUah;
     return {
       status: "ok",
       planId,
@@ -245,8 +277,9 @@ export async function materializePlan(
       validations: cart.validations,
       checkoutWebLink: cart.checkoutWebLink,
       checkoutMobileLink: cart.checkoutMobileLink,
-      cartTotalUah: cart.totalAfterDiscountsUah ?? cart.totalUah,
+      cartTotalUah,
       planEstimateUah: plan.totalEstUah,
+      totalsWithinTolerance: withinDataTolerance(plan.totalEstUah, cartTotalUah), // NFR-DATA-003
     };
   } catch (err) {
     return retailError(err);

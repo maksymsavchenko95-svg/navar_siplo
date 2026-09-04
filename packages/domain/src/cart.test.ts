@@ -94,6 +94,7 @@ describe("cart result unions (discriminated on status)", () => {
       checkoutMobileLink: null,
       cartTotalUah: 812.4,
       planEstimateUah: 800,
+      totalsWithinTolerance: true,
     };
     expect(cartMaterializeResultSchema.parse(ok)).toEqual(ok);
   });

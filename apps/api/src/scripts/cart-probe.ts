@@ -130,6 +130,13 @@ async function main(): Promise<void> {
         ? `  (Δ ${(((mat.cartTotalUah - mat.planEstimateUah) / mat.planEstimateUah) * 100).toFixed(1)}%)`
         : ""),
   );
+  console.log(
+    mat.totalsWithinTolerance == null
+      ? "NFR-DATA-003: — N/A (skipped lines or a non-empty starting cart)"
+      : mat.totalsWithinTolerance
+        ? "NFR-DATA-003: ✅ within tolerance (≤3%)"
+        : "NFR-DATA-003: ⚠️ exceeded (>3%)",
+  );
   console.log(`checkoutWebLink: ${mat.checkoutWebLink ?? "— (cart fails validation)"}`);
 
   const link = await checkoutLink(planId, householdId, retail);
