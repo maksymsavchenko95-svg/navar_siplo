@@ -194,6 +194,16 @@ export function portionFit(
 }
 
 /**
+ * Every day's **scaled** protein clears the floor. Shared by `localSearch`'s accept gate and
+ * `dayAlternatives`' validity gate so the two can never drift apart. A `null` floor (the
+ * `routine` case) is vacuously satisfied.
+ */
+export function satisfiesProteinFloor(r: ReplayResult, input: SolverInput): boolean {
+  const floor = input.hardConstraints.proteinMinPerDay;
+  return floor == null || r.picks.every((p) => p.macrosPerServing.protein >= floor);
+}
+
+/**
  * TDD §4 step 6 — up to `LOCAL_SEARCH_ITERATIONS` seeded moves over the day assignment.
  * Two move types: swap one day to an unused candidate from `kept` (both goals), or —
  * `isForm` only — resample one day's portion scale within its own safe range (so it can
@@ -217,11 +227,6 @@ export function localSearch(
     recipeId: p.recipeId,
     portionScale: p.portionScale,
   }));
-
-  const satisfiesProteinFloor = (r: ReplayResult): boolean => {
-    const floor = input.hardConstraints.proteinMinPerDay;
-    return floor == null || r.picks.every((p) => p.macrosPerServing.protein >= floor);
-  };
 
   for (let iter = 0; iter < LOCAL_SEARCH_ITERATIONS; iter++) {
     const dayIdx = Math.floor(rng() * currentAssignment.length);
@@ -256,7 +261,7 @@ export function localSearch(
     const next = replay(candidate, candidatesById, input);
     if (!next) continue;
     if (next.totalCost > input.budget) continue;
-    if (isForm && !satisfiesProteinFloor(next)) continue;
+    if (isForm && !satisfiesProteinFloor(next, input)) continue;
     if (next.totalScore <= current.totalScore) continue;
 
     current = next;
@@ -264,6 +269,80 @@ export function localSearch(
   }
 
   return current;
+}
+
+export interface DayAlternative {
+  candidate: RecipeCandidate;
+  replayed: ReplayResult;
+  /** Whole-plan cost change vs the current plan — negative is cheaper. */
+  deltaUah: number;
+}
+
+/**
+ * T4.2 / `FR-PLAN-007` — the valid single-day substitutions for `dayIdx`, best first.
+ *
+ * This is `localSearch`'s swap move with the sampling removed: enumerate `kept` instead of
+ * drawing from it, rank instead of accept/reject. It shares the same validity gates
+ * (`replay` succeeds, whole-plan cost within budget, protein floor holds), so an offered
+ * alternative is one local search would have been allowed to take.
+ *
+ * Two deliberate differences from `localSearch`:
+ * - the day's **own** current recipe is excluded (localSearch leaves it in the pool, where a
+ *   no-op swap is harmless because the strict-improvement gate kills it — here it would be a
+ *   useless "alternative");
+ * - ranking is `(totalScore desc, slug asc)` — a total order, so the result is
+ *   **seed-independent** and needs no RNG at all. Mirrors `cheapestPlan`'s `(costUah, slug)`.
+ *
+ * Substituting one day changes the cost and score of *every* day (`replay` threads pantry and
+ * budget forward), so each candidate is scored by a whole-plan replay. There is no per-day
+ * score to compare in isolation.
+ */
+export function dayAlternatives(
+  dayIdx: number,
+  current: ReplayResult,
+  kept: readonly RecipeCandidate[],
+  candidatesById: ReadonlyMap<string, RecipeCandidate>,
+  input: SolverInput,
+  isForm: boolean,
+  limit = 3,
+): DayAlternative[] {
+  const assignment = current.picks.map((p) => ({
+    recipeId: p.recipeId,
+    portionScale: p.portionScale,
+  }));
+  if (dayIdx < 0 || dayIdx >= assignment.length) return [];
+
+  // Every recipe already in the plan is off the table — the other days keep theirs, and
+  // re-offering this day's own dish is not an alternative.
+  const used = new Set(assignment.map((a) => a.recipeId));
+
+  const scored: DayAlternative[] = [];
+  for (const pick of kept) {
+    if (used.has(pick.recipeId)) continue;
+    const scale = isForm ? bestPortionScale(pick.macrosPerServing, input.hardConstraints) : 1;
+    const next = replay(
+      assignment.map((a, i) =>
+        i === dayIdx ? { recipeId: pick.recipeId, portionScale: scale } : a,
+      ),
+      candidatesById,
+      input,
+    );
+    if (!next) continue;
+    if (next.totalCost > input.budget) continue;
+    if (isForm && !satisfiesProteinFloor(next, input)) continue;
+    scored.push({
+      candidate: pick,
+      replayed: next,
+      deltaUah: round2(next.totalCost - current.totalCost),
+    });
+  }
+
+  scored.sort(
+    (a, b) =>
+      b.replayed.totalScore - a.replayed.totalScore ||
+      a.candidate.slug.localeCompare(b.candidate.slug),
+  );
+  return scored.slice(0, limit);
 }
 
 /**

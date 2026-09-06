@@ -246,6 +246,26 @@ export const explainPlanInputSchema = z.object({
 });
 export type ExplainPlanInput = z.infer<typeof explainPlanInputSchema>;
 
+/**
+ * `explainChange` input (T4.2, `FR-PLAN-008`) — a plan **edit**, not a snapshot. Kept
+ * separate from `ExplainPlanInput` because that shape has no before/after and so cannot
+ * express what changed. PII-free by construction (dish titles and numbers only).
+ */
+export const explainChangeInputSchema = z.object({
+  kind: z.enum(["replace_item", "cheaper"]),
+  goal: goalSchema,
+  budgetBeforeUah: z.number().nonnegative(),
+  budgetAfterUah: z.number().nonnegative(),
+  totalBeforeUah: z.number().nonnegative(),
+  totalAfterUah: z.number().nonnegative(),
+  removedDishes: z.array(z.string()).max(40),
+  addedDishes: z.array(z.string()).max(40),
+  changedDays: z.array(z.number().int().positive()).max(40),
+  promoSharePctBefore: z.number().min(0).max(100),
+  promoSharePctAfter: z.number().min(0).max(100),
+});
+export type ExplainChangeInput = z.infer<typeof explainChangeInputSchema>;
+
 /** `explainPlan` output — a short guest-facing paragraph (`ADR-02`: the LLM only explains). */
 export const explainPlanOutputSchema = z.object({
   text: z.string().min(1).max(600),

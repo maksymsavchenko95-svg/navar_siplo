@@ -1,12 +1,15 @@
 import { getPlanDetail, listPlans } from "@navar/db";
 import {
   type Plan,
+  type PlanEditResult,
   type PlanGenerateResult,
   type PlanGetResult,
+  type PlanReplaceItemResult,
   planGenerateInputSchema,
 } from "@navar/domain";
 import { z } from "zod";
 
+import { applyReplacement, makeCheaper, proposeReplacements } from "../../plan-edit.js";
 import { generateAndPersistPlan } from "../../plan.js";
 import { protectedProcedure, router } from "../trpc.js";
 
@@ -38,4 +41,33 @@ export const planRouter = router({
   list: protectedProcedure.query(async ({ ctx }): Promise<Plan[]> => {
     return listPlans(ctx.householdId);
   }),
+
+  /**
+   * `FR-PLAN-007` — three alternatives for one day. A query: it writes nothing, so the Guest
+   * can look before committing (`applyReplacement` is the commit).
+   */
+  replaceItem: protectedProcedure
+    .input(z.object({ planId: z.string().uuid(), day: z.number().int().positive() }))
+    .query(async ({ ctx, input }): Promise<PlanReplaceItemResult> => {
+      return proposeReplacements(input.planId, ctx.householdId, input.day, ctx.retail);
+    }),
+
+  applyReplacement: protectedProcedure
+    .input(
+      z.object({
+        planId: z.string().uuid(),
+        day: z.number().int().positive(),
+        recipeId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }): Promise<PlanEditResult> => {
+      return applyReplacement(input.planId, ctx.householdId, input.day, input.recipeId, ctx.retail);
+    }),
+
+  /** `FR-PLAN-008` — rebuild the plan `deltaUah` cheaper, explaining what changed. */
+  cheaper: protectedProcedure
+    .input(z.object({ planId: z.string().uuid(), deltaUah: z.number().positive() }))
+    .mutation(async ({ ctx, input }): Promise<PlanEditResult> => {
+      return makeCheaper(input.planId, ctx.householdId, input.deltaUah, ctx.retail);
+    }),
 });

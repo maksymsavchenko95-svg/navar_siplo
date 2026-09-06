@@ -19,6 +19,8 @@ export {
   savePlan,
   setPlanExplanation,
   markPlanMaterialized,
+  updatePlanDay,
+  replacePlanRows,
   getPlanDetail,
   listPlans,
   type ToPlanRowsInput,

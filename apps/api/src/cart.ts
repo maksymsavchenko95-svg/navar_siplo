@@ -43,6 +43,17 @@ export async function armPreview(sessionId: string | null, planId: string): Prom
   await connection.set(`${PREVIEW_PREFIX}${sessionId}:${planId}`, "1", "EX", PREVIEW_TTL_S);
 }
 
+/**
+ * Drop every session's preview of this plan (T4.2). The guard keys on plan **id**, which an
+ * in-place edit does not change — so without this a Guest could preview a plan, edit it via
+ * `plan.cheaper` / `plan.applyReplacement`, and then materialize something they never saw,
+ * inside the 15-minute TTL.
+ */
+export async function clearPreview(planId: string): Promise<void> {
+  const keys = await connection.keys(`${PREVIEW_PREFIX}*:${planId}`);
+  if (keys.length > 0) await connection.del(...keys);
+}
+
 /** Did this session preview this plan? (`cart.materialize` checks this.) */
 export async function previewArmed(sessionId: string | null, planId: string): Promise<boolean> {
   if (!sessionId) return false;

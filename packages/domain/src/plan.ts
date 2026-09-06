@@ -149,3 +149,82 @@ export const planGetResultSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("not_found") }),
 ]);
 export type PlanGetResult = z.infer<typeof planGetResultSchema>;
+
+// ─── plan edits (T4.2, FR-PLAN-007/008) ─────────────────────────────────────
+
+/** One offered substitution for a single day, with its whole-plan effect. */
+export const planAlternativeSchema = z.object({
+  recipeId: z.string(),
+  slug: z.string(),
+  titleUk: z.string(),
+  portionScale: z.number().min(0.6).max(1.4),
+  /** This dish's own cost on that day. */
+  costUah: z.number().nonnegative(),
+  /** Change in the **whole plan's** total — swapping one day re-prices the others. */
+  deltaUah: z.number(),
+  macrosPerServing: servingMacrosSchema,
+  /** Plan total if this alternative were applied. */
+  totalUah: z.number().nonnegative(),
+  promoSharePct: z.number().min(0).max(100),
+});
+export type PlanAlternative = z.infer<typeof planAlternativeSchema>;
+
+/**
+ * A plan edit refused because the plan is already in a real Silpo cart. Editing it would
+ * desync the two: `cart.materialize` re-reads `list_lines` at write time and never removes,
+ * so a re-materialize would add the new dish's SKUs and leave the old ones behind.
+ */
+const alreadyMaterialized = z.object({
+  status: z.literal("already_materialized"),
+  reason: z.string(),
+});
+
+export const planReplaceItemResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    day: z.number().int().positive(),
+    current: planAlternativeSchema.nullable(),
+    alternatives: z.array(planAlternativeSchema),
+  }),
+  z.object({ status: z.literal("not_found") }),
+  z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
+  z.object({ status: z.literal("no_cart"), hint: z.string().optional() }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+export type PlanReplaceItemResult = z.infer<typeof planReplaceItemResultSchema>;
+
+/** What an applied edit changed — the input to the Guest-facing note. */
+export const planChangeSchema = z.object({
+  kind: z.enum(["replace_item", "cheaper"]),
+  totalBeforeUah: z.number().nonnegative(),
+  totalAfterUah: z.number().nonnegative(),
+  budgetBeforeUah: z.number().nonnegative(),
+  budgetAfterUah: z.number().nonnegative(),
+  removedDishes: z.array(z.string()),
+  addedDishes: z.array(z.string()),
+  changedDays: z.array(z.number().int().positive()),
+  promoSharePctBefore: z.number().min(0).max(100),
+  promoSharePctAfter: z.number().min(0).max(100),
+  /** 2–3 sentences, LLM or deterministic fallback. */
+  note: z.string(),
+});
+export type PlanChange = z.infer<typeof planChangeSchema>;
+
+export const planEditResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok"), plan: planDetailSchema, change: planChangeSchema }),
+  z.object({ status: z.literal("not_found") }),
+  alreadyMaterialized,
+  /** The requested dish is not a valid substitution (gone, unaffordable, breaks a constraint). */
+  z.object({ status: z.literal("rejected"), reason: z.string() }),
+  z.object({
+    status: z.literal("infeasible"),
+    binding: infeasibleBindingSchema,
+    reason: z.string(),
+    shortfallUah: z.number().nonnegative().optional(),
+    nearest: nearestPlanSchema.optional(),
+  }),
+  z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
+  z.object({ status: z.literal("no_cart"), hint: z.string().optional() }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+export type PlanEditResult = z.infer<typeof planEditResultSchema>;

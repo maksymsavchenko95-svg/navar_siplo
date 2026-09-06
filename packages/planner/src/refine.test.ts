@@ -7,6 +7,7 @@ import { greedyPlan } from "./greedy.js";
 import { hardFilter } from "./filter.js";
 import {
   bestPortionScale,
+  dayAlternatives,
   localSearch,
   portionFit,
   replay,
@@ -368,5 +369,171 @@ describe("refinePlan (via generatePlan)", () => {
         hardConstraints: FORM_HC({ proteinMinPerDay: 30, kcalRange: [700, 800] }),
       });
     expect(generatePlan(mk())).toEqual(generatePlan(mk()));
+  });
+});
+
+// ─── dayAlternatives (T4.2, FR-PLAN-007) ─────────────────────────────────────
+
+describe("dayAlternatives", () => {
+  /** A feasible 5-day plan over `n` candidates, plus everything the enumerator needs. */
+  function setup(n = 12, over: Partial<Parameters<typeof solverInput>[0]> = {}) {
+    const cands = corpus(n);
+    const input = solverInput({
+      candidates: cands,
+      prices: priceMapFor(cands, 28),
+      budget: 2200,
+      ...over,
+    });
+    const hf = hardFilter(input);
+    const greedy = greedyPlan(hf.kept, input);
+    if (!greedy.feasible) throw new Error("fixture plan must be feasible");
+    const byId = new Map(hf.kept.map((c) => [c.recipeId, c]));
+    const current = replay(
+      greedy.days.map((d) => ({ recipeId: d.recipeId, portionScale: d.portionScale })),
+      byId,
+      input,
+    )!;
+    return { input, kept: hf.kept, byId, current, greedy };
+  }
+
+  it("returns at most `limit` alternatives", () => {
+    const { input, kept, byId, current } = setup();
+    expect(dayAlternatives(0, current, kept, byId, input, false).length).toBeLessThanOrEqual(3);
+    expect(dayAlternatives(0, current, kept, byId, input, false, 5).length).toBeLessThanOrEqual(5);
+  });
+
+  it("never offers a dish already in the plan, including the day's own", () => {
+    const { input, kept, byId, current } = setup();
+    const inPlan = new Set(current.picks.map((p) => p.recipeId));
+    for (const alt of dayAlternatives(2, current, kept, byId, input, false, 99)) {
+      expect(inPlan.has(alt.candidate.recipeId)).toBe(false);
+    }
+  });
+
+  it("keeps every alternative within budget", () => {
+    const { input, kept, byId, current } = setup();
+    for (const alt of dayAlternatives(1, current, kept, byId, input, false, 99)) {
+      expect(alt.replayed.totalCost).toBeLessThanOrEqual(input.budget);
+    }
+  });
+
+  it("substitutes at the requested day and leaves the other days' recipes alone", () => {
+    const { input, kept, byId, current } = setup();
+    const [alt] = dayAlternatives(3, current, kept, byId, input, false);
+    expect(alt).toBeDefined();
+    expect(alt!.replayed.picks[3]!.recipeId).toBe(alt!.candidate.recipeId);
+    for (const i of [0, 1, 2, 4]) {
+      expect(alt!.replayed.picks[i]!.recipeId).toBe(current.picks[i]!.recipeId);
+    }
+  });
+
+  it("reports the whole-plan cost delta, not just the swapped day's", () => {
+    const { input, kept, byId, current } = setup();
+    for (const alt of dayAlternatives(0, current, kept, byId, input, false, 99)) {
+      expect(alt.deltaUah).toBeCloseTo(alt.replayed.totalCost - current.totalCost, 2);
+    }
+  });
+
+  it("ranks by total score, best first", () => {
+    const { input, kept, byId, current } = setup();
+    const alts = dayAlternatives(0, current, kept, byId, input, false, 99);
+    const scores = alts.map((a) => a.replayed.totalScore);
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores);
+  });
+
+  it("is deterministic and seed-independent (FR-PLAN-005)", () => {
+    const ids = (seed: number) => {
+      const { input, kept, byId, current } = setup(12, { seed });
+      return dayAlternatives(1, current, kept, byId, input, false, 99).map(
+        (a) => a.candidate.recipeId,
+      );
+    };
+    // Same seed twice → identical, and a different seed does not reorder the ranking
+    // (the sort is a total order over score + slug, with no RNG).
+    expect(ids(1)).toEqual(ids(1));
+    const { input, kept, byId, current } = setup();
+    const a = dayAlternatives(1, current, kept, byId, input, false, 99).map(
+      (x) => x.candidate.recipeId,
+    );
+    const b = dayAlternatives(1, current, kept, byId, input, false, 99).map(
+      (x) => x.candidate.recipeId,
+    );
+    expect(a).toEqual(b);
+  });
+
+  it("offers the planted better candidate first", () => {
+    const cands = corpus(8);
+    const star = candidate({
+      recipeId: "star",
+      slug: "zz-star", // sorts last, so a win cannot be a tie-break artefact
+      ingredients: [line({ id: "star-a", amount: 100 })],
+      macrosPerServing: macros({ protein: 60, kcal: 750 }),
+    });
+    const all = [...cands, star];
+    const prices = priceMapFor(all, 28);
+    // The star's only ingredient is on promo and cheap — strictly better on both terms.
+    prices.set("star-a", { uah: 5, promo: true, packSize: 500 });
+    const input = solverInput({ candidates: all, prices, budget: 2200 });
+    const hf = hardFilter(input);
+    const greedy = greedyPlan(
+      hf.kept.filter((c) => c.recipeId !== "star"), // keep the star out of the initial plan
+      input,
+    );
+    if (!greedy.feasible) throw new Error("fixture plan must be feasible");
+    const byId = new Map(hf.kept.map((c) => [c.recipeId, c]));
+    const current = replay(
+      greedy.days.map((d) => ({ recipeId: d.recipeId, portionScale: d.portionScale })),
+      byId,
+      input,
+    )!;
+
+    expect(dayAlternatives(0, current, hf.kept, byId, input, false)[0]!.candidate.recipeId).toBe(
+      "star",
+    );
+  });
+
+  it("returns [] for an out-of-range day and when nothing else fits", () => {
+    const { input, kept, byId, current } = setup();
+    expect(dayAlternatives(-1, current, kept, byId, input, false)).toEqual([]);
+    expect(dayAlternatives(99, current, kept, byId, input, false)).toEqual([]);
+    // A 5-candidate corpus for a 5-day plan leaves nothing unused to swap in.
+    const tight = setup(5);
+    expect(dayAlternatives(0, tight.current, tight.kept, tight.byId, tight.input, false)).toEqual(
+      [],
+    );
+  });
+
+  it("holds the protein floor in form mode", () => {
+    const cands = corpus(12, 750, 48);
+    const weak = candidate({
+      recipeId: "weak",
+      slug: "zz-weak",
+      ingredients: [line({ id: "weak-a", amount: 100 })],
+      macrosPerServing: macros({ protein: 5, kcal: 750 }), // far below the floor
+    });
+    const all = [...cands, weak];
+    const input = solverInput({
+      candidates: all,
+      prices: priceMapFor(all, 28),
+      budget: 2200,
+      goal: "form",
+      hardConstraints: FORM_HC({ proteinMinPerDay: 40, kcalRange: [600, 900] }),
+    });
+    const hf = hardFilter(input);
+    const greedy = greedyPlan(hf.kept, input);
+    if (!greedy.feasible) throw new Error("fixture plan must be feasible");
+    const byId = new Map(hf.kept.map((c) => [c.recipeId, c]));
+    const current = replay(
+      greedy.days.map((d) => ({ recipeId: d.recipeId, portionScale: d.portionScale })),
+      byId,
+      input,
+    )!;
+
+    const alts = dayAlternatives(0, current, hf.kept, byId, input, true, 99);
+    expect(alts.map((a) => a.candidate.recipeId)).not.toContain("weak");
+    for (const alt of alts) {
+      for (const p of alt.replayed.picks)
+        expect(p.macrosPerServing.protein).toBeGreaterThanOrEqual(40);
+    }
   });
 });

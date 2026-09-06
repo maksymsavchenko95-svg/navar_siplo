@@ -26,11 +26,14 @@ export { cheapestPlan, diagnoseInfeasible } from "./nearest.js";
 export { mulberry32, shuffle, type Rng } from "./rng.js";
 export {
   bestPortionScale,
+  type DayAlternative,
+  dayAlternatives,
   localSearch,
   portionFit,
   refinePlan,
   replay,
   safePortionRange,
+  satisfiesProteinFloor,
   scalePortionMacros,
   type ReplayResult,
 } from "./refine.js";

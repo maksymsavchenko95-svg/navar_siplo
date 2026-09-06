@@ -7,9 +7,11 @@ import { importCanonicalIngredients } from "./import-ingredients.js";
 import {
   getPlanDetail,
   markPlanMaterialized,
+  replacePlanRows,
   savePlan,
   setPlanExplanation,
   toPlanRows,
+  updatePlanDay,
   type ToPlanRowsInput,
 } from "./plans.js";
 import { canonicalIngredients, households, listLines, planItems, plans } from "./schema.js";
@@ -263,7 +265,7 @@ describe.skipIf(!process.env.DATABASE_URL)("savePlan / getPlanDetail (integratio
   it("round-trips a plan + items + list, and cascades on delete", async () => {
     await setup();
     const planId = await savePlan(rowsFor());
-    await setPlanExplanation(planId, "Тестове пояснення.");
+    await setPlanExplanation(planId, householdId, "Тестове пояснення.");
 
     const detail = await getPlanDetail(planId, householdId);
     expect(detail).not.toBeNull();
@@ -278,6 +280,89 @@ describe.skipIf(!process.env.DATABASE_URL)("savePlan / getPlanDetail (integratio
     await db.delete(plans).where(eq(plans.id, planId));
     expect(await db.$count(planItems, eq(planItems.planId, planId))).toBe(0);
     expect(await db.$count(listLines, eq(listLines.planId, planId))).toBe(0);
+  });
+
+  it("updatePlanDay rewrites one day and leaves the others untouched (T4.2)", async () => {
+    await setup();
+    const planId = await savePlan(rowsFor());
+    const before = await getPlanDetail(planId, householdId);
+    const day2Before = before!.items.find((i) => i.dayIndex === 2)!;
+
+    // wrong household → 0 rows, nothing changes
+    expect(
+      await updatePlanDay(planId, "00000000-0000-0000-0000-000000000000", 1, {
+        slug: "hacked",
+        titleUk: "Hacked",
+        servings: 3,
+        costUah: "1.00",
+        promoShareUah: "0.00",
+      }),
+    ).toBe(0);
+    expect((await getPlanDetail(planId, householdId))!.items[0]!.slug).toBe("borshch");
+
+    expect(
+      await updatePlanDay(planId, householdId, 1, {
+        slug: "kulish",
+        titleUk: "Куліш",
+        servings: 3,
+        portionScale: "1.20",
+        costUah: "310.00",
+        promoShareUah: "50.00",
+      }),
+    ).toBe(1);
+
+    const after = await getPlanDetail(planId, householdId);
+    const day1 = after!.items.find((i) => i.dayIndex === 1)!;
+    expect(day1.slug).toBe("kulish");
+    expect(day1.portionScale).toBeCloseTo(1.2, 2);
+    // the untouched day is byte-identical
+    expect(after!.items.find((i) => i.dayIndex === 2)).toEqual(day2Before);
+  });
+
+  it("replacePlanRows swaps the whole body without orphaning list lines (T4.2)", async () => {
+    await setup();
+    const planId = await savePlan(rowsFor());
+    const linesBefore = await db.$count(listLines, eq(listLines.planId, planId));
+    expect(linesBefore).toBe(3);
+
+    const next = toPlanRows(
+      baseInput({
+        householdId,
+        budgetUah: 1800, // `cheaper` is exactly a change of budget
+        recipeSlugIngredients: new Map([["borshch", ["carrot"]]]),
+        picks: [
+          {
+            day: 1,
+            recipeId: "",
+            slug: "borshch",
+            titleUk: "Борщ",
+            portionScale: 1,
+            costUah: 120,
+            promoShareUah: 20,
+            macrosPerServing: { kcal: 500, protein: 30, fat: 15, carbs: 50, fiber: 5 },
+          },
+        ],
+        mapper: mapperResult([skuMatch({ slug: "carrot" })]),
+        idBySlug: new Map([["carrot", ingredientIds.get("carrot")!]]),
+      }),
+    );
+
+    // wrong household → 0, and the plan is untouched
+    expect(await replacePlanRows(planId, "00000000-0000-0000-0000-000000000000", next)).toBe(0);
+    expect(await db.$count(planItems, eq(planItems.planId, planId))).toBe(2);
+
+    expect(await replacePlanRows(planId, householdId, next)).toBe(1);
+
+    const after = await getPlanDetail(planId, householdId);
+    expect(after!.items.map((i) => i.dayIndex)).toEqual([1]);
+    expect(after!.list.map((l) => l.slug)).toEqual(["carrot"]);
+    expect(after!.budgetUah).toBe(1800);
+    // no leftovers from the old body
+    expect(await db.$count(listLines, eq(listLines.planId, planId))).toBe(1);
+    expect(await db.$count(planItems, eq(planItems.planId, planId))).toBe(1);
+    // identity columns survive the body swap
+    expect(after!.seed).toBe(7);
+    expect(after!.goal).toBe("routine");
   });
 
   it("markPlanMaterialized flips status + records cartId/materializedAt, scoped to household", async () => {

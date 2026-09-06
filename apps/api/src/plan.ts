@@ -3,7 +3,6 @@ import {
   type ConsumptionModel,
   type ExplainPlanInput,
   type Goal,
-  hasShelfMarkdown,
   type InfeasibleBinding,
   type PersonalPromo,
   type Promotion,
@@ -25,6 +24,7 @@ import { AuthRequiredError, NoCartError, type RetailProvider } from "@navar/reta
 import { ALLERGEN_LABEL_UK, hasHardExclusion } from "@navar/safety";
 
 import { getLlm, getLlmTracer } from "./llm.js";
+import { savePlanContext, toCacheable } from "./plan-context-cache.js";
 import {
   getRerankFn,
   loadExclusions,
@@ -33,6 +33,7 @@ import {
   loadMapperDict,
   makeIngredientSafety,
   makeSkuSafety,
+  skuMatchesToPrices,
 } from "./mapper.js";
 
 /**
@@ -237,16 +238,8 @@ export async function buildPlanContext(
           : {}),
       },
     );
-    for (const m of mapperResult.matches) {
-      const id = idBySlug.get(m.slug);
-      if (!id || !m.match) continue;
-      prices.set(id, {
-        uah: m.match.price,
-        // Markdown only — the multi-buy tier is separate (see `skuMatchesToPrices`).
-        promo: hasShelfMarkdown(m.match),
-        packSize: m.packSize ?? m.neededAmount,
-        tier: m.promoTier,
-      });
+    for (const [id, price] of skuMatchesToPrices(mapperResult.matches, idBySlug)) {
+      prices.set(id, price);
     }
   } catch (err) {
     // No auth / no cart / a transient MCP error → no prices. The plan degrades to an
@@ -498,6 +491,9 @@ export async function generateAndPersistPlan(
   });
 
   const planId = await savePlan(rows);
+  // Keep the solver input this plan was built from, so plan.replaceItem / plan.cheaper can
+  // edit it without paying the ~13.7 s corpus re-map (T4.2, NFR-PERF-003).
+  await savePlanContext(planId, toCacheable(ctx));
 
   const explain = await runStep(
     explainPlanStep,
@@ -512,7 +508,7 @@ export async function generateAndPersistPlan(
     }),
     { provider: getLlm(), tracer: getLlmTracer() },
   );
-  await setPlanExplanation(planId, explain.value.text);
+  await setPlanExplanation(planId, householdId, explain.value.text);
 
   return { status: "ok", planId };
 }

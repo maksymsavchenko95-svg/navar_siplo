@@ -197,10 +197,14 @@ export async function savePlan(
 
 export async function setPlanExplanation(
   planId: string,
+  householdId: string,
   text: string,
   database: Db = db,
 ): Promise<void> {
-  await database.update(plans).set({ explanation: text }).where(eq(plans.id, planId));
+  await database
+    .update(plans)
+    .set({ explanation: text })
+    .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)));
 }
 
 /**
@@ -301,4 +305,84 @@ export async function listPlans(
     limit,
   });
   return rows.map(toPlanHeader);
+}
+
+// ─── in-place edits (T4.2, FR-PLAN-007/008) ─────────────────────────────────
+
+/**
+ * Overwrite one day of a saved plan (`plan.applyReplacement`). `plan_items`' primary key is
+ * `(plan_id, day_index)`, so a single-day swap is a plain targeted update — the other days
+ * are not touched.
+ *
+ * Household-scoped like `markPlanMaterialized`: the plan id alone is not an authorisation.
+ * Returns the number of rows changed, so the caller can tell "wrong household / no such day"
+ * from a successful write.
+ */
+export async function updatePlanDay(
+  planId: string,
+  householdId: string,
+  dayIndex: number,
+  item: Omit<typeof planItems.$inferInsert, "planId" | "dayIndex">,
+  database: Db = db,
+): Promise<number> {
+  return database.transaction(async (tx) => {
+    const owned = await tx
+      .select({ id: plans.id })
+      .from(plans)
+      .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)));
+    if (owned.length === 0) return 0;
+
+    const rows = await tx
+      .update(planItems)
+      .set(item)
+      .where(and(eq(planItems.planId, planId), eq(planItems.dayIndex, dayIndex)))
+      .returning({ dayIndex: planItems.dayIndex });
+    return rows.length;
+  });
+}
+
+/**
+ * Replace a saved plan's whole body — header totals, every day, and the shopping list
+ * (`plan.cheaper`, and `applyReplacement` for the recomputed list `FR-PLAN-007` demands).
+ *
+ * `plan_items` and `list_lines` are deleted and reinserted rather than diffed: `list_lines`
+ * has a `bigserial` surrogate key and no natural key to match on, so a wholesale replace is
+ * both simpler and the only way to guarantee no orphans. One transaction, mirroring
+ * `savePlan` — a partial rewrite would leave a plan whose list does not match its days.
+ *
+ * The plan's identity columns (`id`, `household_id`, `seed`, `goal`, `created_at`) are never
+ * touched; `budget_uah` is, because `cheaper` is precisely a change of budget.
+ */
+export async function replacePlanRows(
+  planId: string,
+  householdId: string,
+  rows: Omit<PlanRows, "plan"> & { plan: Omit<typeof plans.$inferInsert, "id"> },
+  database: Db = db,
+): Promise<number> {
+  return database.transaction(async (tx) => {
+    const updated = await tx
+      .update(plans)
+      .set({
+        budgetUah: rows.plan.budgetUah,
+        totalEstUah: rows.plan.totalEstUah,
+        promoShare: rows.plan.promoShare,
+        estimatedCostUah: rows.plan.estimatedCostUah,
+        unpricedLineCount: rows.plan.unpricedLineCount,
+        proteinFloorMet: rows.plan.proteinFloorMet,
+        kcalCorridorMet: rows.plan.kcalCorridorMet,
+      })
+      .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)))
+      .returning({ id: plans.id });
+    if (updated.length === 0) return 0;
+
+    await tx.delete(planItems).where(eq(planItems.planId, planId));
+    await tx.delete(listLines).where(eq(listLines.planId, planId));
+    if (rows.items.length > 0) {
+      await tx.insert(planItems).values(rows.items.map((i) => ({ ...i, planId })));
+    }
+    if (rows.lines.length > 0) {
+      await tx.insert(listLines).values(rows.lines.map((l) => ({ ...l, planId })));
+    }
+    return 1;
+  });
 }
