@@ -30,6 +30,7 @@ import type {
 } from "@navar/domain";
 import { AuthRequiredError, NoCartError, type RetailProvider } from "@navar/retail";
 
+import { withPersistedMcpTrace } from "./mcp-trace.js";
 import { connection } from "./queue/connection.js";
 
 // ── preview guard (materialize only after a preview in the same session) ──────
@@ -192,6 +193,16 @@ export async function previewPlan(
   householdId: string,
   retail: RetailProvider,
 ): Promise<CartPreviewResult> {
+  return withPersistedMcpTrace("cart_preview", { planId, householdId }, () =>
+    previewPlanInner(planId, householdId, retail),
+  );
+}
+
+async function previewPlanInner(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+): Promise<CartPreviewResult> {
   const plan = await getPlanDetail(planId, householdId);
   if (!plan) return { status: "not_found" };
 
@@ -240,6 +251,17 @@ export async function materializePlan(
   householdId: string,
   retail: RetailProvider,
   opts: MaterializeOpts = {},
+): Promise<CartMaterializeResult> {
+  return withPersistedMcpTrace("cart_materialize", { planId, householdId }, () =>
+    materializePlanInner(planId, householdId, retail, opts),
+  );
+}
+
+async function materializePlanInner(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+  opts: MaterializeOpts,
 ): Promise<CartMaterializeResult> {
   if (!opts.skipPreviewGuard && !(await previewArmed(opts.sessionId ?? null, planId))) {
     return { status: "needs_preview" };
@@ -303,6 +325,16 @@ export async function checkoutLink(
   householdId: string,
   retail: RetailProvider,
 ): Promise<CartCheckoutLinkResult> {
+  return withPersistedMcpTrace("cart_checkout_link", { planId, householdId }, () =>
+    checkoutLinkInner(planId, householdId, retail),
+  );
+}
+
+async function checkoutLinkInner(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+): Promise<CartCheckoutLinkResult> {
   const plan = await getPlanDetail(planId, householdId);
   if (!plan) return { status: "not_found" };
   try {
@@ -324,6 +356,16 @@ export async function checkoutLink(
 
 /** `cart.offerBonus(planId)` — how many balabonuses the current cart has available. */
 export async function offerBonus(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+): Promise<CartBonusOfferResult> {
+  return withPersistedMcpTrace("cart_bonus", { planId, householdId }, () =>
+    offerBonusInner(planId, householdId, retail),
+  );
+}
+
+async function offerBonusInner(
   planId: string,
   householdId: string,
   retail: RetailProvider,
@@ -351,6 +393,17 @@ export async function offerBonus(
  * `bonusAvailable`. Re-reads the cart afterwards.
  */
 export async function applyBonus(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+  amount: number | null,
+): Promise<CartApplyBonusResult> {
+  return withPersistedMcpTrace("cart_bonus", { planId, householdId }, () =>
+    applyBonusInner(planId, householdId, retail, amount),
+  );
+}
+
+async function applyBonusInner(
   planId: string,
   householdId: string,
   retail: RetailProvider,

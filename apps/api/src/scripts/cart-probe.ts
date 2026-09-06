@@ -1,5 +1,5 @@
-import { closeDb, getPlanDetail } from "@navar/db";
-import type { Goal } from "@navar/domain";
+import { closeDb, getMcpCallsByPlan, getPlanDetail } from "@navar/db";
+import { type Goal, summarizeTrace } from "@navar/domain";
 
 import {
   applyBonus,
@@ -155,6 +155,16 @@ async function main(): Promise<void> {
       // put it back so the probe leaves no trace
       await applyBonus(planId, householdId, retail, null);
     }
+  }
+
+  // ── MCP trace (T4.3) ─────────────────────────────────────────────────────
+  const trace = await getMcpCallsByPlan(planId, householdId);
+  if (trace && trace.length > 0) {
+    const s = summarizeTrace(trace);
+    console.log(
+      `\nMCP trace: ${s.totalCalls} calls · ${s.okCalls} ok / ${s.errorCalls} error / ${s.cachedCalls} cached · ` +
+        `${s.totalDurationMs} ms  (pnpm --filter @navar/api ops:trace ${planId})`,
+    );
   }
 
   // ── cleanup ──────────────────────────────────────────────────────────────

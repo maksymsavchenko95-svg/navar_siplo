@@ -73,6 +73,15 @@ Every MCP call is logged — tool name, duration, status, correlation ID — and
 is exportable (`FR-OPS-001`). The demo must _show_ JSON-RPC calls happening; build this
 in from the first commit, not at the end.
 
+Implemented (T4.3): `@navar/retail/trace.ts` — `runWithMcpTrace({ phase }, fn)` opens an
+`AsyncLocalStorage` scope; `SilpoRetailProvider.callTool` / `listTools` and every
+cache-hit return call `recordMcpCall` / `recordCacheHit` (one structured `[mcp]` line
+always, plus the scope buffer). `apps/api/src/mcp-trace.ts` persists a scope's records to
+`mcp_call_log` (`@navar/db/mcp-log.ts`), `plan_id`-scoped, best-effort. Read back with the
+`ops.trace({ planId })` tRPC procedure or `pnpm --filter @navar/api ops:trace <planId>`
+(prints the table + writes `ops-trace-<planId>.json`). Never store response bodies — the
+household reads carry PII; `args` is `redact()`-ed + truncated.
+
 ## Data minimization before the LLM
 
 Strip phone, email, exact address, loyalty card number before sending anything to the

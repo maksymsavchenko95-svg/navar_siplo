@@ -376,6 +376,41 @@ export const listLines = pgTable(
   (t) => [index("list_lines_plan_idx").on(t.planId)],
 );
 
+// ─── Observability (TDD §8 day 9, roadmap T4.3, FR-OPS-001) ────────────────────
+
+/**
+ * One recorded JSON-RPC MCP call — tool, duration, status, correlation id (`FR-OPS-001`,
+ * `AC-P0-08`). Written best-effort after a `runWithMcpTrace` scope closes (`@navar/retail`
+ * `trace.ts`); read back by `ops.trace(planId)` for the demo. `plan_id` scopes a plan's
+ * generate / cart flows; `bootstrap` rows carry only `household_id`. PII-free: `args` is a
+ * redacted request summary, the response body is never stored.
+ */
+export const mcpCallLog = pgTable(
+  "mcp_call_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    correlationId: text("correlation_id").notNull(),
+    householdId: uuid("household_id").references(() => households.id, { onDelete: "set null" }),
+    planId: uuid("plan_id").references(() => plans.id, { onDelete: "cascade" }),
+    phase: text("phase").notNull(), // plan_generate | cart_* | bootstrap | other
+    tool: text("tool").notNull(),
+    args: jsonb("args"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    attempts: integer("attempts").notNull().default(1), // 0 = served from cache
+    cached: boolean("cached").notNull().default(false),
+    status: text("status").notNull(), // ok | error
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    resultBytes: integer("result_bytes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("mcp_call_log_plan_idx").on(t.planId, t.startedAt),
+    index("mcp_call_log_correlation_idx").on(t.correlationId),
+  ],
+);
+
 // ─── Relations (for the drizzle relational query API) ───────────────────────────
 
 export const householdsRelations = relations(households, ({ many, one }) => ({

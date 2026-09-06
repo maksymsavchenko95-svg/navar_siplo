@@ -28,6 +28,7 @@ import {
   type RetailProvider,
 } from "../provider.js";
 import { toToolSummaries } from "../summaries.js";
+import { recordCacheHit, recordMcpCall } from "../trace.js";
 import type { SilpoOAuthClient } from "./app-client.js";
 import { isRateLimit } from "./errors.js";
 import { SilpoOAuthProvider } from "./oauth.js";
@@ -125,19 +126,46 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
   async listTools(): Promise<McpToolsResult> {
     if (this.toolsCache) return this.toolsCache;
     if (!(await this.hasToken())) return { status: "auth_required", hint: AUTH_HINT };
+    const started = Date.now();
+    let attempts = 0;
     try {
       await this.connect();
-      const { tools } = await withBackoff(() => this.client!.listTools());
+      const { tools } = await withBackoff(() => {
+        attempts += 1;
+        return this.client!.listTools();
+      });
       this.toolsCache = { status: "ok", tools: toToolSummaries(tools) };
+      recordMcpCall({
+        tool: "tools/list",
+        args: {},
+        startedAt: new Date(started).toISOString(),
+        durationMs: Date.now() - started,
+        attempts: Math.max(attempts, 1),
+        status: "ok",
+        resultBytes: JSON.stringify(tools).length,
+      });
       return this.toolsCache;
     } catch (err) {
+      recordMcpCall({
+        tool: "tools/list",
+        args: {},
+        startedAt: new Date(started).toISOString(),
+        durationMs: Date.now() - started,
+        attempts: Math.max(attempts, 1),
+        status: "error",
+        errorCode: String((err as { code?: unknown }).code ?? "") || null,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       if (err instanceof UnauthorizedError) return { status: "auth_required", hint: AUTH_HINT };
       throw new Error(`Silpo MCP error: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   async getCartContext(): Promise<CartContext> {
-    if (this.cartCache && Date.now() - this.cartCache.at < CART_TTL_MS) return this.cartCache.value;
+    if (this.cartCache && Date.now() - this.cartCache.at < CART_TTL_MS) {
+      recordCacheHit("silpo_get_my_shopping_cart", {});
+      return this.cartCache.value;
+    }
     if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
 
     const myCart = await this.callTool("silpo_get_my_shopping_cart");
@@ -172,6 +200,13 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
       if (hit && now - hit.at < PRODUCT_TTL_MS) fresh.set(q, hit.value);
       else if (!missing.includes(q)) missing.push(q);
     }
+    const cachedCount = queries.length - missing.length;
+    if (cachedCount > 0) {
+      recordCacheHit("silpo_find_products_batch", {
+        branchId: ctx.branchId,
+        cachedQueries: cachedCount,
+      });
+    }
 
     if (missing.length > 0) {
       const response = await this.callTool("silpo_find_products_batch", {
@@ -196,7 +231,10 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
     if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
     const key = `${ctx.branchId}|${slug}`;
     const hit = this.detailsCache.get(key);
-    if (hit && Date.now() - hit.at < PRODUCT_TTL_MS) return hit.value;
+    if (hit && Date.now() - hit.at < PRODUCT_TTL_MS) {
+      recordCacheHit("silpo_get_product_details", { branchId: ctx.branchId, slug });
+      return hit.value;
+    }
     const raw = await this.callTool("silpo_get_product_details", {
       branchId: ctx.branchId,
       deliveryType: ctx.deliveryType,
@@ -232,7 +270,10 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
     const ctx = await this.getCartContext();
     const key = `${ctx.branchId}|${ctx.deliveryType}`;
     const hit = this.promotionsCache.get(key);
-    if (hit && Date.now() - hit.at < PROMO_TTL_MS) return hit.value;
+    if (hit && Date.now() - hit.at < PROMO_TTL_MS) {
+      recordCacheHit("silpo_get_promotions", { branchId: ctx.branchId });
+      return hit.value;
+    }
     const raw = await this.callToolAuthed("silpo_get_promotions", {
       branchId: ctx.branchId,
       deliveryType: ctx.deliveryType,
@@ -246,6 +287,7 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
 
   async getMyPromos(): Promise<PersonalPromo[]> {
     if (this.myPromosCache && Date.now() - this.myPromosCache.at < PROMO_TTL_MS) {
+      recordCacheHit("silpo_get_my_promos", {});
       return this.myPromosCache.value;
     }
     const value = parseMyPromos(await this.callToolAuthed("silpo_get_my_promos"));
@@ -419,14 +461,39 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
   }
 
   private async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    const started = Date.now();
+    let attempts = 0;
     try {
       await this.connect();
-      const result = await withBackoff(() => this.client!.callTool({ name, arguments: args }));
+      const result = await withBackoff(() => {
+        attempts += 1;
+        return this.client!.callTool({ name, arguments: args });
+      });
+      const parsed = parseToolResult(result);
       if ((result as { isError?: boolean }).isError) {
-        throw new Error(`${name}: ${JSON.stringify(parseToolResult(result))}`);
+        throw new Error(`${name}: ${JSON.stringify(parsed)}`);
       }
-      return parseToolResult(result);
+      recordMcpCall({
+        tool: name,
+        args,
+        startedAt: new Date(started).toISOString(),
+        durationMs: Date.now() - started,
+        attempts: Math.max(attempts, 1),
+        status: "ok",
+        resultBytes: JSON.stringify(parsed).length,
+      });
+      return parsed;
     } catch (err) {
+      recordMcpCall({
+        tool: name,
+        args,
+        startedAt: new Date(started).toISOString(),
+        durationMs: Date.now() - started,
+        attempts: Math.max(attempts, 1),
+        status: "error",
+        errorCode: String((err as { code?: unknown }).code ?? "") || null,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       if (err instanceof UnauthorizedError) throw new AuthRequiredError(AUTH_HINT);
       throw err;
     }

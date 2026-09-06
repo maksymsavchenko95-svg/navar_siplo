@@ -23,7 +23,8 @@
     "mapper:probe": "tsx src/scripts/mapper-probe.ts",
     "plan:probe": "tsx src/scripts/plan-probe.ts",
     "cart:probe": "tsx src/scripts/cart-probe.ts",
-    "plan:edit-probe": "tsx src/scripts/plan-edit-probe.ts"
+    "plan:edit-probe": "tsx src/scripts/plan-edit-probe.ts",
+    "ops:trace": "tsx src/scripts/ops-trace.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

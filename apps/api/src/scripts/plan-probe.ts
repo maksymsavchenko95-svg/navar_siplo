@@ -1,5 +1,5 @@
-import { closeDb, getPlanDetail } from "@navar/db";
-import type { Goal } from "@navar/domain";
+import { closeDb, getMcpCallsByPlan, getPlanDetail } from "@navar/db";
+import { type Goal, summarizeTrace } from "@navar/domain";
 import { generatePlan } from "@navar/planner";
 
 import { resolveHouseholdId } from "../household.js";
@@ -142,6 +142,15 @@ async function main(): Promise<void> {
         `unpriced ${saved.unpricedLineCount}  needs-confirm ${saved.list.filter((l) => l.needsConfirmation).length}`,
     );
     console.log(`explanation: ${saved.explanation}`);
+
+    const trace = await getMcpCallsByPlan(gen.planId, householdId);
+    if (trace && trace.length > 0) {
+      const s = summarizeTrace(trace);
+      console.log(
+        `MCP trace: ${s.totalCalls} calls · ${s.okCalls} ok / ${s.errorCalls} error / ${s.cachedCalls} cached · ` +
+          `${s.totalDurationMs} ms  (pnpm --filter @navar/api ops:trace ${gen.planId})`,
+      );
+    }
   }
 }
 

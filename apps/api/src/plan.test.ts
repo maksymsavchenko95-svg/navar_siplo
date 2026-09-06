@@ -203,6 +203,15 @@ describe.skipIf(!process.env.DATABASE_URL)("plan generation (integration)", () =
       expect(detail).not.toBeNull();
       expect(detail!.items.length).toBe(5);
       expect(detail!.explanation).toBeTruthy(); // template fallback always fills it
+
+      // T4.3 — the MCP calls that built the plan are recorded against it.
+      const { getMcpCallsByPlan } = await import("@navar/db");
+      const trace = await getMcpCallsByPlan(res.planId, id);
+      expect(trace).not.toBeNull();
+      expect(trace!.length).toBeGreaterThan(0);
+      expect(trace!.every((c) => c.phase === "plan_generate")).toBe(true);
+      expect(new Set(trace!.map((c) => c.correlationId)).size).toBe(1);
+
       await db.delete(schema.plans).where(eq(schema.plans.id, res.planId));
     }
   }, 120_000);

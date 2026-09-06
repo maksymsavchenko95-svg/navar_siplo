@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AuthRequiredError } from "../provider.js";
+import { runWithMcpTrace } from "../trace.js";
 import { SilpoRetailProvider } from "./adapter.js";
 
 /** A provider with a stubbed MCP client so `connect()` short-circuits (no network). */
@@ -541,5 +542,91 @@ describe("getMyPromos", () => {
   it("requires a token", async () => {
     const provider = providerWith(cartAwareStub({}), { withToken: false });
     await expect(provider.getMyPromos()).rejects.toBeInstanceOf(AuthRequiredError);
+  });
+});
+
+// ─── MCP call trace (T4.3, FR-OPS-001) ──────────────────────────────────────
+
+describe("callTool tracing", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("records one ok entry per logical call, with a byte count", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const provider = providerWith(cartAwareStub({ silpo_get_my_online_orders: { orders: [] } }), {
+      withToken: true,
+    });
+
+    const { records } = await runWithMcpTrace({ phase: "bootstrap" }, () =>
+      provider.getOnlineOrders({ limit: 10, offset: 0 }),
+    );
+
+    const orders = records.find((r) => r.tool === "silpo_get_my_online_orders");
+    expect(orders).toMatchObject({ status: "ok", attempts: 1, phase: "bootstrap" });
+    expect(orders!.resultBytes).toBeGreaterThan(0);
+  });
+
+  it("records an error entry with the error code and rethrows", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const provider = providerWith(
+      () => {
+        throw Object.assign(new Error("boom"), { code: "500" });
+      },
+      { withToken: true },
+    );
+
+    const run = runWithMcpTrace({ phase: "plan_generate" }, async () => {
+      await expect(
+        provider.callToolRaw("silpo_get_product_details", { slug: "x" }),
+      ).rejects.toThrow("boom");
+    });
+    const { records } = await run;
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      tool: "silpo_get_product_details",
+      status: "error",
+      errorCode: "500",
+      resultBytes: null,
+    });
+  });
+
+  it("records a cache hit (attempts 0, cached) instead of a call on the second read", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const provider = providerWith(cartAwareStub({ silpo_get_promotions: { promotions: [] } }), {
+      withToken: true,
+    });
+
+    await provider.getPromotions(); // warm
+    const { records } = await runWithMcpTrace({ phase: "plan_generate" }, () =>
+      provider.getPromotions(),
+    );
+
+    const promo = records.find((r) => r.tool === "silpo_get_promotions");
+    expect(promo).toMatchObject({ cached: true, attempts: 0, durationMs: 0 });
+    // the cart-context dance is cached too
+    expect(records.every((r) => r.cached)).toBe(true);
+  });
+
+  it("folds 429 retries into a single entry with attempts > 1", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.stubGlobal("setTimeout", (fn: () => void) => {
+      fn();
+      return 0;
+    });
+    let calls = 0;
+    const provider = providerWith(
+      () => {
+        calls++;
+        if (calls === 1) throw Object.assign(new Error("rate"), { code: 429 });
+        return { content: [{ type: "text", text: '{"ok":true}' }] };
+      },
+      { withToken: true },
+    );
+
+    const { records } = await runWithMcpTrace({ phase: "cart_materialize" }, () =>
+      provider.callToolRaw("silpo_add_or_update_cart_products", {}),
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ status: "ok", attempts: 2 });
+    vi.unstubAllGlobals();
   });
 });

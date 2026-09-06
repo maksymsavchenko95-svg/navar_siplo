@@ -1,8 +1,10 @@
 import { db } from "@navar/db";
+import { runWithMcpTrace } from "@navar/retail";
 import { Worker } from "bullmq";
 
 import { runBootstrap } from "../household/bootstrap-job.js";
 import { getLlm, getLlmTracer } from "../llm.js";
+import { persistMcpTrace } from "../mcp-trace.js";
 import { getSilpoProvider } from "../retail.js";
 import { BOOTSTRAP_QUEUE, type BootstrapJobData } from "./bootstrap-queue.js";
 import { connection } from "./connection.js";
@@ -19,13 +21,18 @@ export function startBootstrapWorker(): Worker<BootstrapJobData> {
     BOOTSTRAP_QUEUE,
     async (job) => {
       const provider = await getSilpoProvider();
-      return runBootstrap(job.data.householdId, {
-        reader: provider,
-        llm: getLlm(),
-        tracer: getLlmTracer(),
-        db,
-        now: () => new Date(),
-      });
+      const { householdId } = job.data;
+      const { result, records } = await runWithMcpTrace({ phase: "bootstrap" }, () =>
+        runBootstrap(householdId, {
+          reader: provider,
+          llm: getLlm(),
+          tracer: getLlmTracer(),
+          db,
+          now: () => new Date(),
+        }),
+      );
+      await persistMcpTrace(records, { householdId, phase: "bootstrap" });
+      return result;
     },
     { connection, concurrency: 2 },
   );

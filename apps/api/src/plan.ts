@@ -20,10 +20,17 @@ import {
   type SolverInput,
   type SolverResult,
 } from "@navar/planner";
-import { AuthRequiredError, NoCartError, type RetailProvider } from "@navar/retail";
+import {
+  AuthRequiredError,
+  type McpCallRecord,
+  NoCartError,
+  type RetailProvider,
+  runWithMcpTrace,
+} from "@navar/retail";
 import { ALLERGEN_LABEL_UK, hasHardExclusion } from "@navar/safety";
 
 import { getLlm, getLlmTracer } from "./llm.js";
+import { persistMcpTrace } from "./mcp-trace.js";
 import { savePlanContext, toCacheable } from "./plan-context-cache.js";
 import {
   getRerankFn,
@@ -431,8 +438,13 @@ export async function generateAndPersistPlan(
   opts: BuildPlanOpts = {},
 ): Promise<PlanGenerateResult> {
   let ctx: PlanContext;
+  let mcpRecords: McpCallRecord[] = [];
   try {
-    ctx = await buildPlanContext(householdId, retail, opts);
+    const traced = await runWithMcpTrace({ phase: "plan_generate" }, () =>
+      buildPlanContext(householdId, retail, opts),
+    );
+    ctx = traced.result;
+    mcpRecords = traced.records;
   } catch (err) {
     if (err instanceof PlanInputError) return { status: "error", message: err.message };
     throw err;
@@ -494,6 +506,8 @@ export async function generateAndPersistPlan(
   // Keep the solver input this plan was built from, so plan.replaceItem / plan.cheaper can
   // edit it without paying the ~13.7 s corpus re-map (T4.2, NFR-PERF-003).
   await savePlanContext(planId, toCacheable(ctx));
+  // The MCP calls that built this plan, now that we have an id to hang them on (T4.3).
+  await persistMcpTrace(mcpRecords, { planId, householdId, phase: "plan_generate" });
 
   const explain = await runStep(
     explainPlanStep,

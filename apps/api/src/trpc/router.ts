@@ -19,6 +19,7 @@ import {
 import { authRouter } from "./routers/auth.js";
 import { cartRouter } from "./routers/cart.js";
 import { householdRouter } from "./routers/household.js";
+import { opsRouter } from "./routers/ops.js";
 import { planRouter } from "./routers/plan.js";
 import { protectedProcedure, publicProcedure, router } from "./trpc.js";
 
@@ -27,6 +28,7 @@ export const appRouter = router({
   household: householdRouter,
   plan: planRouter,
   cart: cartRouter,
+  ops: opsRouter,
 
   hello: publicProcedure
     .input(z.object({ name: z.string().trim().min(1).max(80).optional() }).optional())

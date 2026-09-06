@@ -26,3 +26,10 @@ export {
   type ToPlanRowsInput,
   type PlanRows,
 } from "./plans.js";
+export {
+  toMcpCallRows,
+  saveMcpCalls,
+  getMcpCallsByPlan,
+  type NewMcpCallRow,
+  type McpCallScope,
+} from "./mcp-log.js";

@@ -11,6 +11,15 @@ export {
 export { toToolSummaries } from "./summaries.js";
 export { isRateLimit } from "./silpo/errors.js";
 export {
+  runWithMcpTrace,
+  recordMcpCall,
+  recordCacheHit,
+  summarizeArgs,
+  currentTraceScope,
+  type McpCallRecord,
+  type McpCallEvent,
+} from "./trace.js";
+export {
   parseAddresses,
   parseFamily,
   parseFavorites,
