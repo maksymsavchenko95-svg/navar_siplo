@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { type LlmProvider, LlmUnavailableError } from "./provider.js";
@@ -18,6 +18,8 @@ function providerReturning(value: unknown): LlmProvider {
 }
 
 describe("runStep", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("returns the model output tagged source:llm and traces once", async () => {
     const provider = providerReturning({ seen: "ok" });
     const seen = vi.fn();
@@ -48,7 +50,8 @@ describe("runStep", () => {
     expect(call.prompt).not.toContain("380991112233");
   });
 
-  it("falls back deterministically when the provider throws", async () => {
+  it("falls back deterministically when the provider throws, and says so on console.warn", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const provider: LlmProvider = {
       generateObject: vi.fn(async () => {
         throw new LlmUnavailableError();
@@ -62,6 +65,28 @@ describe("runStep", () => {
       expect(result.value.seen).toContain("fallback:");
       expect(result.reason).toMatch(/LlmUnavailableError/);
     }
+    // The fallback is never silent — one structured line per step (the audit's F1 lesson).
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("[llm] echo vecho.v1 → fallback: LlmUnavailableError"),
+    );
+  });
+
+  it("does not log the input on fallback (PII never reaches the console)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const provider: LlmProvider = {
+      generateObject: vi.fn(async () => {
+        throw new Error("boom");
+      }) as never,
+    };
+    await runStep(
+      echoStep,
+      { note: "secret-note", phone: "+380991112233" },
+      { provider, tracer: noopTracer },
+    );
+    const line = String(warn.mock.calls[0]![0]);
+    expect(line).not.toContain("secret-note");
+    expect(line).not.toContain("380991112233");
   });
 
   it("defaults temperature to 0", async () => {

@@ -10,6 +10,7 @@ import { env } from "./env.js";
 import { closeBootstrapQueue } from "./queue/bootstrap-queue.js";
 import { connection } from "./queue/connection.js";
 import { startBootstrapWorker } from "./queue/worker.js";
+import { checkLlmHealth, getLlmHealth } from "./llm.js";
 import { initRetail } from "./retail.js";
 import { sessions } from "./session.js";
 import { createContext } from "./trpc/context.js";
@@ -26,7 +27,8 @@ await app.register(cookie, { secret: env.COOKIE_SECRET });
 
 app.get("/health", async () => {
   await db.execute(sql`select 1`);
-  return { status: "ok", db: "ok" };
+  const llm = getLlmHealth();
+  return { status: "ok", db: "ok", llm: llm.status, llmModel: llm.model };
 });
 
 /**
@@ -70,6 +72,7 @@ await app.register(fastifyTRPCPlugin, {
 });
 
 void initRetail();
+void checkLlmHealth();
 
 const bootstrapWorker = startBootstrapWorker();
 

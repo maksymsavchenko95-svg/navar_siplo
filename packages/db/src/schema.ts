@@ -298,6 +298,8 @@ export const plans = pgTable(
     proteinFloorMet: boolean("protein_floor_met"),
     kcalCorridorMet: boolean("kcal_corridor_met"), // F4 — against the TRUE corridor
     explanation: text("explanation"), // T2.6
+    /** Who wrote `explanation`: `llm` | `fallback` — so a dead key is visible in the data. */
+    explanationSource: text("explanation_source"),
     cartId: text("cart_id"), // T3.1 — the Silpo shoppingCartId this plan was materialized into
     materializedAt: timestamp("materialized_at", { withTimezone: true }), // T3.1
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

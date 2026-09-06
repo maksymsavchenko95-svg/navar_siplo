@@ -26,14 +26,18 @@ function acceptsTemperature(model: string): boolean {
   return MODELS_WITH_TEMPERATURE.some((re) => re.test(model));
 }
 
+/**
+ * Transient only. A 401 (bad key), 400 (billing / bad request) or 404 must surface at once —
+ * retrying them just burns 7.5 s of backoff per step before the fallback fires.
+ */
 function isOverloaded(err: unknown): boolean {
-  const e = err as { statusCode?: number; status?: number; message?: string; name?: string };
+  const e = err as { statusCode?: number; status?: number; message?: string };
   const code = e.statusCode ?? e.status;
   return (
     code === 429 ||
     code === 503 ||
-    /overloaded_error|overloaded|rate.?limit/i.test(e.message ?? "") ||
-    e.name === "APICallError"
+    code === 529 ||
+    /overloaded_error|overloaded|rate.?limit/i.test(e.message ?? "")
   );
 }
 

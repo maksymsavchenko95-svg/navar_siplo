@@ -141,7 +141,7 @@ async function main(): Promise<void> {
       `Σ ${saved.totalEstUah}₴  promo ${saved.promoSharePct?.toFixed(0)}%  ` +
         `unpriced ${saved.unpricedLineCount}  needs-confirm ${saved.list.filter((l) => l.needsConfirmation).length}`,
     );
-    console.log(`explanation: ${saved.explanation}`);
+    console.log(`explanation (${saved.explanationSource ?? "?"}): ${saved.explanation}`);
 
     const trace = await getMcpCallsByPlan(gen.planId, householdId);
     if (trace && trace.length > 0) {

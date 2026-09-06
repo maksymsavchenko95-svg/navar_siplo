@@ -5,6 +5,7 @@ import {
   planGenerateResultSchema,
   planGetResultSchema,
   planItemSchema,
+  planSchema,
 } from "./plan.js";
 
 const item = {
@@ -61,6 +62,7 @@ describe("plan schemas", () => {
       proteinFloorMet: true,
       kcalCorridorMet: false,
       explanation: "План на 5 днів…",
+      explanationSource: "llm",
       cartId: null,
       materializedAt: null,
       createdAt: new Date().toISOString(),
@@ -74,6 +76,32 @@ describe("plan schemas", () => {
     expect(() =>
       planItemSchema.parse({ ...item, recipeId: null, macrosPerServing: null }),
     ).not.toThrow();
+  });
+
+  it("explanationSource is llm | fallback | null, nothing else", () => {
+    const base = {
+      id: item.recipeId,
+      goal: "routine",
+      seed: 1,
+      days: 5,
+      budgetUah: 1,
+      status: "draft",
+      totalEstUah: null,
+      promoSharePct: null,
+      estimatedCostUah: null,
+      unpricedLineCount: 0,
+      proteinFloorMet: null,
+      kcalCorridorMet: null,
+      explanation: null,
+      cartId: null,
+      materializedAt: null,
+      createdAt: new Date().toISOString(),
+    };
+    expect(planSchema.parse({ ...base, explanationSource: null }).explanationSource).toBeNull();
+    expect(planSchema.parse({ ...base, explanationSource: "fallback" }).explanationSource).toBe(
+      "fallback",
+    );
+    expect(() => planSchema.parse({ ...base, explanationSource: "template" })).toThrow();
   });
 
   it("discriminates the generate result union", () => {

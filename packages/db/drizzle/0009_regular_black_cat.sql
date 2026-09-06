@@ -1,0 +1,1 @@
+ALTER TABLE "plans" ADD COLUMN "explanation_source" text;

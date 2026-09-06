@@ -203,6 +203,7 @@ describe.skipIf(!process.env.DATABASE_URL)("plan generation (integration)", () =
       expect(detail).not.toBeNull();
       expect(detail!.items.length).toBe(5);
       expect(detail!.explanation).toBeTruthy(); // template fallback always fills it
+      expect(["llm", "fallback"]).toContain(detail!.explanationSource); // never null once explained
 
       // T4.3 — the MCP calls that built the plan are recorded against it.
       const { getMcpCallsByPlan } = await import("@navar/db");

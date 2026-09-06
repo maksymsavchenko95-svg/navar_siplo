@@ -77,6 +77,28 @@ describe("AnthropicLlmProvider", () => {
     vi.useRealTimers();
   });
 
+  it("does not retry a 401 (invalid key) — surfaces it on the first attempt", async () => {
+    const unauthorized = Object.assign(new Error("API key is invalid"), {
+      name: "APICallError",
+      statusCode: 401,
+    });
+    generateObject.mockRejectedValue(unauthorized);
+    const provider = new AnthropicLlmProvider({ apiKey: "k", model: "claude-sonnet-5" });
+    await expect(provider.generateObject(baseReq)).rejects.toBe(unauthorized);
+    expect(generateObject).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a 400 billing error either", async () => {
+    const billing = Object.assign(new Error("Your credit balance is too low"), {
+      name: "APICallError",
+      statusCode: 400,
+    });
+    generateObject.mockRejectedValue(billing);
+    const provider = new AnthropicLlmProvider({ apiKey: "k", model: "claude-sonnet-5" });
+    await expect(provider.generateObject(baseReq)).rejects.toBe(billing);
+    expect(generateObject).toHaveBeenCalledTimes(1);
+  });
+
   it("maps a NoObjectGeneratedError to LlmSchemaError", async () => {
     const err = Object.assign(new Error("no object"), { name: "NoObjectGeneratedError" });
     generateObject.mockRejectedValue(err);

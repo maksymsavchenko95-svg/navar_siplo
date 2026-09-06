@@ -63,6 +63,9 @@ export async function runStep<In, Out>(
       return { source: "llm", value } satisfies StepResult<Out>;
     } catch (err) {
       const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      // Visible by default (FR-OPS-002 baseline): an invalid key, an empty balance, or an
+      // outage must never look like a working model. Input is not logged (PII).
+      console.warn(`[llm] ${step.name} v${step.promptVersion} → fallback: ${reason.slice(0, 200)}`);
       return {
         source: "fallback",
         value: step.fallback(safeInput, reason),

@@ -70,6 +70,7 @@ const planDetail = (list: ListLine[], over: Partial<PlanDetail> = {}): PlanDetai
   proteinFloorMet: true,
   kcalCorridorMet: true,
   explanation: null,
+  explanationSource: null,
   cartId: null,
   materializedAt: null,
   createdAt: "2026-09-04T00:00:00.000Z",

@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   AnthropicLlmProvider,
   langfuseTracer,
@@ -46,4 +48,53 @@ export function getLlmTracer(): LlmTracer {
         : noopTracer;
   }
   return tracer;
+}
+
+// ── health (the audit's F1 lesson: a dead key must be loud, not a silent fallback) ────────
+
+export interface LlmHealth {
+  /** `checking` until the startup probe has returned — `/health` never claims more than it knows. */
+  status: "checking" | "ok" | "degraded" | "disabled";
+  model: string;
+  message?: string;
+}
+
+let llmHealth: LlmHealth = { status: "checking", model: llmEnv.NAVAR_LLM_MODEL };
+
+/** Last result of `checkLlmHealth` — surfaced by `/health` as `llm`. */
+export function getLlmHealth(): LlmHealth {
+  return llmHealth;
+}
+
+/**
+ * One tiny structured call at startup. Never throws: `disabled` (no key) and `degraded`
+ * (key rejected, no credits, outage) both log a warning and leave every step on its
+ * deterministic fallback — the degradation ladder, made visible. `provider` is injectable
+ * so tests never touch the network.
+ */
+export async function checkLlmHealth(provider: LlmProvider = getLlm()): Promise<LlmHealth> {
+  const model = llmEnv.NAVAR_LLM_MODEL;
+  if (!llmEnv.ANTHROPIC_API_KEY) {
+    llmHealth = { status: "disabled", model };
+    console.warn(
+      "[llm] DISABLED — no ANTHROPIC_API_KEY; every step will use its deterministic fallback",
+    );
+    return llmHealth;
+  }
+  try {
+    await provider.generateObject({
+      schemaName: "health",
+      schema: z.object({ ok: z.boolean() }),
+      system: 'Reply with exactly {"ok": true}.',
+      prompt: "ping",
+      temperature: 0,
+    });
+    llmHealth = { status: "ok", model };
+    console.log(`[llm] ok — model ${model}`);
+  } catch (err) {
+    const message = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+    llmHealth = { status: "degraded", model, message };
+    console.warn(`[llm] DEGRADED — ${message}; every step will use its deterministic fallback`);
+  }
+  return llmHealth;
 }

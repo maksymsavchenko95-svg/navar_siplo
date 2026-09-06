@@ -265,13 +265,14 @@ describe.skipIf(!process.env.DATABASE_URL)("savePlan / getPlanDetail (integratio
   it("round-trips a plan + items + list, and cascades on delete", async () => {
     await setup();
     const planId = await savePlan(rowsFor());
-    await setPlanExplanation(planId, householdId, "Тестове пояснення.");
+    await setPlanExplanation(planId, householdId, "Тестове пояснення.", "fallback");
 
     const detail = await getPlanDetail(planId, householdId);
     expect(detail).not.toBeNull();
     expect(detail!.items.map((i) => i.dayIndex)).toEqual([1, 2]);
     expect(detail!.list.map((l) => l.slug)).toEqual(["carrot", "onion", "potato"]);
     expect(detail!.explanation).toBe("Тестове пояснення.");
+    expect(detail!.explanationSource).toBe("fallback");
     expect(detail!.promoSharePct).toBeCloseTo(14.81, 1);
 
     // wrong household → not found

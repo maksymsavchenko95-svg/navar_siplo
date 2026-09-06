@@ -522,7 +522,7 @@ export async function generateAndPersistPlan(
     }),
     { provider: getLlm(), tracer: getLlmTracer() },
   );
-  await setPlanExplanation(planId, householdId, explain.value.text);
+  await setPlanExplanation(planId, householdId, explain.value.text, explain.source);
 
   return { status: "ok", planId };
 }

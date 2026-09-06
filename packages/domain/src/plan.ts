@@ -69,6 +69,8 @@ export const planSchema = z.object({
   proteinFloorMet: z.boolean().nullable(),
   kcalCorridorMet: z.boolean().nullable(),
   explanation: z.string().nullable(),
+  /** `runStep`'s `source` for `explanation` — `fallback` means the model never answered. */
+  explanationSource: z.enum(["llm", "fallback"]).nullable(),
   /** The Silpo cart this plan was materialized into (T3.1) — `null` until `cart.materialize`. */
   cartId: z.string().nullable(),
   materializedAt: z.string().nullable(),

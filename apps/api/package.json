@@ -24,7 +24,8 @@
     "plan:probe": "tsx src/scripts/plan-probe.ts",
     "cart:probe": "tsx src/scripts/cart-probe.ts",
     "plan:edit-probe": "tsx src/scripts/plan-edit-probe.ts",
-    "ops:trace": "tsx src/scripts/ops-trace.ts"
+    "ops:trace": "tsx src/scripts/ops-trace.ts",
+    "llm:probe": "tsx src/scripts/llm-probe.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

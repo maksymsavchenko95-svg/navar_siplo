@@ -41,6 +41,7 @@ function toPlanHeader(row: typeof plans.$inferSelect): Plan {
     proteinFloorMet: row.proteinFloorMet,
     kcalCorridorMet: row.kcalCorridorMet,
     explanation: row.explanation,
+    explanationSource: row.explanationSource as Plan["explanationSource"],
     cartId: row.cartId,
     materializedAt: row.materializedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -199,11 +200,12 @@ export async function setPlanExplanation(
   planId: string,
   householdId: string,
   text: string,
+  source: "llm" | "fallback",
   database: Db = db,
 ): Promise<void> {
   await database
     .update(plans)
-    .set({ explanation: text })
+    .set({ explanation: text, explanationSource: source })
     .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)));
 }
 
