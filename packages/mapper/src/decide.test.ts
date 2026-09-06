@@ -18,6 +18,7 @@ const cand = (productId: string): ProductMatch => ({
   inStock: true,
   weighted: false,
   step: null,
+  specialPrices: [],
 });
 
 const scored = (productId: string, score: number): ScoredCandidate => ({

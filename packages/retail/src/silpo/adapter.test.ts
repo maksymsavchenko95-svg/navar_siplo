@@ -455,3 +455,91 @@ describe("SilpoRetailProvider cart writes (T3.1 / T3.2)", () => {
     ).rejects.toBeInstanceOf(AuthRequiredError);
   });
 });
+
+// ─── Promotions (T4.1, FR-PLAN-004) ─────────────────────────────────────────
+
+describe("getPromotions", () => {
+  it("passes branch, delivery type and both timeslot bounds from cart context", async () => {
+    const spy = vi.fn(
+      cartAwareStub({
+        silpo_get_promotions: {
+          promotions: [{ code: "cinotyzhyky", title: "Цінотижики", productCount: 517, url: "u" }],
+        },
+      }),
+    );
+    const provider = providerWith(spy, { withToken: true });
+
+    expect(await provider.getPromotions()).toEqual([
+      { code: "cinotyzhyky", title: "Цінотижики", productCount: 517, url: "u" },
+    ]);
+    expect(spy).toHaveBeenCalledWith({
+      name: "silpo_get_promotions",
+      arguments: {
+        branchId: "b1",
+        deliveryType: "DeliveryHome",
+        timeslotStart: "2026-09-02T10:00:00Z",
+        timeslotEnd: "2026-09-02T12:00:00Z",
+      },
+    });
+  });
+
+  it("caches per branch — a second call does not hit the MCP again", async () => {
+    const spy = vi.fn(cartAwareStub({ silpo_get_promotions: { promotions: [] } }));
+    const provider = providerWith(spy, { withToken: true });
+
+    await provider.getPromotions();
+    await provider.getPromotions();
+
+    expect(spy.mock.calls.filter((c) => c[0].name === "silpo_get_promotions")).toHaveLength(1);
+  });
+
+  it("requires a token", async () => {
+    const provider = providerWith(cartAwareStub({}), { withToken: false });
+    await expect(provider.getPromotions()).rejects.toBeInstanceOf(AuthRequiredError);
+  });
+});
+
+describe("getMyPromos", () => {
+  it("sends no arguments and needs no cart context", async () => {
+    const spy = vi.fn(
+      cartAwareStub({
+        silpo_get_my_promos: {
+          promos: [
+            {
+              promoId: 42,
+              selected: true,
+              beginDate: "2026-08-26",
+              endDate: "2026-09-01",
+              description: "Купуй та заощаджуй",
+              rewardText: "x35 балобонусів",
+              rewardValue: 35,
+              limitText: null,
+            },
+          ],
+        },
+      }),
+    );
+    const provider = providerWith(spy, { withToken: true });
+
+    expect(await provider.getMyPromos()).toEqual([
+      {
+        promoId: 42,
+        selected: true,
+        beginDate: "2026-08-26",
+        endDate: "2026-09-01",
+        description: "Купуй та заощаджуй",
+        rewardText: "x35 балобонусів",
+        rewardValue: 35,
+        limitText: null,
+      },
+    ]);
+    expect(spy).toHaveBeenCalledWith({ name: "silpo_get_my_promos", arguments: {} });
+    // No cart context needed — the three cart calls must not have fired.
+    expect(spy.mock.calls.map((c) => c[0].name)).not.toContain("silpo_get_my_shopping_cart");
+  });
+
+  it("requires a token", async () => {
+    const provider = providerWith(cartAwareStub({}), { withToken: false });
+    await expect(provider.getMyPromos()).rejects.toBeInstanceOf(AuthRequiredError);
+  });
+});

@@ -1,4 +1,4 @@
-import type { BaseUnit, Goal, IngredientCategory, Macros } from "@navar/domain";
+import type { BaseUnit, Goal, IngredientCategory, Macros, PromoTier } from "@navar/domain";
 
 /**
  * `@navar/planner` contract (TDD v0.2 §4, SRS §6.5, ADR-02/03/09). The solver picks a
@@ -87,7 +87,12 @@ export interface SolverInput {
   } & SolverGoalConstraints;
   weights: SolverWeights;
   candidates: RecipeCandidate[];
-  prices: Map<string, { uah: number; promo: boolean; packSize: number }>; // by ingredient id
+  /**
+   * By ingredient id. `promo` is a straight shelf markdown (`oldPrice > price`), collected
+   * unconditionally; `tier` is a separate multi-buy threshold that only pays out once the
+   * plan buys `minCount` units. A SKU may carry either, both, or neither (T4.1).
+   */
+  prices: Map<string, { uah: number; promo: boolean; packSize: number; tier?: PromoTier | null }>;
   nutrition: Map<string, Macros>; // per 100 g, by ingredient id
   pantry: Map<string, number>; // P1; empty in P0
   recentRecipeIds: string[]; // last 4 weeks; empty in P0 (no plan history yet)

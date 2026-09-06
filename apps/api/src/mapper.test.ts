@@ -31,6 +31,7 @@ const match = (over: Partial<SkuMatch> & Pick<SkuMatch, "slug">): SkuMatch => ({
     inStock: true,
     weighted: false,
     step: null,
+    specialPrices: [],
   },
   score: 0.8,
   confidence: 0.8,
@@ -40,6 +41,7 @@ const match = (over: Partial<SkuMatch> & Pick<SkuMatch, "slug">): SkuMatch => ({
   packSize: 400,
   surplusAmount: 100,
   isPromo: false,
+  promoTier: null,
   candidatesConsidered: 3,
   rerankSource: null,
   safetyChecked: false,
@@ -54,9 +56,30 @@ describe("skuMatchesToPrices", () => {
     ["milk", "id-milk"],
   ]);
 
-  it("keys by ingredient id, carries promo, and uses the parsed pack size", () => {
-    const prices = skuMatchesToPrices([match({ slug: "carrot", isPromo: true })], ids);
-    expect(prices.get("id-carrot")).toEqual({ uah: 42, promo: true, packSize: 400 });
+  it("keys by ingredient id and uses the parsed pack size", () => {
+    const prices = skuMatchesToPrices([match({ slug: "carrot" })], ids);
+    expect(prices.get("id-carrot")).toEqual({
+      uah: 42,
+      promo: false,
+      packSize: 400,
+      tier: null,
+    });
+  });
+
+  it("derives `promo` from the SKU's shelf markdown, not the mapper's isPromo flag (T4.1)", () => {
+    // `SkuMatch.isPromo` means "some discount exists" (markdown *or* multi-buy). The solver
+    // needs the narrower question — is there an unconditional markdown? — because a
+    // multi-buy tier only pays out once enough packs are bought.
+    const markdown = match({ slug: "carrot", isPromo: true });
+    markdown.match!.oldPrice = 60;
+    expect(skuMatchesToPrices([markdown], ids).get("id-carrot")).toMatchObject({ promo: true });
+
+    // A tier-only SKU is *not* an unconditional markdown; the tier travels separately.
+    const tierOnly = match({ slug: "milk", isPromo: true, promoTier: { minCount: 2, price: 30 } });
+    expect(skuMatchesToPrices([tierOnly], ids).get("id-milk")).toMatchObject({
+      promo: false,
+      tier: { minCount: 2, price: 30 },
+    });
   });
 
   it("substitutes the needed amount when the pack size is unknown", () => {
@@ -104,6 +127,7 @@ const sku = (over: Partial<ProductMatch>): ProductMatch => ({
   inStock: true,
   weighted: false,
   step: null,
+  specialPrices: [],
   ...over,
 });
 

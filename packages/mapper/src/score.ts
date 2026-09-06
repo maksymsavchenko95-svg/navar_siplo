@@ -1,4 +1,4 @@
-import { normalizeText, type ProductMatch, trigramSimilarity } from "@navar/domain";
+import { isPromoMatch, normalizeText, type ProductMatch, trigramSimilarity } from "@navar/domain";
 
 import { parsePackSize } from "./pack.js";
 import { type MapperDictEntry, OVERSIZE_PACK_RATIO } from "./types.js";
@@ -11,7 +11,16 @@ import { type MapperDictEntry, OVERSIZE_PACK_RATIO } from "./types.js";
 const WEIGHTS = {
   nameSim: 0.55,
   packFit: 0.2,
-  promo: 0.1,
+  // T4.1: doubled from 0.1 so promo actually steers SKU choice (AC-P0-04) — and it now
+  // fires on multi-buy tiers too, not just `oldPrice` markdowns.
+  //
+  // Invariant: the positive weights sum to exactly 1.0 (`priceOutlier` only ever subtracts),
+  // so `clamp01` never truncates a real difference. Raising `promo` further would saturate
+  // high-scoring candidates at 1.0 and *compress* the promo advantage instead of widening
+  // it. Note 0.2 sits just under `ACCEPT_GAP` (0.25), so promo alone still leaves a pair a
+  // "close call" — that is deliberate: the LLM re-rank sees the promo flag and decides,
+  // rather than promo silently overriding a better name match.
+  promo: 0.2,
   priceOutlier: 0.1,
   brand: 0.05,
 } as const;
@@ -87,7 +96,7 @@ export function scoreCandidate(args: {
 
   const nameSim = nameSimilarity(entry, candidate.name);
   const fit = packFit(entry, neededBase, candidate);
-  const promo = candidate.oldPrice != null && candidate.oldPrice > candidate.price ? 1 : 0;
+  const promo = isPromoMatch(candidate) ? 1 : 0; // shelf markdown OR a multi-buy tier (T4.1)
 
   const med = median(peers.map((p) => p.price));
   const priceOutlier =

@@ -60,6 +60,7 @@ describe("skuMatchSchema", () => {
     packSize: null,
     surplusAmount: 0,
     isPromo: false,
+    promoTier: null,
     candidatesConsidered: 0,
     rerankSource: null,
     safetyChecked: false,

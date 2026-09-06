@@ -1,5 +1,11 @@
 import { db, schema } from "@navar/db";
-import type { Macros, ProductDetails, SkuMatch, StoredRestriction } from "@navar/domain";
+import {
+  hasShelfMarkdown,
+  type Macros,
+  type ProductDetails,
+  type SkuMatch,
+  type StoredRestriction,
+} from "@navar/domain";
 import { llmRerank } from "@navar/llm";
 import type {
   IngredientSafetyCheck,
@@ -8,6 +14,7 @@ import type {
   SkuSafetyCheck,
 } from "@navar/mapper";
 import type { RetailProvider } from "@navar/retail";
+import type { SolverInput } from "@navar/planner";
 import {
   checkIngredient,
   checkSku,
@@ -180,15 +187,18 @@ export function getRerankFn(): RerankFn {
 export function skuMatchesToPrices(
   matches: readonly SkuMatch[],
   idBySlug: ReadonlyMap<string, string>,
-): Map<string, { uah: number; promo: boolean; packSize: number }> {
-  const out = new Map<string, { uah: number; promo: boolean; packSize: number }>();
+): SolverInput["prices"] {
+  const out: SolverInput["prices"] = new Map();
   for (const m of matches) {
     const id = idBySlug.get(m.slug);
     if (!id || !m.match) continue;
     out.set(id, {
       uah: m.match.price,
-      promo: m.isPromo,
+      // Markdown only — a multi-buy tier travels separately, since the solver may only
+      // count it once the plan buys enough units to collect it (T4.1).
+      promo: hasShelfMarkdown(m.match),
       packSize: m.packSize ?? m.neededAmount,
+      tier: m.promoTier,
     });
   }
   return out;

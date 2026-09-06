@@ -3,7 +3,7 @@ import type { Goal } from "@navar/domain";
 import { generatePlan } from "@navar/planner";
 
 import { resolveHouseholdId } from "../household.js";
-import { buildSolverInput, generateAndPersistPlan } from "../plan.js";
+import { buildPlanContext, generateAndPersistPlan } from "../plan.js";
 import { getSilpoProvider } from "../retail.js";
 
 /**
@@ -36,7 +36,17 @@ async function main(): Promise<void> {
   };
 
   const retail = await getSilpoProvider();
-  const input = await buildSolverInput(householdId, retail, opts);
+  const ctx = await buildPlanContext(householdId, retail, opts);
+  const input = ctx.input;
+  // T4.1 / FR-PLAN-004 — evidence the promo read happened *before* the plan was built,
+  // and that it reached the solver (`tiers` = SKUs whose multi-buy discount is available).
+  const tiers = [...input.prices.values()].filter((p) => p.tier != null).length;
+  const markdowns = [...input.prices.values()].filter((p) => p.promo).length;
+  console.log(
+    `promo: ${ctx.promoContext.campaigns.length} campaigns · ` +
+      `${ctx.promoContext.personal.length} personal offers (bonus, not priced) · ` +
+      `${markdowns} markdown SKUs · ${tiers} multi-buy SKUs`,
+  );
   console.log(
     `goal=${input.goal} budget=${input.budget}₴ servings=${input.servings} seed=${input.seed} ` +
       `candidates=${input.candidates.length} priced=${input.prices.size}` +

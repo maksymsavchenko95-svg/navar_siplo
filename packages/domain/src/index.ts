@@ -8,6 +8,7 @@ export * from "./units.js";
 export * from "./nutrition.js";
 export * from "./credentials.js";
 export * from "./retail.js";
+export * from "./promo.js";
 export * from "./text.js";
 export * from "./mapper.js";
 export * from "./pii.js";

@@ -21,6 +21,7 @@ const sku = (
   inStock: true,
   weighted: false,
   step: null,
+  specialPrices: [],
   ...over,
 });
 
@@ -52,6 +53,8 @@ async function ctx(): Promise<Context> {
     ),
     getReplacements: async () => [],
     getProductDetails: vi.fn(async (s: string) => cleanDetails(s)),
+    getPromotions: async () => [],
+    getMyPromos: async () => [],
   } as unknown as Context["retail"];
   return testContext({ householdId, retail });
 }

@@ -1,4 +1,4 @@
-import type { IngredientCategory } from "@navar/domain";
+import { effectiveUnitPrice, type IngredientCategory, tierApplies } from "@navar/domain";
 
 import type { RecipeCandidate, SolverInput } from "./contract.js";
 
@@ -101,9 +101,18 @@ export function recipeCost(
     const have = input.pantry.get(line.id) ?? 0;
     const toBuy = Math.max(0, needed - have);
     const packs = price.packSize > 0 ? Math.ceil(toBuy / price.packSize) : 0;
-    const lineCost = packs * price.uah;
+    // A multi-buy tier only pays out once the plan actually buys `minCount` units, so the
+    // unit price — and whether this line counts as promo at all — depends on `packs`.
+    // Counting an unreached tier as promo would overstate the Guest-facing share (T4.1).
+    //
+    // Known approximation: packs are counted per recipe, while the shopping list
+    // consolidates across recipes, so an ingredient buying one pack in each of three
+    // dishes won't trigger a `minCount: 2` tier the real cart would reach. That
+    // under-counts promo, which is the safe direction — it never overstates savings.
+    const tierHit = tierApplies(price.tier, packs);
+    const lineCost = packs * effectiveUnitPrice(price.uah, price.tier, packs);
     costUah += lineCost;
-    if (price.promo) promoShareUah += lineCost;
+    if (price.promo || tierHit) promoShareUah += lineCost;
     pantryAfter.set(line.id, Math.max(0, round6(have + packs * price.packSize - needed)));
   }
 

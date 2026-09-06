@@ -8,8 +8,10 @@ import type {
   CartWriteResult,
   CredentialStore,
   McpToolsResult,
+  PersonalPromo,
   ProductDetails,
   ProductSearchResult,
+  Promotion,
   RawRestriction,
   ReplacementResult,
   RetailAddress,
@@ -33,8 +35,10 @@ import {
   parseAddresses,
   parseFamily,
   parseFavorites,
+  parseMyPromos,
   parseOrders,
   parseProfile,
+  parsePromotions,
   parseRestrictionsRaw,
   parseToolResult,
   toCartContext,
@@ -59,6 +63,7 @@ const AUTH_HINT = "run `pnpm mcp:auth` (one-time Silpo login)";
 const CART_TTL_MS = 60_000;
 const PRODUCT_TTL_MS = 5 * 60_000; // prices/stock: never cached beyond 60 min (NFR-DATA-002)
 const WRITE_GAP_MS = 6_000; // the server frees a rate-limited cart write after ~6 s
+const PROMO_TTL_MS = 15 * 60_000; // campaign lists carry no prices; well inside NFR-DATA-002
 
 /** Retry `fn` on JSON-RPC 429 with exponential backoff (rules/mcp-integration.md). */
 async function withBackoff<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
@@ -98,6 +103,8 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
   private cartCache: { at: number; value: CartContext } | undefined;
   private productCache = new Map<string, { at: number; value: ProductSearchResult }>();
   private detailsCache = new Map<string, { at: number; value: ProductDetails }>();
+  private promotionsCache = new Map<string, { at: number; value: Promotion[] }>();
+  private myPromosCache: { at: number; value: PersonalPromo[] } | undefined;
 
   constructor(private readonly opts: SilpoRetailProviderOptions) {}
 
@@ -217,6 +224,33 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
       productIds,
     });
     return toReplacementResults(raw, productIds);
+  }
+
+  // ─── Promotions (RetailProvider, T4.1, FR-PLAN-004) ─────────────────────────
+
+  async getPromotions(): Promise<Promotion[]> {
+    const ctx = await this.getCartContext();
+    const key = `${ctx.branchId}|${ctx.deliveryType}`;
+    const hit = this.promotionsCache.get(key);
+    if (hit && Date.now() - hit.at < PROMO_TTL_MS) return hit.value;
+    const raw = await this.callToolAuthed("silpo_get_promotions", {
+      branchId: ctx.branchId,
+      deliveryType: ctx.deliveryType,
+      timeslotStart: ctx.timeslot.start,
+      timeslotEnd: ctx.timeslot.end,
+    });
+    const value = parsePromotions(raw);
+    this.promotionsCache.set(key, { at: Date.now(), value });
+    return value;
+  }
+
+  async getMyPromos(): Promise<PersonalPromo[]> {
+    if (this.myPromosCache && Date.now() - this.myPromosCache.at < PROMO_TTL_MS) {
+      return this.myPromosCache.value;
+    }
+    const value = parseMyPromos(await this.callToolAuthed("silpo_get_my_promos"));
+    this.myPromosCache = { at: Date.now(), value };
+    return value;
   }
 
   // ─── Cart writes (RetailProvider, T3.1 / T3.2) ──────────────────────────────

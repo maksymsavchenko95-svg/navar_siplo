@@ -1,9 +1,11 @@
-import type {
-  ConsolidatedIngredient,
-  MapperResult,
-  ProductMatch,
-  RerankSkuMatchInput,
-  SkuMatch,
+import {
+  type ConsolidatedIngredient,
+  isPromoMatch,
+  type MapperResult,
+  type ProductMatch,
+  promoTier,
+  type RerankSkuMatchInput,
+  type SkuMatch,
 } from "@navar/domain";
 
 import { consolidate } from "./consolidate.js";
@@ -38,8 +40,6 @@ export interface MapPlanDeps {
   skuSafety?: SkuSafetyCheck;
 }
 
-const isPromo = (p: ProductMatch): boolean => p.oldPrice != null && p.oldPrice > p.price;
-
 function toRerankInput(
   ingredient: {
     name: string;
@@ -60,7 +60,7 @@ function toRerankInput(
       name: sc.candidate.name,
       packSize: sc.candidate.packSize,
       price: sc.candidate.price,
-      promo: isPromo(sc.candidate),
+      promo: isPromoMatch(sc.candidate),
       score: sc.score,
     })) as RerankSkuMatchInput["candidates"],
   };
@@ -85,6 +85,7 @@ function blockedMatch(c: ConsolidatedIngredient, query: string, reason: string):
     packSize: null,
     surplusAmount: 0,
     isPromo: false,
+    promoTier: null,
     candidatesConsidered: 0,
     rerankSource: null,
     safetyChecked: true,
@@ -224,7 +225,10 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
       packCount: chosen ? pack.packCount : 0,
       packSize: chosen ? pack.packSize : null,
       surplusAmount: chosen ? pack.surplusAmount : 0,
-      isPromo: chosen ? isPromo(chosen) : false,
+      isPromo: chosen ? isPromoMatch(chosen) : false,
+      // The multi-buy tier travels to the solver so budget arithmetic can decide whether
+      // the plan actually buys enough units to collect the discount (T4.1).
+      promoTier: chosen ? promoTier(chosen) : null,
       candidatesConsidered: candidates.length,
       rerankSource: d.rerankSource,
       safetyChecked: safetyOn, // the ingredient-level gate ran for this line

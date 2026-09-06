@@ -7,9 +7,11 @@ import {
   type CartView,
   type CartWriteResult,
   parseKcal,
+  type PersonalPromo,
   type ProductDetails,
   type ProductMatch,
   type ProductSearchResult,
+  type Promotion,
   type RawRestriction,
   type ReplacementResult,
   type RetailAddress,
@@ -89,6 +91,7 @@ interface RawProduct {
   available?: boolean;
   weighted?: boolean;
   step?: number;
+  specialPrices?: { price?: number; count?: number; type?: string }[] | null;
 }
 
 interface FindBatch {
@@ -110,6 +113,15 @@ function toMatch(p: RawProduct): ProductMatch {
     inStock: p.available === true && (p.stock ?? 0) > 0,
     weighted: p.weighted === true,
     step: typeof p.step === "number" && p.step > 0 ? p.step : null,
+    // Multi-buy tiers (T4.1). Independent of `oldPrice` — dropping these used to make the
+    // whole «Гуртом дешевше» campaign invisible to the mapper and the promo share.
+    specialPrices: (p.specialPrices ?? [])
+      .filter((s) => typeof s?.price === "number" && typeof s?.count === "number")
+      .map((s) => ({
+        price: s.price as number,
+        count: s.count as number,
+        type: str(s.type) ?? "",
+      })),
   };
 }
 
@@ -509,4 +521,64 @@ export function parseFavorites(raw: unknown): RetailFavorite[] {
     companyId: str(p.companyId) ?? "",
     branchId: typeof p.branchId === "string" ? p.branchId : null,
   }));
+}
+
+// ─── Promotions (T4.1, FR-PLAN-004) ─────────────────────────────────────────
+
+interface RawPromotion {
+  code?: string;
+  title?: string;
+  productCount?: number;
+  url?: string | null;
+}
+
+/**
+ * `silpo_get_promotions` → the branch's active campaign groups. Campaigns, **not** SKUs —
+ * the promo products live one level down, via `silpo_get_products` filtered by `code`
+ * (M0 audit Block 5). Entries without a usable `code` are dropped: the code is the only
+ * field that can be acted on.
+ */
+export function parsePromotions(raw: unknown): Promotion[] {
+  const list = (raw as { promotions?: RawPromotion[] }).promotions ?? [];
+  return list
+    .map((p) => ({
+      code: str(p.code) ?? "",
+      title: str(p.title) ?? "",
+      productCount: num(p.productCount),
+      url: str(p.url),
+    }))
+    .filter((p) => p.code.length > 0);
+}
+
+interface RawMyPromo {
+  promoId?: number;
+  selected?: boolean;
+  beginDate?: string | null;
+  endDate?: string | null;
+  description?: string | null;
+  rewardText?: string | null;
+  rewardValue?: number | null;
+  limitText?: string | null;
+}
+
+/**
+ * `silpo_get_my_promos` → the guest's personal offers. These are **bonus multipliers, not
+ * price cuts** — they must not feed `promo_share` or budget arithmetic (M0 audit).
+ * `endDate` is kept because a weekly plan can outlast an offer. Drops the presentational
+ * fields (`image`, `addressListText`, `warningText`) — nothing downstream renders them yet.
+ */
+export function parseMyPromos(raw: unknown): PersonalPromo[] {
+  const list = (raw as { promos?: RawMyPromo[] }).promos ?? [];
+  return list
+    .filter((p) => typeof p?.promoId === "number")
+    .map((p) => ({
+      promoId: p.promoId as number,
+      selected: p.selected === true,
+      beginDate: str(p.beginDate),
+      endDate: str(p.endDate),
+      description: str(p.description),
+      rewardText: str(p.rewardText),
+      rewardValue: typeof p.rewardValue === "number" ? p.rewardValue : null,
+      limitText: str(p.limitText),
+    }));
 }

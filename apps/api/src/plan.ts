@@ -1,13 +1,16 @@
 import { db, savePlan, setPlanExplanation, toPlanRows } from "@navar/db";
-import type {
-  ConsumptionModel,
-  ExplainPlanInput,
-  Goal,
-  InfeasibleBinding,
-  Macros,
-  MapperResult,
-  NearestPlan,
-  PlanGenerateResult,
+import {
+  type ConsumptionModel,
+  type ExplainPlanInput,
+  type Goal,
+  hasShelfMarkdown,
+  type InfeasibleBinding,
+  type PersonalPromo,
+  type Promotion,
+  type Macros,
+  type MapperResult,
+  type NearestPlan,
+  type PlanGenerateResult,
 } from "@navar/domain";
 import { explainPlanStep, runStep } from "@navar/llm";
 import { mapPlan, type MapperRetail, type PlanIngredientLine, toBaseAmount } from "@navar/mapper";
@@ -76,6 +79,13 @@ export interface PlanContext {
   input: SolverInput;
   /** The mapper output for the whole priced corpus, or `null` when pricing was unavailable. */
   mapperResult: MapperResult | null;
+  /**
+   * Promo context read *before* planning (`FR-PLAN-004`). `campaigns` are shelf campaign
+   * groups — Stage 2 (T4.1) will pull their SKUs; today they prove the read happened and
+   * feed the trace. `personal` are bonus-multiplier offers still inside their window —
+   * never priced into the plan (M0 audit). Both are `[]` when the read failed.
+   */
+  promoContext: { campaigns: Promotion[]; personal: PersonalPromo[] };
   /** canonical_ingredients slug → id. */
   idBySlug: Map<string, string>;
   /** recipe slug → the slugs of its (non-optional + optional) ingredient lines. */
@@ -197,9 +207,22 @@ export async function buildPlanContext(
   const uniqueSlugs = [...new Set(lines.map((l) => l.slug))];
   const dict = await loadMapperDict(uniqueSlugs);
   const idBySlug = await loadIdBySlug(uniqueSlugs);
-  const prices = new Map<string, { uah: number; promo: boolean; packSize: number }>();
+  const prices: SolverInput["prices"] = new Map();
   let mapperResult: MapperResult | null = null;
   let retailError: AuthRequiredError | NoCartError | null = null;
+
+  // ── promotions (T4.1, FR-PLAN-004) ───────────────────────────────────────
+  // The plan is built *after* reading promotions, not decorated with them afterwards.
+  // Kicked off before the mapper and awaited alongside it, so the two reads overlap and
+  // this costs no extra wall-clock. Fail-soft by design: a promo outage degrades the plan
+  // to "no promo context" (NFR-REL-005), it never fails generation.
+  const promoReads = Promise.allSettled([
+    // Wrapped so a provider that throws *synchronously* still lands in `allSettled`
+    // rather than escaping and failing plan generation.
+    (async () => retail.getPromotions())(),
+    (async () => retail.getMyPromos())(),
+  ]);
+
   try {
     mapperResult = await mapPlan(
       { lines, dict },
@@ -219,8 +242,10 @@ export async function buildPlanContext(
       if (!id || !m.match) continue;
       prices.set(id, {
         uah: m.match.price,
-        promo: m.isPromo,
+        // Markdown only — the multi-buy tier is separate (see `skuMatchesToPrices`).
+        promo: hasShelfMarkdown(m.match),
         packSize: m.packSize ?? m.neededAmount,
+        tier: m.promoTier,
       });
     }
   } catch (err) {
@@ -249,6 +274,15 @@ export async function buildPlanContext(
     .map((slug) => idBySlug.get(slug))
     .filter((id): id is string => id != null);
 
+  const [promotionsRes, myPromosRes] = await promoReads;
+  if (promotionsRes.status === "rejected" || myPromosRes.status === "rejected") {
+    console.warn("[plan] promo context unavailable — planning without it");
+  }
+  const promoContext = {
+    campaigns: promotionsRes.status === "fulfilled" ? promotionsRes.value : [],
+    personal: myPromosRes.status === "fulfilled" ? activePromos(myPromosRes.value) : [],
+  };
+
   const input: SolverInput = {
     seed,
     days,
@@ -273,12 +307,25 @@ export async function buildPlanContext(
   return {
     input,
     mapperResult,
+    promoContext,
     idBySlug,
     recipeSlugIngredients,
     retailError,
     excludedRecipeCount,
     excludedAllergenLabels,
   };
+}
+
+/**
+ * Personal offers still inside their window on `asOf` (ISO `YYYY-MM-DD`, default today).
+ * A weekly plan can outlast an offer, so an expired one must not be presented as available
+ * (M0 audit). A missing `endDate` is treated as open-ended rather than dropped.
+ */
+export function activePromos(
+  promos: readonly PersonalPromo[],
+  asOf: string = new Date().toISOString().slice(0, 10),
+): PersonalPromo[] {
+  return promos.filter((p) => !p.endDate || p.endDate >= asOf);
 }
 
 /** Household + corpus + mapper + safety → a `SolverInput` (T2.3). */

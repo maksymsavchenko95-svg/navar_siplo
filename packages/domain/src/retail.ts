@@ -13,6 +13,18 @@ export const cartContextSchema = z.object({
 });
 export type CartContext = z.infer<typeof cartContextSchema>;
 
+/**
+ * A multi-buy price tier as Silpo returns it on a search hit — `{price: 114, count: 2,
+ * type: "from"}` reads "2 or more at 114 ₴ each". Independent of `oldPrice` (the M0 audit
+ * saw no product carrying both). Interpreted by `promoTier` / `effectiveUnitPrice`.
+ */
+export const specialPriceSchema = z.object({
+  price: z.number(),
+  count: z.number(),
+  type: z.string(), // "from" = buy N or more; other types are ignored rather than guessed at
+});
+export type SpecialPrice = z.infer<typeof specialPriceSchema>;
+
 /** One concrete SKU from a product search, trimmed for display + (later) cart add. */
 export const productMatchSchema = z.object({
   productId: z.string(),
@@ -28,6 +40,7 @@ export const productMatchSchema = z.object({
   inStock: z.boolean(),
   weighted: z.boolean().default(false), // priced by weight (meat / loose produce)
   step: z.number().positive().nullable().default(null), // weighing increment, kg (e.g. 0.4)
+  specialPrices: z.array(specialPriceSchema).default([]), // multi-buy tiers («Гуртом дешевше»)
 });
 export type ProductMatch = z.infer<typeof productMatchSchema>;
 
@@ -102,3 +115,40 @@ export const recipeShoppingResultSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("error"), message: z.string() }),
 ]);
 export type RecipeShoppingResult = z.infer<typeof recipeShoppingResultSchema>;
+
+// ─── Promotions (T4.1, FR-PLAN-004) ─────────────────────────────────────────
+
+/**
+ * One active campaign group from `silpo_get_promotions`. A **campaign, not a SKU** — the
+ * tool returns `{code, title, productCount, url}` and nothing about individual products or
+ * discounts (M0 audit Block 5: 9 groups, `productCount` up to 2343). The promo SKUs
+ * themselves come from a second call, `silpo_get_products` filtered by `code`.
+ */
+export const promotionSchema = z.object({
+  code: z.string(), // feeds `silpo_get_products`.promotionCode
+  title: z.string(),
+  productCount: z.number(),
+  url: z.string().nullable(),
+});
+export type Promotion = z.infer<typeof promotionSchema>;
+
+/**
+ * One personal offer from `silpo_get_my_promos`.
+ *
+ * **These are bonus multipliers, not price cuts** ("x35 балобонусів"), confirmed by the M0
+ * audit. They must never enter `promo_share` or budget arithmetic — doing so would
+ * overstate the Guest-facing savings number (`AC-P0-04`). They are week-scoped and
+ * guest-activated, so `endDate` and `selected` are load-bearing: a weekly plan can outlast
+ * an offer.
+ */
+export const personalPromoSchema = z.object({
+  promoId: z.number(),
+  selected: z.boolean(),
+  beginDate: z.string().nullable(),
+  endDate: z.string().nullable(),
+  description: z.string().nullable(),
+  rewardText: z.string().nullable(), // e.g. "x35 балобонусів" — a multiplier, not ₴
+  rewardValue: z.number().nullable(),
+  limitText: z.string().nullable(),
+});
+export type PersonalPromo = z.infer<typeof personalPromoSchema>;

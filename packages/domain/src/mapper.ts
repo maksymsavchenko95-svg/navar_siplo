@@ -52,6 +52,12 @@ export const skuMatchSchema = z.object({
   packSize: z.number().positive().nullable(), // parsed pack size, base unit
   surplusAmount: z.number().nonnegative(), // bought − needed, base unit → future pantry
   isPromo: z.boolean(),
+  /**
+   * The chosen SKU's multi-buy tier, when it has one (T4.1). Carried to the solver so the
+   * budget maths can apply the discount only once the plan actually buys `minCount` units —
+   * `isPromo` says a discount *exists*, this says what it takes to *collect* it.
+   */
+  promoTier: z.object({ minCount: z.number(), price: z.number() }).nullable().default(null),
   candidatesConsidered: z.number().int().nonnegative(),
   rerankSource: z.enum(["llm", "fallback"]).nullable(),
   /** True once the safety gate (T2.2) ran for this line — ingredient-level and/or SKU-level. */

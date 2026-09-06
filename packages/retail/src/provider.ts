@@ -4,8 +4,10 @@ import type {
   CartWriteItem,
   CartWriteResult,
   McpToolsResult,
+  PersonalPromo,
   ProductDetails,
   ProductSearchResult,
+  Promotion,
   RawRestriction,
   ReplacementResult,
   RetailAddress,
@@ -48,6 +50,23 @@ export interface RetailProvider {
    * outcome, not an error. Result order matches the input.
    */
   getReplacements(items: { productId: string; companyId: string }[]): Promise<ReplacementResult[]>;
+
+  // ── promotions (T4.1, FR-PLAN-004) ────────────────────────────────────────
+
+  /**
+   * Cart-gated. The branch's active campaign groups (`silpo_get_promotions`) — campaigns,
+   * **not** SKUs: the promo products come from a second call filtered by `code`. Feeds the
+   * solver as an input, never a post-hoc highlight (`FR-PLAN-004`). Throws `NoCartError` /
+   * `AuthRequiredError`.
+   */
+  getPromotions(): Promise<Promotion[]>;
+
+  /**
+   * The Guest's personal offers (`silpo_get_my_promos`). No cart context needed.
+   * **Bonus multipliers, not price cuts** (M0 audit) — surface them as a loyalty signal,
+   * never in `promo_share` or budget arithmetic. Throws `AuthRequiredError`.
+   */
+  getMyPromos(): Promise<PersonalPromo[]>;
 
   // ── cart writes (T3.1 / T3.2, ADR-07, FR-CART-*) ──────────────────────────
 

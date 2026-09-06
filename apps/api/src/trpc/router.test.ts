@@ -22,6 +22,7 @@ const sku = (
   inStock: true,
   weighted: false,
   step: null,
+  specialPrices: [],
   ...over,
 });
 

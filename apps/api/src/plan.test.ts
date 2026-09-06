@@ -2,7 +2,10 @@ import { generatePlan } from "@navar/planner";
 import { describe, expect, it } from "vitest";
 
 import { resolveHouseholdId } from "./household.js";
+import type { PersonalPromo } from "@navar/domain";
+
 import {
+  activePromos,
   buildSolverInput,
   generateAndPersistPlan,
   MEAL_SHARE,
@@ -22,6 +25,39 @@ describe("perDinnerTargets", () => {
       kcalRange: [572, 774], // round(3060 * 0.85 * 0.22), round(3060 * 1.15 * 0.22)
     });
     expect(MEAL_SHARE).toBe(0.22);
+  });
+});
+
+describe("activePromos (T4.1)", () => {
+  const promo = (promoId: number, endDate: string | null): PersonalPromo => ({
+    promoId,
+    selected: false,
+    beginDate: "2026-08-26",
+    endDate,
+    description: null,
+    rewardText: "x35 балобонусів",
+    rewardValue: 35,
+    limitText: null,
+  });
+
+  it("keeps offers whose window still covers the plan date", () => {
+    expect(activePromos([promo(1, "2026-09-10")], "2026-09-05").map((p) => p.promoId)).toEqual([1]);
+  });
+
+  it("keeps an offer expiring the same day — the window is inclusive", () => {
+    expect(activePromos([promo(1, "2026-09-05")], "2026-09-05")).toHaveLength(1);
+  });
+
+  it("drops an offer that already expired, so it is never shown as available", () => {
+    expect(activePromos([promo(1, "2026-09-01")], "2026-09-05")).toEqual([]);
+  });
+
+  it("treats a missing endDate as open-ended rather than dropping it", () => {
+    expect(activePromos([promo(1, null)], "2026-09-05")).toHaveLength(1);
+  });
+
+  it("is empty-safe", () => {
+    expect(activePromos([], "2026-09-05")).toEqual([]);
   });
 });
 

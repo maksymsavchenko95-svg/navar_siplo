@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { SolverInput } from "./contract.js";
 import { recipeCost } from "./cost.js";
 import { candidate, line, solverInput } from "./fixtures.js";
 
@@ -171,5 +172,66 @@ describe("recipeCost — pack sizes, not grams (TDD §4 step 2)", () => {
     expect(recipeCost(c, input).costUah).toBe(40); // 300g → 2 packs at scale 1
     expect(recipeCost(c, input, 0.5).costUah).toBe(20); // 150g → 1 pack at scale 0.5
     expect(recipeCost(c, input, 1.4).costUah).toBe(60); // 420g → 3 packs at scale 1.4
+  });
+});
+
+describe("recipeCost — multi-buy tiers (T4.1, AC-P0-04)", () => {
+  /** One ingredient needing `amount`, priced at 144 ₴/pack with a "2+ at 114 ₴" tier. */
+  const withTier = (amount: number, packSize: number) => {
+    const c = candidate({
+      recipeId: "r",
+      servings: 3,
+      ingredients: [line({ id: "milk", amount })],
+    });
+    const prices: SolverInput["prices"] = new Map([
+      ["milk", { uah: 144, promo: false, packSize, tier: { minCount: 2, price: 114 } }],
+    ]);
+    return recipeCost(c, solverInput({ candidates: [c], prices, servings: 3 }));
+  };
+
+  it("pays the shelf price and counts no promo when the threshold is not reached", () => {
+    const out = withTier(400, 500); // 1 pack
+    expect(out.costUah).toBe(144);
+    expect(out.promoShareUah).toBe(0);
+  });
+
+  it("pays the tier price and counts promo once the threshold is reached", () => {
+    const out = withTier(900, 500); // 2 packs → tier applies
+    expect(out.costUah).toBe(228); // 2 × 114, not 2 × 144
+    expect(out.promoShareUah).toBe(228);
+  });
+
+  it("keeps counting above the threshold", () => {
+    const out = withTier(1400, 500); // 3 packs
+    expect(out.costUah).toBe(342);
+    expect(out.promoShareUah).toBe(342);
+  });
+
+  it("counts a shelf markdown unconditionally, with no tier involved", () => {
+    const c = candidate({
+      recipeId: "r",
+      servings: 3,
+      ingredients: [line({ id: "oil", amount: 100 })],
+    });
+    const prices: SolverInput["prices"] = new Map([
+      ["oil", { uah: 90, promo: true, packSize: 500, tier: null }],
+    ]);
+    const out = recipeCost(c, solverInput({ candidates: [c], prices, servings: 3 }));
+    expect(out.costUah).toBe(90);
+    expect(out.promoShareUah).toBe(90); // one pack is enough — no threshold to reach
+  });
+
+  it("counts a markdown even when an unreached tier also exists", () => {
+    const c = candidate({
+      recipeId: "r",
+      servings: 3,
+      ingredients: [line({ id: "oil", amount: 100 })],
+    });
+    const prices: SolverInput["prices"] = new Map([
+      ["oil", { uah: 90, promo: true, packSize: 500, tier: { minCount: 4, price: 70 } }],
+    ]);
+    const out = recipeCost(c, solverInput({ candidates: [c], prices, servings: 3 }));
+    expect(out.costUah).toBe(90); // tier not reached → shelf price
+    expect(out.promoShareUah).toBe(90); // but the markdown still counts
   });
 });

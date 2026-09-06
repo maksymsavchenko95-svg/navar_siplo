@@ -5,8 +5,10 @@ import {
   parseAddresses,
   parseFamily,
   parseFavorites,
+  parseMyPromos,
   parseOrders,
   parseProfile,
+  parsePromotions,
   parseRestrictionsRaw,
   parseToolResult,
   toCartContext,
@@ -540,5 +542,151 @@ describe("toCartWriteResult", () => {
 
   it("defaults an empty / missing payload", () => {
     expect(toCartWriteResult({})).toEqual({ success: false, summary: "", products: [] });
+  });
+});
+
+// ─── Promotions (T4.1) — shapes from docs/mcp-audit-raw/block5-*.json ────────
+
+describe("toProductSearchResults — specialPrices (T4.1)", () => {
+  /**
+   * The real «Селянське» hit from block2-search.json: `oldPrice` is null yet the product
+   * carries a multi-buy tier. Dropping `specialPrices` used to make this look non-promo.
+   */
+  const withTiers = (
+    specialPrices?: { price?: number; count?: number; type?: string }[] | null,
+  ) => ({
+    queries: [
+      {
+        query: "молоко",
+        products: [
+          { id: "p1", price: 144, oldPrice: null, available: true, stock: 9, specialPrices },
+        ],
+      },
+    ],
+  });
+
+  it("carries the multi-buy tier through", () => {
+    const out = toProductSearchResults(withTiers([{ price: 114, count: 2, type: "from" }]), [
+      "молоко",
+    ]);
+    expect(out[0]!.products[0]!.specialPrices).toEqual([{ price: 114, count: 2, type: "from" }]);
+  });
+
+  it("defaults to [] when the field is absent or null", () => {
+    expect(
+      toProductSearchResults(withTiers(undefined), ["молоко"])[0]!.products[0]!.specialPrices,
+    ).toEqual([]);
+    expect(
+      toProductSearchResults(withTiers(null), ["молоко"])[0]!.products[0]!.specialPrices,
+    ).toEqual([]);
+  });
+
+  it("is fail-safe against malformed tier entries", () => {
+    const out = toProductSearchResults(
+      // Deliberately malformed — the parser must survive what the schema would reject.
+      withTiers([
+        { price: "cheap", count: 2, type: "from" },
+        { count: 2 },
+        { price: 90, count: 3 },
+      ] as never),
+      ["молоко"],
+    );
+    // Only the entry with both numbers survives; a missing `type` degrades to "".
+    expect(out[0]!.products[0]!.specialPrices).toEqual([{ price: 90, count: 3, type: "" }]);
+  });
+});
+
+describe("parsePromotions", () => {
+  it("maps the live campaign groups", () => {
+    const raw = {
+      success: true,
+      summary: "Found 9 active promotions",
+      promotions: [
+        {
+          code: "additional",
+          title: "Додаткові пропозиції",
+          productCount: 2343,
+          url: "https://silpo.ua/offers/additional",
+        },
+        {
+          code: "cinotyzhyky",
+          title: "Цінотижики",
+          productCount: 517,
+          url: "https://silpo.ua/offers/cinotyzhyky",
+        },
+      ],
+    };
+    expect(parsePromotions(raw)).toEqual([
+      {
+        code: "additional",
+        title: "Додаткові пропозиції",
+        productCount: 2343,
+        url: "https://silpo.ua/offers/additional",
+      },
+      {
+        code: "cinotyzhyky",
+        title: "Цінотижики",
+        productCount: 517,
+        url: "https://silpo.ua/offers/cinotyzhyky",
+      },
+    ]);
+  });
+
+  it("drops entries without a usable code — the code is the only actionable field", () => {
+    expect(parsePromotions({ promotions: [{ title: "безкодова", productCount: 5 }] })).toEqual([]);
+  });
+
+  it("is fail-safe on an empty or shapeless payload", () => {
+    expect(parsePromotions({})).toEqual([]);
+    expect(parsePromotions({ promotions: [] })).toEqual([]);
+    expect(parsePromotions({ promotions: [{ code: "c" }] })).toEqual([
+      { code: "c", title: "", productCount: 0, url: null },
+    ]);
+  });
+});
+
+describe("parseMyPromos", () => {
+  it("maps a real personal offer and keeps the week window", () => {
+    const raw = {
+      success: true,
+      summary: "Found 10 promos (select 1–5 to activate)",
+      promos: [
+        {
+          promoId: 293097,
+          selected: false,
+          beginDate: "2026-08-26",
+          endDate: "2026-09-01",
+          description: "за варену ковбасу, сосиски, сардельки та шинку «Алан»™",
+          rewardText: "x35 балобонусів",
+          rewardValue: 35,
+          limitText: "• Діє за наявності товару з пропозиції",
+          warningText: null,
+          addressListText: "Пропозиція діє в усіх супермаркетах",
+          image: "https://content.silpo.ua/promo/x.jpg",
+        },
+      ],
+      meta: { total: 10, minSelect: 1, maxSelect: 5 },
+    };
+    const out = parseMyPromos(raw);
+    expect(out).toEqual([
+      {
+        promoId: 293097,
+        selected: false,
+        beginDate: "2026-08-26",
+        endDate: "2026-09-01",
+        description: "за варену ковбасу, сосиски, сардельки та шинку «Алан»™",
+        rewardText: "x35 балобонусів",
+        rewardValue: 35,
+        limitText: "• Діє за наявності товару з пропозиції",
+      },
+    ]);
+    // Presentational fields are dropped at the package boundary.
+    expect(JSON.stringify(out)).not.toContain("content.silpo.ua");
+    expect(JSON.stringify(out)).not.toContain("супермаркетах");
+  });
+
+  it("drops entries without a promoId and tolerates an empty payload", () => {
+    expect(parseMyPromos({ promos: [{ selected: true }] })).toEqual([]);
+    expect(parseMyPromos({})).toEqual([]);
   });
 });

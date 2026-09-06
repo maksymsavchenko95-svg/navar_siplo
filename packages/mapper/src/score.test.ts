@@ -29,6 +29,7 @@ const sku = (
   inStock: true,
   weighted: false,
   step: null,
+  specialPrices: [],
   ...over,
 });
 
@@ -58,6 +59,32 @@ describe("rankCandidates", () => {
       sku({ productId: "promo", name: "Молоко", price: 35, oldPrice: 45 }),
     ]);
     expect(ranked[0]!.candidate.productId).toBe("promo");
+  });
+
+  it("scores a multi-buy tier as promo, not just an oldPrice markdown (T4.1)", () => {
+    // The «Гуртом дешевше» shape: oldPrice is null, the discount lives in specialPrices.
+    const ranked = rankCandidates(MILK, 900, [
+      sku({ productId: "plain", name: "Молоко" }),
+      sku({
+        productId: "multibuy",
+        name: "Молоко",
+        specialPrices: [{ price: 30, count: 2, type: "from" }],
+      }),
+    ]);
+    expect(ranked[0]!.candidate.productId).toBe("multibuy");
+    expect(ranked[0]!.breakdown.promo).toBe(1);
+  });
+
+  it("keeps scores unclamped so the promo weight is never truncated away", () => {
+    // The positive weights sum to 1.0 by design; if that invariant breaks, clamp01 starts
+    // compressing differences between strong candidates and promo stops steering.
+    const ranked = rankCandidates(MILK, 900, [
+      sku({ productId: "plain", name: "Молоко" }),
+      sku({ productId: "promo", name: "Молоко", price: 35, oldPrice: 45 }),
+    ]);
+    expect(ranked[0]!.candidate.productId).toBe("promo");
+    expect(ranked[0]!.score).toBeLessThan(1);
+    expect(ranked[0]!.score - ranked[1]!.score).toBeCloseTo(0.2, 5);
   });
 
   it("pushes a price outlier down", () => {
