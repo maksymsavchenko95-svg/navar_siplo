@@ -41,7 +41,11 @@ describe("parseCardId", () => {
 describe.skipIf(!process.env.DATABASE_URL)("household router (integration)", () => {
   let caller: ReturnType<typeof appRouter.createCaller>;
   let householdId: string;
-  let snapshot: { goal: string; targets: typeof schema.nutritionTargets.$inferSelect | undefined };
+  let snapshot: {
+    goal: string;
+    weeklyBudget: string | null;
+    targets: typeof schema.nutritionTargets.$inferSelect | undefined;
+  };
 
   beforeAll(async () => {
     const id = await resolveHouseholdId();
@@ -49,20 +53,20 @@ describe.skipIf(!process.env.DATABASE_URL)("household router (integration)", () 
     householdId = id;
     caller = appRouter.createCaller(testContext({ householdId }));
     const [hh] = await db
-      .select({ goal: schema.households.goal })
+      .select({ goal: schema.households.goal, weeklyBudget: schema.households.weeklyBudget })
       .from(schema.households)
       .where(eq(schema.households.id, householdId));
     const [targets] = await db
       .select()
       .from(schema.nutritionTargets)
       .where(eq(schema.nutritionTargets.householdId, householdId));
-    snapshot = { goal: hh!.goal, targets };
+    snapshot = { goal: hh!.goal, weeklyBudget: hh!.weeklyBudget, targets };
   });
 
   afterAll(async () => {
     await db
       .update(schema.households)
-      .set({ goal: snapshot.goal })
+      .set({ goal: snapshot.goal, weeklyBudget: snapshot.weeklyBudget })
       .where(eq(schema.households.id, householdId));
     await db
       .delete(schema.nutritionTargets)
@@ -87,6 +91,31 @@ describe.skipIf(!process.env.DATABASE_URL)("household router (integration)", () 
       .from(schema.households)
       .where(eq(schema.households.id, householdId));
     expect(b!.goal).toBe("form");
+  });
+
+  it("setBudget writes households.weekly_budget and household.get reflects it", async () => {
+    expect(await caller.household.setBudget({ weeklyBudgetUah: 3200 })).toEqual({
+      status: "ok",
+      weeklyBudgetUah: 3200,
+    });
+    const [row] = await db
+      .select({ weeklyBudget: schema.households.weeklyBudget })
+      .from(schema.households)
+      .where(eq(schema.households.id, householdId));
+    expect(Number(row!.weeklyBudget)).toBe(3200);
+
+    const got = await caller.household.get();
+    expect(got.status).toBe("ok");
+    if (got.status !== "ok") return;
+    expect(got.household.weeklyBudgetUah).toBe(3200);
+
+    // overwrites unconditionally (unlike bootstrap's write-if-null)
+    await caller.household.setBudget({ weeklyBudgetUah: 4500 });
+    const [row2] = await db
+      .select({ weeklyBudget: schema.households.weeklyBudget })
+      .from(schema.households)
+      .where(eq(schema.households.id, householdId));
+    expect(Number(row2!.weeklyBudget)).toBe(4500);
   });
 
   it("computeNutrition writes the computed targets and is idempotent", async () => {

@@ -66,6 +66,7 @@ describe("skuMatchSchema", () => {
     safetyChecked: false,
     blockReason: null,
     outOfStock: false,
+    replacedFromName: null,
   };
 
   it("round-trips a hand-built match", () => {

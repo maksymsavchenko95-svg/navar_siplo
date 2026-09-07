@@ -1,5 +1,5 @@
-import { getMcpCallsByPlan } from "@navar/db";
-import { type OpsTraceResult, summarizeTrace } from "@navar/domain";
+import { getBootstrapMcpCalls, getMcpCallsByPlan } from "@navar/db";
+import { type OpsBootstrapTraceResult, type OpsTraceResult, summarizeTrace } from "@navar/domain";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc.js";
@@ -18,4 +18,10 @@ export const opsRouter = router({
       if (calls == null) return { status: "not_found" };
       return { status: "ok", planId: input.planId, calls, summary: summarizeTrace(calls) };
     }),
+
+  /** The household's latest `household.bootstrap` MCP calls (Screen 3, `AC-P0-08`). */
+  bootstrapTrace: protectedProcedure.query(async ({ ctx }): Promise<OpsBootstrapTraceResult> => {
+    const calls = await getBootstrapMcpCalls(ctx.householdId);
+    return { status: "ok", calls, summary: summarizeTrace(calls) };
+  }),
 });

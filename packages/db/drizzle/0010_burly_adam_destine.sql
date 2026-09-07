@@ -1,0 +1,1 @@
+ALTER TABLE "list_lines" ADD COLUMN "replaced_from_name" text;

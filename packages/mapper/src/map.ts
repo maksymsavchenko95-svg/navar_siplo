@@ -91,6 +91,7 @@ function blockedMatch(c: ConsolidatedIngredient, query: string, reason: string):
     safetyChecked: true,
     blockReason: reason,
     outOfStock: false,
+    replacedFromName: null,
   };
 }
 
@@ -155,8 +156,10 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
     let d = decideMatch({ ranked, reranked });
 
     // Replacement funnel — only when the chosen SKU is out of stock (`FR-MAP-005`).
+    let replacedFromName: string | null = null;
     if (d.chosen && !d.chosen.candidate.inStock && d.chosen.candidate.productId) {
       const { productId, companyId } = d.chosen.candidate;
+      const outOfStockName = d.chosen.candidate.name;
       const [rep] = companyId ? await deps.retail.getReplacements([{ productId, companyId }]) : [];
       const repCandidates = rep?.replacements ?? [];
       if (repCandidates.length > 0) {
@@ -173,6 +176,7 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
         const dRep = decideMatch({ ranked: repRanked, reranked: repReranked });
         if (dRep.chosen) {
           ranked = repRanked;
+          replacedFromName = outOfStockName;
           // Keep the `replacement` label even when it needs confirmation — `needsConfirmation`
           // carries the "ask the Guest" signal, and collapsing to `needs_confirmation` would
           // hide that the pick is a substitution (`FR-MAP-005`).
@@ -234,6 +238,7 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
       safetyChecked: safetyOn, // the ingredient-level gate ran for this line
       blockReason: null,
       outOfStock: chosenOutOfStock,
+      replacedFromName,
     });
   }
 

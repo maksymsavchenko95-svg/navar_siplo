@@ -94,3 +94,25 @@ export async function getMcpCallsByPlan(
     .orderBy(asc(mcpCallLog.startedAt), asc(mcpCallLog.id));
   return rows.map(toMcpCall);
 }
+
+/**
+ * The recorded `bootstrap`-phase MCP calls for a household (T4.4 B5 — the Screen-3 trace).
+ * `bootstrap` runs before any plan exists, so those rows carry `household_id` + `plan_id
+ * NULL`. Scope is inherently the caller's household. Returns only the **latest** bootstrap
+ * run (a re-run appends a fresh `correlation_id`), oldest call first.
+ */
+export async function getBootstrapMcpCalls(
+  householdId: string,
+  database: Db = db,
+): Promise<McpCall[]> {
+  const rows = await database
+    .select()
+    .from(mcpCallLog)
+    .where(and(eq(mcpCallLog.householdId, householdId), eq(mcpCallLog.phase, "bootstrap")))
+    .orderBy(asc(mcpCallLog.startedAt), asc(mcpCallLog.id));
+  if (rows.length === 0) return [];
+
+  // keep only the most recent run's correlation id
+  const latestCid = rows.reduce((a, b) => (b.startedAt > a.startedAt ? b : a)).correlationId;
+  return rows.filter((r) => r.correlationId === latestCid).map(toMcpCall);
+}

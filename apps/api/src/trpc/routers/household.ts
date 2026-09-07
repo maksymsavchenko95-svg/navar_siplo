@@ -418,6 +418,29 @@ export const householdRouter = router({
     ),
 
   /**
+   * `FR-HH-007` — the Guest's explicit weekly-budget override on `households.weekly_budget`
+   * (the solver reads it as the default for `plan.generate`). A deliberate Guest action, so
+   * unlike bootstrap it writes unconditionally. Does not touch the inferred
+   * `consumption_models.median_weekly_cheque_uah`. Idempotent.
+   */
+  setBudget: protectedProcedure
+    .input(z.object({ weeklyBudgetUah: z.number().positive().max(1_000_000) }))
+    .mutation(
+      async ({
+        ctx,
+        input,
+      }): Promise<
+        { status: "ok"; weeklyBudgetUah: number } | { status: "error"; message: string }
+      > => {
+        await ctx.db
+          .update(schema.households)
+          .set({ weeklyBudget: input.weeklyBudgetUah.toFixed(2) })
+          .where(eq(schema.households.id, ctx.householdId));
+        return { status: "ok", weeklyBudgetUah: input.weeklyBudgetUah };
+      },
+    ),
+
+  /**
    * `FR-GOAL-003` — body metrics → `nutrition_targets`, computed by the system. Fail-closed
    * (`FR-SAFE-009`): a sub-floor target is **rejected with a reason**, never clamped, and
    * nothing is written. Idempotent — re-running with the same metrics upserts the same row.

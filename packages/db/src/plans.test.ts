@@ -53,6 +53,7 @@ const skuMatch = (over: Partial<SkuMatch> & Pick<SkuMatch, "slug">): SkuMatch =>
   safetyChecked: false,
   blockReason: null,
   outOfStock: false,
+  replacedFromName: null,
   ...over,
 });
 
@@ -178,6 +179,21 @@ describe("toPlanRows", () => {
       needsConfirmation: true,
       price: null,
     });
+  });
+
+  it("carries replacedFromName through for a replacement line (T4.4 B4)", () => {
+    const input = baseInput({
+      mapper: mapperResult([
+        skuMatch({ slug: "beet", decision: "replacement", replacedFromName: "Буряк органічний" }),
+        skuMatch({ slug: "rice" }),
+      ]),
+    });
+    const { lines } = toPlanRows(input);
+    expect(lines.find((l) => l.slug === "beet")).toMatchObject({
+      decision: "replacement",
+      replacedFromName: "Буряк органічний",
+    });
+    expect(lines.find((l) => l.slug === "rice")?.replacedFromName).toBeNull();
   });
 
   it("propagates F3/F4 totals", () => {

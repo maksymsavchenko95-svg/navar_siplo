@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink } from "@trpc/client";
 import { useState, type ReactNode } from "react";
 
+import { PresentationShell } from "@/components/PresentationShell";
 import { SessionGate } from "@/components/SessionGate";
 import { apiUrl, trpc } from "@/lib/trpc";
 
@@ -24,7 +25,9 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <SessionGate>{children}</SessionGate>
+        <PresentationShell>
+          <SessionGate>{children}</SessionGate>
+        </PresentationShell>
       </QueryClientProvider>
     </trpc.Provider>
   );

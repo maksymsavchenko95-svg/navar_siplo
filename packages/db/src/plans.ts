@@ -36,6 +36,8 @@ function toPlanHeader(row: typeof plans.$inferSelect): Plan {
     status: row.status as Plan["status"],
     totalEstUah: toNum(row.totalEstUah),
     promoSharePct: row.promoShare == null ? null : Number(row.promoShare) * 100,
+    // Computed from `list_lines` in `getPlanDetail`; null here (list-header contexts).
+    savingsUah: null,
     estimatedCostUah: toNum(row.estimatedCostUah),
     unpricedLineCount: row.unpricedLineCount,
     proteinFloorMet: row.proteinFloorMet,
@@ -165,6 +167,7 @@ export function toPlanRows(input: ToPlanRowsInput): Omit<PlanRows, "plan"> & {
         isPromo: m.isPromo,
         confidence: num(m.confidence, 2),
         decision: m.decision,
+        replacedFromName: m.replacedFromName ?? null,
         needsConfirmation: m.needsConfirmation,
         outOfStock: m.outOfStock,
         blockReason: m.blockReason,
@@ -238,7 +241,10 @@ export async function getPlanDetail(
   const row = await database.query.plans.findFirst({
     where: (p, { eq: e }) => and(e(p.id, planId), e(p.householdId, householdId)),
     with: {
-      items: { orderBy: (i, { asc }) => asc(i.dayIndex) },
+      items: {
+        orderBy: (i, { asc }) => asc(i.dayIndex),
+        with: { recipe: { columns: { totalMinutes: true } } },
+      },
       list: { orderBy: (l, { asc }) => asc(l.slug) },
     },
   });
@@ -255,6 +261,7 @@ export async function getPlanDetail(
     portionScale: Number(i.portionScale),
     costUah: Number(i.costUah),
     promoShareUah: Number(i.promoShareUah),
+    totalMinutes: i.recipe?.totalMinutes ?? null,
     macrosPerServing:
       i.kcalServing == null
         ? null
@@ -286,13 +293,26 @@ export async function getPlanDetail(
     isPromo: l.isPromo,
     confidence: toNum(l.confidence),
     decision: l.decision as ListLine["decision"],
+    replacedFromName: l.replacedFromName,
     needsConfirmation: l.needsConfirmation,
     outOfStock: l.outOfStock,
     blockReason: l.blockReason,
     userOverridden: l.userOverridden,
   }));
 
-  return { ...header, items, list };
+  // B3 — the promo savings figure the plan screen shows ("зекономлено N ₴").
+  const savingsUah =
+    Math.round(
+      list.reduce(
+        (sum, l) =>
+          l.isPromo && l.oldPrice != null && l.price != null
+            ? sum + Math.max(0, l.oldPrice - l.price) * l.packCount
+            : sum,
+        0,
+      ) * 100,
+    ) / 100;
+
+  return { ...header, savingsUah, items, list };
 }
 
 /** Recent plan headers for a household (`plan.list`). */

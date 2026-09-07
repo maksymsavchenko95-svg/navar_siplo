@@ -175,6 +175,7 @@ describe("mapPlan", () => {
     expect(res.matches[0]).toMatchObject({
       decision: "replacement",
       match: { productId: "carrot-alt" },
+      replacedFromName: "Морква", // T4.4 B4 — the out-of-stock SKU it stands in for
     });
   });
 

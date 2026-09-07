@@ -22,6 +22,8 @@ export const planItemSchema = z.object({
   portionScale: z.number().min(0.6).max(1.4),
   costUah: z.number().nonnegative(),
   promoShareUah: z.number().nonnegative(),
+  /** Total cook time from the linked recipe — `null` if the recipe was pruned from the corpus. */
+  totalMinutes: z.number().int().nonnegative().nullable(),
   macrosPerServing: servingMacrosSchema.nullable(),
   pinned: z.boolean(),
   outcome: z.enum(["cooked", "skipped"]).nullable(),
@@ -47,6 +49,8 @@ export const listLineSchema = z.object({
   isPromo: z.boolean(),
   confidence: z.number().min(0).max(1).nullable(),
   decision: skuMatchDecisionSchema.nullable(),
+  /** The out-of-stock SKU this line replaced (`decision === "replacement"`); else `null`. */
+  replacedFromName: z.string().nullable(),
   needsConfirmation: z.boolean(),
   outOfStock: z.boolean(),
   blockReason: z.string().nullable(),
@@ -64,6 +68,8 @@ export const planSchema = z.object({
   status: planStatusSchema,
   totalEstUah: z.number().nonnegative().nullable(),
   promoSharePct: z.number().min(0).max(100).nullable(),
+  /** Σ (oldPrice − price) × packCount over promo lines — `null` on `plan.list` (list not loaded). */
+  savingsUah: z.number().nonnegative().nullable(),
   estimatedCostUah: z.number().nonnegative().nullable(),
   unpricedLineCount: z.number().int().nonnegative(),
   proteinFloorMet: z.boolean().nullable(),

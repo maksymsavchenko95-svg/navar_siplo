@@ -75,6 +75,18 @@ describe.skipIf(!process.env.DATABASE_URL)("plan router (integration)", () => {
     expect(got.plan.seed).toBe(11);
     expect(got.plan.totalEstUah).toBeLessThanOrEqual(6000);
 
+    // B2 — cook time comes from the linked recipe (seeded corpus → all present, positive int)
+    for (const item of got.plan.items) {
+      expect(item.totalMinutes).not.toBeNull();
+      expect(Number.isInteger(item.totalMinutes)).toBe(true);
+      expect(item.totalMinutes!).toBeGreaterThan(0);
+    }
+    // B3 — savingsUah is computed on plan.get (a number), but null on the list header
+    expect(typeof got.plan.savingsUah).toBe("number");
+    expect(got.plan.savingsUah!).toBeGreaterThanOrEqual(0);
+    const list = await caller.plan.list();
+    expect(list.find((p) => p.id === gen.planId)?.savingsUah).toBeNull();
+
     // cleanup
     const { schema } = await import("@navar/db");
     const { eq } = await import("drizzle-orm");

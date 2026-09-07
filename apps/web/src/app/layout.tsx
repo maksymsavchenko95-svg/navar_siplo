@@ -1,7 +1,16 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Manrope } from "next/font/google";
 
+import "./globals.css";
 import { Providers } from "./providers";
+
+const manrope = Manrope({
+  subsets: ["latin", "cyrillic"],
+  weight: ["400", "600", "700", "800"],
+  variable: "--font-manrope",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Navar",
@@ -10,16 +19,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="uk">
-      <body
-        style={{
-          fontFamily: "ui-sans-serif, system-ui, sans-serif",
-          maxWidth: 720,
-          margin: "0 auto",
-          padding: "2rem 1rem",
-          lineHeight: 1.5,
-        }}
-      >
+    <html lang="uk" className={manrope.variable}>
+      <body>
         <Providers>{children}</Providers>
       </body>
     </html>

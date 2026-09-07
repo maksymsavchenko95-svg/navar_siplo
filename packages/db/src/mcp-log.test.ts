@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import { closeDb, db } from "./client.js";
-import { getMcpCallsByPlan, saveMcpCalls, toMcpCallRows } from "./mcp-log.js";
+import { getBootstrapMcpCalls, getMcpCallsByPlan, saveMcpCalls, toMcpCallRows } from "./mcp-log.js";
 import { households, plans } from "./schema.js";
 
 const call = (over: Partial<McpCall> = {}): McpCall => ({
@@ -106,5 +106,46 @@ describe.skipIf(!process.env.DATABASE_URL)("saveMcpCalls / getMcpCallsByPlan (in
 
   it("saveMcpCalls is a no-op on an empty list", async () => {
     await expect(saveMcpCalls([])).resolves.toBeUndefined();
+  });
+
+  it("getBootstrapMcpCalls returns only the household's latest bootstrap run (T4.4 B5)", async () => {
+    const [hh] = await db.insert(households).values({ goal: "routine" }).returning();
+    madeHouseholds.push(hh!.id);
+
+    // an older bootstrap run + a plan-phase call (must be excluded) + the newest run
+    await saveMcpCalls(
+      toMcpCallRows(
+        [
+          call({ correlationId: "boot-old", startedAt: "2026-09-07T09:00:00.000Z" }),
+          call({ correlationId: "boot-old", startedAt: "2026-09-07T09:00:01.000Z" }),
+        ],
+        { householdId: hh!.id, phase: "bootstrap" },
+      ),
+    );
+    await saveMcpCalls(
+      toMcpCallRows([call({ correlationId: "plan", startedAt: "2026-09-07T09:30:00.000Z" })], {
+        householdId: hh!.id,
+        phase: "plan_generate",
+      }),
+    );
+    await saveMcpCalls(
+      toMcpCallRows(
+        [
+          call({ correlationId: "boot-new", startedAt: "2026-09-07T10:00:00.000Z" }),
+          call({ correlationId: "boot-new", startedAt: "2026-09-07T10:00:02.000Z" }),
+          call({ correlationId: "boot-new", startedAt: "2026-09-07T10:00:01.000Z" }),
+        ],
+        { householdId: hh!.id, phase: "bootstrap" },
+      ),
+    );
+
+    const calls = await getBootstrapMcpCalls(hh!.id);
+    expect(calls.map((c) => c.correlationId)).toEqual(["boot-new", "boot-new", "boot-new"]);
+    expect(calls.map((c) => c.startedAt)).toEqual([
+      "2026-09-07T10:00:00.000Z",
+      "2026-09-07T10:00:01.000Z",
+      "2026-09-07T10:00:02.000Z",
+    ]);
+    expect(await getBootstrapMcpCalls("00000000-0000-0000-0000-000000000000")).toEqual([]);
   });
 });

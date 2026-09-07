@@ -30,6 +30,7 @@ export {
   toMcpCallRows,
   saveMcpCalls,
   getMcpCallsByPlan,
+  getBootstrapMcpCalls,
   type NewMcpCallRow,
   type McpCallScope,
 } from "./mcp-log.js";

@@ -120,6 +120,7 @@ function toPreviewLine(l: ListLine): CartPreviewLine {
     decision: l.decision,
     confidence: l.confidence,
     blockReason: l.blockReason,
+    replacedFromName: l.replacedFromName,
   };
 }
 

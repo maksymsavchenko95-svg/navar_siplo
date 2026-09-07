@@ -102,6 +102,8 @@ export const cartPreviewLineSchema = z.object({
   decision: skuMatchDecisionSchema.nullable(),
   confidence: z.number().min(0).max(1).nullable(),
   blockReason: z.string().nullable(),
+  /** For a `replacement` row — the out-of-stock SKU it stands in for. */
+  replacedFromName: z.string().nullable(),
 });
 export type CartPreviewLine = z.infer<typeof cartPreviewLineSchema>;
 

@@ -4,10 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 // ── mock @navar/db so this is a pure wiring test ────────────────────────────
 
 const getMcpCallsByPlan = vi.fn<() => Promise<McpCall[] | null>>();
+const getBootstrapMcpCalls = vi.fn<() => Promise<McpCall[]>>();
 
 vi.mock("@navar/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@navar/db")>()),
   getMcpCallsByPlan: (...a: unknown[]) => getMcpCallsByPlan(...(a as [])),
+  getBootstrapMcpCalls: (...a: unknown[]) => getBootstrapMcpCalls(...(a as [])),
 }));
 
 const { appRouter } = await import("../router.js");
@@ -67,5 +69,19 @@ describe("ops router", () => {
     await expect(appRouter.createCaller(anon).ops.trace({ planId: PLAN_ID })).rejects.toThrow(
       /UNAUTHORIZED|Not connected/,
     );
+  });
+
+  it("bootstrapTrace returns the household's bootstrap calls + a summary (B5)", async () => {
+    getBootstrapMcpCalls.mockResolvedValueOnce([
+      call({ phase: "bootstrap", tool: "silpo_get_my_profile" }),
+      call({ phase: "bootstrap", tool: "silpo_get_my_orders", durationMs: 40 }),
+    ]);
+    const res = await appRouter.createCaller(ctx()).ops.bootstrapTrace();
+    expect(getBootstrapMcpCalls).toHaveBeenCalledWith("hh-1");
+    expect(res).toMatchObject({
+      status: "ok",
+      summary: { totalCalls: 2, okCalls: 2, totalDurationMs: 140 },
+    });
+    expect(res).not.toHaveProperty("planId");
   });
 });

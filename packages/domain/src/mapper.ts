@@ -66,6 +66,8 @@ export const skuMatchSchema = z.object({
   blockReason: z.string().nullable(),
   /** The chosen SKU is out of stock and the replacement funnel found nothing (F5, `FR-MAP-005`). */
   outOfStock: z.boolean().default(false),
+  /** When `decision: "replacement"` — the name of the out-of-stock SKU this pick replaced. */
+  replacedFromName: z.string().nullable().default(null),
 });
 export type SkuMatch = z.infer<typeof skuMatchSchema>;
 

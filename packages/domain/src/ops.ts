@@ -72,6 +72,14 @@ export const opsTraceResultSchema = z.discriminatedUnion("status", [
 ]);
 export type OpsTraceResult = z.infer<typeof opsTraceResultSchema>;
 
+/** `ops.bootstrapTrace` — the household's latest `household.bootstrap` MCP calls (no plan id). */
+export const opsBootstrapTraceResultSchema = z.object({
+  status: z.literal("ok"),
+  calls: z.array(mcpCallSchema),
+  summary: opsTraceSummarySchema,
+});
+export type OpsBootstrapTraceResult = z.infer<typeof opsBootstrapTraceResultSchema>;
+
 /** Fold a list of recorded calls into the `ops.trace` summary. Pure. */
 export function summarizeTrace(calls: readonly McpCall[]): OpsTraceSummary {
   const byTool: Record<string, { count: number; durationMs: number }> = {};

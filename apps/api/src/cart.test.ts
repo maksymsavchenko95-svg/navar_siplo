@@ -52,6 +52,7 @@ const line = (over: Partial<ListLine> & Pick<ListLine, "slug">): ListLine => ({
   needsConfirmation: false,
   outOfStock: false,
   blockReason: null,
+  replacedFromName: null,
   userOverridden: false,
   ...over,
 });
@@ -65,6 +66,7 @@ const planDetail = (list: ListLine[], over: Partial<PlanDetail> = {}): PlanDetai
   status: "draft",
   totalEstUah: 800,
   promoSharePct: 30,
+  savingsUah: 0,
   estimatedCostUah: 0,
   unpricedLineCount: 0,
   proteinFloorMet: true,
