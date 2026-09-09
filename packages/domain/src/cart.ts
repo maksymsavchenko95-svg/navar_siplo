@@ -238,6 +238,62 @@ export const cartCheckoutLinkResultSchema = z.discriminatedUnion("status", [
 ]);
 export type CartCheckoutLinkResult = z.infer<typeof cartCheckoutLinkResultSchema>;
 
+// ── delivery slot (`cart.deliverySlots` / `cart.setDeliverySlot`) ────────────
+
+/** One delivery window from `silpo_get_time_slots`. */
+export const deliverySlotSchema = z.object({
+  start: z.string(), // ISO
+  end: z.string(), // ISO
+  available: z.boolean(),
+  /** Minimum order cost for this slot, when the branch reports one (`silpo_get_time_slots`). */
+  minOrderCostUah: z.number().nonnegative().nullable(),
+});
+export type DeliverySlot = z.infer<typeof deliverySlotSchema>;
+
+/** The `{ start, end }` pair identifying a chosen slot — the write payload + the echo. */
+export const deliverySlotRefSchema = z.object({ start: z.string(), end: z.string() });
+export type DeliverySlotRef = z.infer<typeof deliverySlotRefSchema>;
+
+/**
+ * `cart.deliverySlots(planId)` — the branch's upcoming slots plus the one the cart currently
+ * holds (`selected`, `null` when the cart has no valid/fresh slot → checkout is blocked on
+ * `timeslot.not_found`). Read-only.
+ */
+export const cartDeliverySlotsResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    slots: z.array(deliverySlotSchema),
+    selected: deliverySlotRefSchema.nullable(),
+  }),
+  z.object({ status: z.literal("not_found") }),
+  z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
+  z.object({ status: z.literal("no_cart"), hint: z.string().optional() }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+export type CartDeliverySlotsResult = z.infer<typeof cartDeliverySlotsResultSchema>;
+
+/**
+ * `cart.setDeliverySlot(planId, slot)` — write the chosen window to the Silpo cart via
+ * `silpo_update_shopping_cart`, then re-read (`FR-CART-005`) so `validations[]` / the
+ * checkout link are the live truth. An explicit Guest action (ADR-07); never clears the
+ * cart. `rejected` = the slot is no longer offered (pick another).
+ */
+export const cartSetDeliverySlotResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    selected: deliverySlotRefSchema,
+    validations: z.array(cartValidationSchema),
+    checkoutWebLink: z.string().nullable(),
+    checkoutMobileLink: z.string().nullable(),
+  }),
+  z.object({ status: z.literal("rejected"), reason: z.string() }),
+  z.object({ status: z.literal("not_found") }),
+  z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
+  z.object({ status: z.literal("no_cart"), hint: z.string().optional() }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+export type CartSetDeliverySlotResult = z.infer<typeof cartSetDeliverySlotResultSchema>;
+
 // ── balabonuses (T3.2, `FR-CART-006`) ───────────────────────────────────────
 
 /** `cart.offerBonus(planId)` — how many balabonuses are available on the current cart. */

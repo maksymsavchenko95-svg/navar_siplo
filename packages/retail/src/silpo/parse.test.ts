@@ -12,8 +12,10 @@ import {
   parseRestrictionsRaw,
   parseToolResult,
   toCartContext,
+  toCartDeliveryBase,
   toCartView,
   toCartWriteResult,
+  toDeliverySlots,
   toProductDetails,
   toProductSearchResults,
   toReplacementResults,
@@ -56,6 +58,62 @@ describe("toCartContext", () => {
 
   it("throws NoCartError when the guest has no cart", () => {
     expect(() => toCartContext({ exists: false }, {}, {})).toThrow(NoCartError);
+  });
+});
+
+describe("toDeliverySlots", () => {
+  it("keeps every window, defaults a missing `available` to true, coerces minOrderCost", () => {
+    expect(
+      toDeliverySlots({
+        slots: [
+          { start: "s0", end: "e0", available: false },
+          { start: "s1", end: "e1", available: true, minOrderCost: 550 },
+          { start: "s2", end: "e2" },
+        ],
+      }),
+    ).toEqual([
+      { start: "s0", end: "e0", available: false, minOrderCostUah: null },
+      { start: "s1", end: "e1", available: true, minOrderCostUah: 550 },
+      { start: "s2", end: "e2", available: true, minOrderCostUah: null },
+    ]);
+  });
+
+  it("drops windows without both bounds and tolerates an empty / absent list", () => {
+    expect(toDeliverySlots({ slots: [{ start: "s0" }, { end: "e0" }] })).toEqual([]);
+    expect(toDeliverySlots({})).toEqual([]);
+  });
+});
+
+describe("toCartDeliveryBase", () => {
+  it("pulls type/address/shipments from a raw cart-by-id without needing a timeslot", () => {
+    expect(
+      toCartDeliveryBase({
+        cart: {
+          deliveryType: "DeliveryHome",
+          address: { addressType: "home", latitude: "50", longitude: "30" },
+          shipments: [{ companyId: "co-1", branchId: "br-1", products: [] }],
+        },
+      }),
+    ).toEqual({
+      deliveryType: "DeliveryHome",
+      address: { addressType: "home", latitude: "50", longitude: "30" },
+      shipments: [{ companyId: "co-1", branchId: "br-1" }],
+    });
+  });
+
+  it("falls back to the first shipment's address", () => {
+    const base = toCartDeliveryBase({
+      cart: {
+        deliveryType: "DeliveryHome",
+        shipments: [{ companyId: "co-1", branchId: "br-1", address: { addressType: "home" } }],
+      },
+    });
+    expect(base?.address).toEqual({ addressType: "home" });
+  });
+
+  it("returns null when type / address / shipments are missing", () => {
+    expect(toCartDeliveryBase({ cart: { deliveryType: "DeliveryHome" } })).toBeNull();
+    expect(toCartDeliveryBase({})).toBeNull();
   });
 });
 

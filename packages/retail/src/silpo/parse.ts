@@ -6,6 +6,7 @@ import {
   type CartValidation,
   type CartView,
   type CartWriteResult,
+  type DeliverySlot,
   parseKcal,
   type PersonalPromo,
   type ProductDetails,
@@ -82,6 +83,27 @@ export function toCartContext(myCart: MyCart, cartById: CartById, slots: TimeSlo
       minOrderCost: typeof chosen.minOrderCost === "number" ? chosen.minOrderCost : null,
     },
   };
+}
+
+/**
+ * `silpo_get_time_slots` → the full list, for the Guest-facing delivery-slot picker
+ * (`cart.deliverySlots`). Unlike `toCartContext` this keeps every window and does not
+ * throw on an empty list — the caller surfaces "no slots" as a state, not an error.
+ * A slot with no `available` flag is treated as available (search tolerates either).
+ */
+export function toDeliverySlots(raw: unknown): DeliverySlot[] {
+  const list = (raw as TimeSlots).slots ?? [];
+  const out: DeliverySlot[] = [];
+  for (const s of list) {
+    if (!s?.start || !s?.end) continue;
+    out.push({
+      start: s.start,
+      end: s.end,
+      available: s.available !== false,
+      minOrderCostUah: typeof s.minOrderCost === "number" ? s.minOrderCost : null,
+    });
+  }
+  return out;
 }
 
 /** The product shape shared by `find_products_batch`, `get_replacements`, `get_similar_products`. */
@@ -318,6 +340,29 @@ export function toCartView(myCart: MyCart, cartById: unknown): CartView {
     checkoutMobileLink: str(r.checkoutMobileLink),
     delivery,
   };
+}
+
+/**
+ * The delivery fields `silpo_update_shopping_cart` must echo, pulled straight from a raw
+ * `silpo_get_shopping_cart_by_id` response — **without** requiring a valid timeslot (which
+ * `toCartView().delivery` does). That gate is right for the bonus apply, but setting the
+ * *first* / a replacement slot needs the type + address + shipments even when the cart's
+ * own slot is missing or stale. `null` when the cart has no usable delivery target at all
+ * (e.g. self-pickup not yet configured) — the caller tells the Guest to set it in Silpo.
+ */
+export function toCartDeliveryBase(cartById: unknown): {
+  deliveryType: string;
+  address: Record<string, unknown>;
+  shipments: { companyId: string; branchId: string }[];
+} | null {
+  const cart = ((cartById ?? {}) as CartByIdFull).cart ?? {};
+  const rawShipments = cart.shipments ?? [];
+  const shipments = rawShipments
+    .map((s) => ({ companyId: s.companyId ?? "", branchId: s.branchId ?? "" }))
+    .filter((s) => s.companyId.length > 0 && s.branchId.length > 0);
+  const address = cart.address ?? rawShipments[0]?.address;
+  if (!cart.deliveryType || !address || shipments.length === 0) return null;
+  return { deliveryType: cart.deliveryType, address, shipments };
 }
 
 /** `silpo_add_or_update_cart_products` / `..._remove_cart_products` / `..._update_shopping_cart` payload. */

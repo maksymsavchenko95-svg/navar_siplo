@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   approx,
+  deliveryWindow,
   groupNumber,
   MINUS,
   minutes,
@@ -83,6 +84,19 @@ describe("planTimestamp", () => {
   });
   it("returns — for an unparseable string", () => {
     expect(planTimestamp("not-a-date")).toBe("—");
+  });
+});
+
+describe("deliveryWindow", () => {
+  it("renders a weekday, genitive date and a zero-padded time range", () => {
+    // 2026-05-12 is a Tuesday; build from local components so it is TZ-independent
+    const start = new Date(2026, 4, 12, 14, 0).toISOString();
+    const end = new Date(2026, 4, 12, 16, 30).toISOString();
+    expect(deliveryWindow(start, end)).toBe("вт, 12 травня · 14:00–16:30");
+  });
+  it("returns — when either bound is unparseable", () => {
+    expect(deliveryWindow("nope", new Date().toISOString())).toBe("—");
+    expect(deliveryWindow(new Date().toISOString(), "nope")).toBe("—");
   });
 });
 

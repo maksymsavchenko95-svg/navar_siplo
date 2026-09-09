@@ -455,6 +455,69 @@ describe("SilpoRetailProvider cart writes (T3.1 / T3.2)", () => {
       provider.addCartProducts([{ productId: "p", companyId: "c", branchId: "b", quantity: 1 }]),
     ).rejects.toBeInstanceOf(AuthRequiredError);
   });
+
+  it("listDeliverySlots asks silpo_get_time_slots for the cart branch + delivery type", async () => {
+    const spy = vi.fn(
+      cartWriteStub({
+        silpo_get_time_slots: {
+          slots: [
+            { start: "2026-09-05T10:00:00Z", end: "2026-09-05T12:00:00Z", available: true },
+            { start: "2026-09-05T12:00:00Z", end: "2026-09-05T14:00:00Z", available: false },
+          ],
+        },
+      }),
+    );
+    const provider = providerWith(spy, { withToken: true });
+    const slots = await provider.listDeliverySlots();
+    expect(slots).toHaveLength(2);
+    expect(slots[0]).toMatchObject({ available: true, minOrderCostUah: null });
+    expect(spy).toHaveBeenCalledWith({
+      name: "silpo_get_time_slots",
+      arguments: { branchId: "br-1", deliveryTypes: ["DeliveryHome"], limit: 25 },
+    });
+  });
+
+  it("setDeliverySlot echoes the cart's delivery type/address/shipments with the new window", async () => {
+    const spy = vi.fn(cartWriteStub());
+    const provider = providerWith(spy, { withToken: true });
+    await provider.setDeliverySlot({
+      start: "2026-09-06T08:00:00Z",
+      end: "2026-09-06T10:00:00Z",
+    });
+    expect(spy).toHaveBeenCalledWith({
+      name: "silpo_update_shopping_cart",
+      arguments: {
+        shoppingCartId: "cart-1",
+        deliveryType: "DeliveryHome",
+        timeslot: { start: "2026-09-06T08:00:00Z", end: "2026-09-06T10:00:00Z" },
+        address: { addressType: "home", latitude: "50", longitude: "30" },
+        shipments: [{ companyId: "co-1", branchId: "br-1" }],
+      },
+    });
+  });
+
+  it("setDeliverySlot throws when the cart has no usable delivery target", async () => {
+    const provider = providerWith(
+      ({ name }) => {
+        if (name === "silpo_get_my_shopping_cart")
+          return env({ exists: true, shoppingCartId: "cart-1" });
+        if (name === "silpo_get_shopping_cart_by_id") return env({ cart: { shipments: [] } });
+        return env({});
+      },
+      { withToken: true },
+    );
+    await expect(provider.setDeliverySlot({ start: "s", end: "e" })).rejects.toThrow(
+      /delivery target/,
+    );
+  });
+
+  it("listDeliverySlots / setDeliverySlot throw AuthRequiredError without a token", async () => {
+    const provider = providerWith(cartWriteStub(), { withToken: false });
+    await expect(provider.listDeliverySlots()).rejects.toBeInstanceOf(AuthRequiredError);
+    await expect(provider.setDeliverySlot({ start: "s", end: "e" })).rejects.toBeInstanceOf(
+      AuthRequiredError,
+    );
+  });
 });
 
 // ─── Promotions (T4.1, FR-PLAN-004) ─────────────────────────────────────────

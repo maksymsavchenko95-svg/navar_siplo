@@ -108,3 +108,20 @@ export function planTimestamp(iso: string): string {
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${d.getDate()} ${MONTHS_UK_GENITIVE[d.getMonth()]}, ${hh}:${mm}`;
 }
+
+const WEEKDAYS_UK_SHORT = ["нд", "пн", "вт", "ср", "чт", "пт", "сб"];
+
+const hhmm = (d: Date): string =>
+  `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+/**
+ * `пт, 12 травня · 14:00–16:00` — a delivery window from its two ISO bounds, local time.
+ * Deterministic (no `Intl`). `—` when either bound is unparseable.
+ */
+export function deliveryWindow(startIso: string, endIso: string): string {
+  const s = new Date(startIso);
+  const e = new Date(endIso);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return "—";
+  const day = `${WEEKDAYS_UK_SHORT[s.getDay()]}, ${s.getDate()} ${MONTHS_UK_GENITIVE[s.getMonth()]}`;
+  return `${day} · ${hhmm(s)}–${hhmm(e)}`;
+}
