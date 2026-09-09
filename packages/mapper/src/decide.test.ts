@@ -24,15 +24,15 @@ const cand = (productId: string): ProductMatch => ({
 const scored = (productId: string, score: number): ScoredCandidate => ({
   candidate: cand(productId),
   score,
-  breakdown: { nameSim: score, packFit: 1, promo: 0, priceOutlier: 0, brand: 0 },
+  breakdown: { nameSim: score, packFit: 1, promo: 0, priceOutlier: 0, brand: 0, form: 0 },
 });
 
 describe("decideMatch", () => {
-  it("no candidates → no_match, flagged", () => {
+  it("no candidates → sku_unknown, flagged (search miss ≠ 'no such product', MCP 1.109.8)", () => {
     const d = decideMatch({ ranked: [] });
     expect(d).toMatchObject({
       chosen: null,
-      decision: "no_match",
+      decision: "sku_unknown",
       needsConfirmation: true,
       confidence: 0,
     });

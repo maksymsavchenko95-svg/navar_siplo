@@ -14,7 +14,7 @@
  * `RetailProvider` so tests inject a mock.
  */
 
-import { getPlanDetail, markPlanMaterialized } from "@navar/db";
+import { getPlanDetail, getPlanLineDays, markPlanMaterialized } from "@navar/db";
 import type {
   CartApplyBonusResult,
   CartBonusOfferResult,
@@ -26,10 +26,13 @@ import type {
   CartValidation,
   CartView,
   CartWriteItem,
+  IngredientCategory,
   ListLine,
 } from "@navar/domain";
+import { isWrongForm } from "@navar/mapper";
 import { AuthRequiredError, NoCartError, type RetailProvider } from "@navar/retail";
 
+import { loadMapperDict } from "./mapper.js";
 import { withPersistedMcpTrace } from "./mcp-trace.js";
 import { connection } from "./queue/connection.js";
 
@@ -89,6 +92,9 @@ export function partitionPlanLines(list: readonly ListLine[]): PlanLinePartition
     if (l.decision === "blocked_unsafe" || l.blockReason != null) p.blocked.push(l);
     else if (l.productRef == null || l.companyId == null || l.branchId == null) p.unmatched.push(l);
     else if (l.outOfStock) p.outOfStock.push(l);
+    // A SKU the Guest picked by hand on the preview (`cart.setLineSku`) is trusted — it
+    // never routes back through `needs_confirmation`.
+    else if (l.userOverridden) p.addable.push(l);
     else if (l.needsConfirmation || (l.confidence != null && l.confidence < 0.6))
       p.needsConfirmation.push(l);
     else p.addable.push(l);
@@ -108,7 +114,10 @@ export function toCartWriteItems(lines: readonly ListLine[]): CartWriteItem[] {
     }));
 }
 
-function toPreviewLine(l: ListLine): CartPreviewLine {
+function toPreviewLine(
+  l: ListLine,
+  ctx: { proteinUnavailable?: boolean; affectedDays?: number[] } = {},
+): CartPreviewLine {
   return {
     slug: l.slug,
     nameUk: l.nameUk,
@@ -121,7 +130,30 @@ function toPreviewLine(l: ListLine): CartPreviewLine {
     confidence: l.confidence,
     blockReason: l.blockReason,
     replacedFromName: l.replacedFromName,
+    userOverridden: l.userOverridden,
+    proteinUnavailable: ctx.proteinUnavailable ?? false,
+    affectedDays: ctx.affectedDays ?? [],
   };
+}
+
+const PROTEIN_CATEGORIES = new Set<string>(["meat", "fish"]);
+
+/**
+ * A meat/fish line whose *fresh* form the branch cannot source — the cue for the
+ * «Замінити страву» meal swap (C). Pure. `sku_unknown` / out of stock / a wrong-form pick
+ * (canned, jerky) / a very weak match all count.
+ */
+export function proteinLineUnavailable(
+  line: Pick<ListLine, "decision" | "outOfStock" | "confidence" | "productName">,
+  category: string | undefined,
+): boolean {
+  if (!category || !PROTEIN_CATEGORIES.has(category)) return false;
+  if (line.decision === "sku_unknown") return true;
+  if (line.outOfStock) return true;
+  if (line.productName && isWrongForm(category as IngredientCategory, line.productName))
+    return true;
+  if (line.confidence != null && line.confidence < 0.5) return true;
+  return false;
 }
 
 /** A checkout-blocking `validations[]` entry → a short Guest-facing reason (non-medical). */
@@ -218,14 +250,23 @@ async function previewPlanInner(
   const estimatedAddUah =
     Math.round(part.addable.reduce((s, l) => s + (l.price ?? 0) * l.packCount, 0) * 100) / 100;
 
+  // C — flag meat/fish lines whose fresh form the branch can't source, with the days that
+  // cook with them (for the «Замінити страву» action). Two cheap DB reads, no MCP.
+  const dict = await loadMapperDict([...new Set(plan.list.map((l) => l.slug))]);
+  const lineDays = await getPlanLineDays(planId, householdId);
+  const ctxFor = (l: ListLine) =>
+    proteinLineUnavailable(l, dict.get(l.slug)?.category)
+      ? { proteinUnavailable: true, affectedDays: lineDays.get(l.slug) ?? [] }
+      : {};
+
   return {
     status: "ok",
     planId,
-    addable: part.addable.map(toPreviewLine),
-    needsConfirmation: part.needsConfirmation.map(toPreviewLine),
-    blocked: part.blocked.map(toPreviewLine),
-    outOfStock: part.outOfStock.map(toPreviewLine),
-    unmatched: part.unmatched.map(toPreviewLine),
+    addable: part.addable.map((l) => toPreviewLine(l, ctxFor(l))),
+    needsConfirmation: part.needsConfirmation.map((l) => toPreviewLine(l, ctxFor(l))),
+    blocked: part.blocked.map((l) => toPreviewLine(l)),
+    outOfStock: part.outOfStock.map((l) => toPreviewLine(l, ctxFor(l))),
+    unmatched: part.unmatched.map((l) => toPreviewLine(l, ctxFor(l))),
     estimatedAddUah,
     currentCartLines: cart.lines.length,
     alreadyMaterialized: plan.status === "materialized" || plan.status === "checked_out",
@@ -235,6 +276,8 @@ async function previewPlanInner(
 export interface MaterializeOpts {
   /** Slugs of `needsConfirmation` lines the Guest explicitly confirmed. */
   confirmedLines?: readonly string[];
+  /** Slugs the Guest unchecked on the preview («у мене вдома є сіль») — not written. */
+  excludeSlugs?: readonly string[];
   /** The caller's session id — checked against the preview guard. */
   sessionId?: string | null;
   /** Scripts / tests: bypass the "preview first" guard. */
@@ -273,7 +316,11 @@ async function materializePlanInner(
 
   const part = partitionPlanLines(plan.list);
   const confirmed = new Set(opts.confirmedLines ?? []);
-  const toAdd = [...part.addable, ...part.needsConfirmation.filter((l) => confirmed.has(l.slug))];
+  const excluded = new Set(opts.excludeSlugs ?? []);
+  const toAdd = [
+    ...part.addable.filter((l) => !excluded.has(l.slug)),
+    ...part.needsConfirmation.filter((l) => confirmed.has(l.slug) && !excluded.has(l.slug)),
+  ];
   const items = toCartWriteItems(toAdd);
 
   const skipped: CartSkippedLine[] = [
@@ -293,8 +340,11 @@ async function materializePlanInner(
       reason: "не знайдено відповідного товару",
     })),
     ...part.needsConfirmation
-      .filter((l) => !confirmed.has(l.slug))
+      .filter((l) => !confirmed.has(l.slug) && !excluded.has(l.slug))
       .map((l) => ({ slug: l.slug, nameUk: l.nameUk, reason: "потрібне підтвердження Гостя" })),
+    ...[...part.addable, ...part.needsConfirmation]
+      .filter((l) => excluded.has(l.slug))
+      .map((l) => ({ slug: l.slug, nameUk: l.nameUk, reason: "вилучено Гостем" })),
   ];
 
   try {

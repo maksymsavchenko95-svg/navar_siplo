@@ -30,7 +30,11 @@ import type { HouseholdReader } from "@navar/retail";
 import { NoCartError } from "@navar/retail";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { buildConsumptionModel, toInferConsumptionInput } from "./consumption.js";
+import {
+  buildConsumptionModel,
+  countNonFoodLines,
+  toInferConsumptionInput,
+} from "./consumption.js";
 
 const MIN_ORDERS = 3;
 const ONLINE_PAGE_CAP = 200;
@@ -216,6 +220,11 @@ export async function runBootstrap(
     }
 
     // 10. Consumption model (deterministic) + inferConsumption (interpretation).
+    const totalLines = orders.reduce((n, o) => n + o.lines.length, 0);
+    const droppedNonFood = countNonFoodLines(orders);
+    console.log(
+      `[bootstrap] consumption: kept ${totalLines - droppedNonFood} lines, dropped ${droppedNonFood} non-food`,
+    );
     const model = buildConsumptionModel(orders, nowDate);
     const infer = await runStep(inferConsumptionStep, toInferConsumptionInput(model), {
       provider: llm,

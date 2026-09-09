@@ -15,6 +15,7 @@ const details = (over: Partial<ProductDetails>): ProductDetails => ({
   inStock: true,
   weighted: false,
   packSize: null,
+  step: null,
   attributes: {},
   composition: null,
   allergens: [],

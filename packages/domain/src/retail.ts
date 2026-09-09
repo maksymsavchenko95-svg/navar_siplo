@@ -9,7 +9,13 @@ import { z } from "zod";
 export const cartContextSchema = z.object({
   branchId: z.string(),
   deliveryType: z.string(),
-  timeslot: z.object({ start: z.string(), end: z.string() }),
+  timeslot: z.object({
+    start: z.string(),
+    end: z.string(),
+    // `slots[].minOrderCost` is returned only by `silpo_get_time_slots` (MCP `1.109.8`).
+    // Kept here so R4 can show the minimum order for the chosen slot before materialize.
+    minOrderCost: z.number().nullable().default(null),
+  }),
 });
 export type CartContext = z.infer<typeof cartContextSchema>;
 
@@ -64,6 +70,9 @@ export const productDetailsSchema = z.object({
   inStock: z.boolean(),
   weighted: z.boolean(),
   packSize: z.string().nullable(), // Silpo `displayRatio`
+  // Weighing increment. For `weighted:true` it is ALWAYS kilograms regardless of what
+  // `displayRatio` shows (MCP `1.109.8`) — mirrors `productMatchSchema.step`. R0b reads it.
+  step: z.number().positive().nullable().default(null),
   attributes: z.record(z.union([z.string(), z.number()])), // raw key→value
   composition: z.string().nullable(), // "Склад"
   allergens: z.array(z.string()), // "Містить алергени: ГЛЮТЕН,ПШЕНИЦЯ" → ["ГЛЮТЕН","ПШЕНИЦЯ"]

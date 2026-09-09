@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   cartApplyBonusResultSchema,
+  cartLineAlternativesResultSchema,
   cartMaterializeResultSchema,
+  cartPreviewLineSchema,
   cartPreviewResultSchema,
+  cartSetLineSkuResultSchema,
   cartViewSchema,
   cartWriteItemSchema,
 } from "./cart.js";
@@ -77,6 +80,77 @@ describe("cart result unions (discriminated on status)", () => {
       { status: "no_cart", hint: "open the app" },
     ]) {
       expect(cartPreviewResultSchema.parse(r)).toEqual(r);
+    }
+  });
+
+  it("cartPreviewLineSchema defaults the editable-preview fields", () => {
+    const parsed = cartPreviewLineSchema.parse({
+      slug: "beef",
+      nameUk: "Яловичина",
+      productName: "Яловичина тушкована",
+      productRef: "p1",
+      quantity: 1,
+      priceUah: 129,
+      isPromo: false,
+      decision: "needs_confirmation",
+      confidence: 0.4,
+      blockReason: null,
+      replacedFromName: null,
+    });
+    expect(parsed).toMatchObject({
+      userOverridden: false,
+      proteinUnavailable: false,
+      affectedDays: [],
+    });
+    expect(
+      cartPreviewLineSchema.parse({
+        slug: "beef",
+        nameUk: "Яловичина",
+        productName: null,
+        productRef: null,
+        quantity: 0,
+        priceUah: null,
+        isPromo: false,
+        decision: "sku_unknown",
+        confidence: null,
+        blockReason: null,
+        replacedFromName: null,
+        userOverridden: true,
+        proteinUnavailable: true,
+        affectedDays: [1, 3],
+      }).affectedDays,
+    ).toEqual([1, 3]);
+  });
+
+  it("cartLineAlternativesResultSchema + cartSetLineSkuResultSchema round-trip", () => {
+    const alts = {
+      status: "ok" as const,
+      slug: "beef",
+      nameUk: "Яловичина",
+      alternatives: [
+        {
+          productId: "p2",
+          companyId: "co",
+          branchId: "br",
+          name: "Яловичина лопатка",
+          priceUah: 210,
+          packSizeLabel: "1кг",
+          packCount: 1,
+          lineTotalUah: 210,
+          isPromo: false,
+          inStock: true,
+          weighted: true,
+          isCurrent: false,
+        },
+      ],
+    };
+    expect(cartLineAlternativesResultSchema.parse(alts)).toEqual(alts);
+    for (const r of [
+      { status: "ok" },
+      { status: "already_materialized", reason: "x" },
+      { status: "rejected", reason: "y" },
+    ]) {
+      expect(cartSetLineSkuResultSchema.parse(r)).toEqual(r);
     }
   });
 

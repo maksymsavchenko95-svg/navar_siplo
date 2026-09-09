@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildConsumptionModel,
+  countNonFoodLines,
   extractBrand,
+  isNonFoodLine,
   isoWeekKey,
   medianWeeklyCheque,
   tallyBrands,
+  toInferConsumptionInput,
 } from "./consumption.js";
 
 const NOW = new Date("2026-09-02T00:00:00Z");
@@ -141,5 +144,94 @@ describe("buildConsumptionModel", () => {
       NOW,
     );
     expect(m.buyFrequency.map((b) => b.key)).toContain("lager:999");
+  });
+
+  it("R3: drops non-food from buyFrequency + brandAffinity, keeps the cheque baseline", () => {
+    const os: RetailOrder[] = [
+      order("2026-07-06T10:00:00Z", 300, [
+        line("bread", "Хліб Київський", 1),
+        line("lager:1", "Напій Coca-Cola Plus з/б", 1, 45),
+        line("lager:2", "Пакет біорозкладний 3кг", 1, 4),
+      ]),
+      order("2026-07-20T10:00:00Z", 300, [
+        line("bread", "Хліб Київський", 1),
+        line("lager:3", "Напій Pepsi Полуниця", 1, 40),
+      ]),
+    ];
+    const m = buildConsumptionModel(os, NOW);
+    expect(m.buyFrequency.map((b) => b.key)).toEqual(["bread"]);
+    expect(m.brandAffinity.map((b) => b.brand)).not.toContain("Coca-Cola");
+    // cheque still reflects the whole receipt total (600 across 2 ISO weeks → median 300)
+    expect(m.medianWeeklyChequeUah).toBe(300);
+  });
+});
+
+describe("isNonFoodLine (R3)", () => {
+  const DROP = [
+    "Пакет Сільпо Пакет з Пакетів 12 кг",
+    "Пакет біорозкладний 3кг 958358",
+    "Паучі нікотиновмісні Velo Icy berries мʼякий",
+    "Напій Живчик з соком яблука-екстракт валеріани з/б",
+    "Напій Coca-Cola Plus Coffee карамель з/б",
+    "Напій Schweppes Citrus Mix з/б",
+    "Напій Pepsi Полуниця та вершки б/алк сил/газ з/б",
+    "Сидр Monbar ЛТ яблуко напівсухий газований",
+    "Напій збродж Збітєнь Золотоніський ябл-журавл з/б",
+    "Вода мінеральна Моршинська н/газ",
+    "Напій соковмісний Моршинська Малина лаванда н/г",
+    "Рушники паперові Премія 3шари 250арк",
+    "Лампа Philips Ecohome LED Bulb 7W 3000К E27 500Lm",
+    "Лампа Videx Led A60e 10w 3000k E27",
+  ];
+  const KEEP = [
+    "Персик",
+    "Лаваш Київхліб Takolini Chessy Італійський з сиром",
+    "Скумбрія без голови гарячого копчення",
+    "Ряжанка Простонаше 3,2% пет",
+    "Томат Черрі Нідерланди",
+    "Кальмар Norven смужки варені з кунж в соусі Унагі",
+    "Сир кисломолочний President Сирна традиція 9% ван",
+    "Яблуко Айдаред Відбірне",
+    "Кешʼю смажений",
+    "Сирок Яготинський з курагою 10% еколін",
+    "Хліб Київський гречаний",
+    "Ковбаса Алан Дрогобицька п/к в/г малий батон",
+    // no false positives: substrings that look like a deny stem
+    "Виноград Кримський",
+    "Виноградний оцет бальзамічний",
+    "Шоколад Мілка молочний",
+    "Олія оливкова Extra Virgin",
+  ];
+
+  it("drops the non-food set", () => {
+    expect(DROP.filter((n) => !isNonFoodLine(n))).toEqual([]);
+  });
+  it("keeps every real food line (no false positives)", () => {
+    expect(KEEP.filter((n) => isNonFoodLine(n))).toEqual([]);
+  });
+  it("countNonFoodLines tallies across orders", () => {
+    const os: RetailOrder[] = [
+      order("2026-07-06T10:00:00Z", 1, [line("a", DROP[0]!, 1), line("b", KEEP[0]!, 1)]),
+      order("2026-07-07T10:00:00Z", 1, [line("c", DROP[1]!, 1)]),
+    ];
+    expect(countNonFoodLines(os)).toBe(2);
+  });
+});
+
+describe("toInferConsumptionInput (R3b)", () => {
+  it("topItems excludes a high-frequency item bought in <25% of orders", () => {
+    // 10 orders: bread every time (share 1.0), 'spike' 3× in a burst (share 0.3 → kept),
+    // 'rare' 1× (share 0.1 → excluded even though buysPer4Weeks may be high)
+    const os: RetailOrder[] = [];
+    for (let i = 0; i < 10; i++) {
+      const lines = [line("bread", "Хліб", 1)];
+      if (i < 3) lines.push(line("spike", "Гречка", 1));
+      if (i === 0) lines.push(line("rare", "Ікра", 1));
+      os.push(order(`2026-0${i < 9 ? "7" : "8"}-0${(i % 9) + 1}T10:00:00Z`, 200, lines));
+    }
+    const input = toInferConsumptionInput(buildConsumptionModel(os, NOW));
+    const labels = input.topItems.map((t) => t.label);
+    expect(labels).toContain("Хліб");
+    expect(labels).not.toContain("Ікра");
   });
 });

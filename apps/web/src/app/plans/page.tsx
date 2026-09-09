@@ -3,8 +3,15 @@
 import { useRouter } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
-import { pct, uah } from "@/lib/format";
-import { ArrowRight, PrimaryButton, ScreenShell, ScreenTitle, SpinnerDots } from "@/components/ui";
+import { pct, planTimestamp, uah } from "@/lib/format";
+import {
+  ArrowRight,
+  PrimaryButton,
+  ScreenShell,
+  ScreenTitle,
+  SecondaryButton,
+  SpinnerDots,
+} from "@/components/ui";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "чернетка",
@@ -37,10 +44,7 @@ export default function PlansPage() {
           >
             <div className="dish-card-header">
               <span className="dish-card-title">
-                {new Date(p.createdAt).toLocaleDateString("uk-UA", {
-                  day: "numeric",
-                  month: "long",
-                })}
+                {planTimestamp(p.createdAt)}
                 {" · "}
                 {p.goal === "form" ? "Форма" : "Рутина"}
               </span>
@@ -60,11 +64,22 @@ export default function PlansPage() {
         ))}
       </div>
 
-      <div style={{ marginTop: "auto", paddingTop: 12 }}>
-        <PrimaryButton onClick={() => router.push("/goal")}>
+      <div
+        style={{
+          marginTop: "auto",
+          paddingTop: 12,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
+      >
+        <PrimaryButton onClick={() => router.push("/plan")}>
           <span>Новий план</span>
           <ArrowRight />
         </PrimaryButton>
+        <SecondaryButton onClick={() => router.push("/goal")}>
+          Змінити ціль і бюджет
+        </SecondaryButton>
       </div>
     </ScreenShell>
   );

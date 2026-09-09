@@ -20,7 +20,14 @@ import type {
 import { and, eq } from "drizzle-orm";
 
 import { db, type Db } from "./client.js";
-import { listLines, planItems, plans } from "./schema.js";
+import {
+  canonicalIngredients,
+  listLines,
+  planItems,
+  plans,
+  recipeIngredients,
+  recipes,
+} from "./schema.js";
 
 const num = (v: number, dp: number): string => v.toFixed(dp);
 const toNum = (v: string | null): number | null => (v == null ? null : Number(v));
@@ -315,6 +322,98 @@ export async function getPlanDetail(
   return { ...header, savingsUah, items, list };
 }
 
+/** Structural input for `toPlanRecipeView` (R2) — the raw plan-item + its recipe, no scaling. */
+export interface PlanRecipeRow {
+  item: {
+    dayIndex: number;
+    titleUk: string;
+    servings: number;
+    portionScale: number;
+    macrosPerServing: ServingMacros | null;
+  };
+  /** `null` when the recipe was pruned from the corpus (`plan_items.recipe_id` → SET NULL). */
+  recipe: {
+    servings: number;
+    steps: string[];
+    totalMinutes: number | null;
+    activeMinutes: number | null;
+    difficulty: number | null;
+    allergens: string[];
+    ingredients: { nameUk: string; amount: number; unit: string; optional: boolean }[];
+  } | null;
+}
+
+/**
+ * `plan.recipe` — one dinner + its recipe steps/ingredients, household-scoped. No scaling
+ * here (that is `toPlanRecipeView`, pure + tested). `null` = plan not this household / no
+ * such day. Falls back to a slug lookup when `plan_items.recipe_id` is null.
+ */
+export async function getPlanRecipe(
+  planId: string,
+  householdId: string,
+  day: number,
+  database: Db = db,
+): Promise<PlanRecipeRow | null> {
+  const recipeWith = {
+    ingredients: { with: { ingredient: { columns: { nameUk: true } } } },
+  } as const;
+
+  const row = await database.query.plans.findFirst({
+    where: (p, { eq: e }) => and(e(p.id, planId), e(p.householdId, householdId)),
+    columns: { id: true },
+    with: {
+      items: {
+        where: (i, { eq: e }) => e(i.dayIndex, day),
+        with: { recipe: { with: recipeWith } },
+      },
+    },
+  });
+  if (!row || row.items.length === 0) return null;
+  const it = row.items[0]!;
+
+  const recipeRow =
+    it.recipe ??
+    (await database.query.recipes.findFirst({
+      where: (r, { eq: e }) => e(r.slug, it.slug),
+      with: recipeWith,
+    })) ??
+    null;
+
+  return {
+    item: {
+      dayIndex: it.dayIndex,
+      titleUk: it.titleUk,
+      servings: it.servings,
+      portionScale: Number(it.portionScale),
+      macrosPerServing:
+        it.kcalServing == null
+          ? null
+          : {
+              kcal: Number(it.kcalServing),
+              protein: Number(it.proteinServing ?? 0),
+              fat: Number(it.fatServing ?? 0),
+              carbs: Number(it.carbsServing ?? 0),
+            },
+    },
+    recipe: recipeRow
+      ? {
+          servings: recipeRow.servings,
+          steps: recipeRow.steps,
+          totalMinutes: recipeRow.totalMinutes,
+          activeMinutes: recipeRow.activeMinutes,
+          difficulty: recipeRow.difficulty,
+          allergens: recipeRow.allergens,
+          ingredients: recipeRow.ingredients.map((ri) => ({
+            nameUk: ri.ingredient.nameUk,
+            amount: Number(ri.amount),
+            unit: ri.unit,
+            optional: ri.optional,
+          })),
+        }
+      : null,
+  };
+}
+
 /** Recent plan headers for a household (`plan.list`). */
 export async function listPlans(
   householdId: string,
@@ -361,6 +460,109 @@ export async function updatePlanDay(
       .returning({ dayIndex: planItems.dayIndex });
     return rows.length;
   });
+}
+
+/** The product columns a manual SKU swap on the cart preview rewrites (`cart.setLineSku`). */
+export interface ListLineSkuPatch {
+  productRef: string | null;
+  externalProductId: string | null;
+  companyId: string | null;
+  branchId: string | null;
+  productName: string | null;
+  packSize: number | null;
+  packCount: number;
+  price: number | null;
+  oldPrice: number | null;
+  isPromo: boolean;
+  confidence: number | null;
+  decision: string;
+  replacedFromName: string | null;
+  needsConfirmation: boolean;
+  outOfStock: boolean;
+  blockReason: string | null;
+  userOverridden: boolean;
+}
+
+/**
+ * Rewrite one `list_lines` row's product columns (`cart.setLineSku` — the Guest picked a
+ * different SKU on the preview). `slug` is unique per plan (`toPlanRows` builds one line per
+ * consolidated ingredient); `ingredient_id` / `needed_amount` / `unit` are never touched.
+ * Household-scoped like `updatePlanDay`. Returns the number of rows changed.
+ */
+export async function updateListLineSku(
+  planId: string,
+  householdId: string,
+  slug: string,
+  patch: ListLineSkuPatch,
+  database: Db = db,
+): Promise<number> {
+  return database.transaction(async (tx) => {
+    const owned = await tx
+      .select({ id: plans.id })
+      .from(plans)
+      .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)));
+    if (owned.length === 0) return 0;
+
+    const rows = await tx
+      .update(listLines)
+      .set({
+        productRef: patch.productRef,
+        externalProductId: patch.externalProductId,
+        companyId: patch.companyId,
+        branchId: patch.branchId,
+        productName: patch.productName,
+        packSize: patch.packSize == null ? null : num(patch.packSize, 2),
+        packCount: patch.packCount,
+        price: patch.price == null ? null : num(patch.price, 2),
+        oldPrice: patch.oldPrice == null ? null : num(patch.oldPrice, 2),
+        isPromo: patch.isPromo,
+        confidence: patch.confidence == null ? null : num(patch.confidence, 2),
+        decision: patch.decision,
+        replacedFromName: patch.replacedFromName,
+        needsConfirmation: patch.needsConfirmation,
+        outOfStock: patch.outOfStock,
+        blockReason: patch.blockReason,
+        userOverridden: patch.userOverridden,
+      })
+      .where(and(eq(listLines.planId, planId), eq(listLines.slug, slug)))
+      .returning({ id: listLines.id });
+    return rows.length;
+  });
+}
+
+/**
+ * `ingredient slug → plan day numbers that cook with it` (C — the «Замінити страву» action
+ * on a protein line the branch can't source fresh). Joins `plan_items` to `recipes` by
+ * **slug** (`recipe_id` may be null after a corpus re-import) → `recipe_ingredients` →
+ * `canonical_ingredients`. Household-scoped.
+ */
+export async function getPlanLineDays(
+  planId: string,
+  householdId: string,
+  database: Db = db,
+): Promise<Map<string, number[]>> {
+  const owned = await database
+    .select({ id: plans.id })
+    .from(plans)
+    .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)));
+  if (owned.length === 0) return new Map();
+
+  const rows = await database
+    .select({ day: planItems.dayIndex, slug: canonicalIngredients.slug })
+    .from(planItems)
+    .innerJoin(recipes, eq(recipes.slug, planItems.slug))
+    .innerJoin(recipeIngredients, eq(recipeIngredients.recipeId, recipes.id))
+    .innerJoin(canonicalIngredients, eq(canonicalIngredients.id, recipeIngredients.ingredientId))
+    .where(eq(planItems.planId, planId));
+
+  const out = new Map<string, number[]>();
+  for (const r of rows) {
+    const days = out.get(r.slug) ?? [];
+    if (!days.includes(r.day)) days.push(r.day);
+    out.set(r.slug, days);
+  }
+  for (const days of out.values()) days.sort((a, b) => a - b);
+  return out;
 }
 
 /**

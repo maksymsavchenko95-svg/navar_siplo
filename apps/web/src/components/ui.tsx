@@ -66,8 +66,15 @@ export function ScreenShell({
               <ChevronLeft />
             </button>
           )}
-          <div className="app-logo-badge">N</div>
-          <span className="app-brand-title">NAVAR</span>
+          <button
+            type="button"
+            className="app-brand-home"
+            aria-label="До планів"
+            onClick={() => router.push("/plans")}
+          >
+            <span className="app-logo-badge">N</span>
+            <span className="app-brand-title">NAVAR</span>
+          </button>
         </div>
         {step != null && <span className="app-badge-pill">Крок {step} з 5</span>}
       </div>

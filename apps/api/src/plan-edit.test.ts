@@ -19,11 +19,13 @@ vi.mock("@navar/db", () => ({
   replacePlanRows: vi.fn(async () => 1),
   setPlanExplanation: vi.fn(async () => {}),
   toPlanRows: vi.fn(() => ({ plan: {}, items: [], lines: [] })),
+  db: { select: () => ({ from: () => ({ where: async () => [] }) }) },
+  schema: { recipes: { id: "id", slug: "slug" } },
 }));
 vi.mock("./cart.js", () => ({ clearPreview: clearPreviewMock }));
 vi.mock("./llm.js", () => ({ getLlm: () => undefined, getLlmTracer: () => undefined }));
 
-const { applyReplacement, assignmentFrom, makeCheaper, roundScale } =
+const { applyReplacement, assignmentFrom, makeCheaper, proteinAvailable, roundScale } =
   await import("./plan-edit.js");
 
 const retail = {} as never;
@@ -103,6 +105,69 @@ describe("assignmentFrom", () => {
 
   it("returns null when a dish is no longer in the corpus, rather than guessing", () => {
     expect(assignmentFrom([item({ slug: "gone" })], [cand("r1", "borshch")])).toBeNull();
+  });
+});
+
+describe("proteinAvailable (C — meal-swap bias)", () => {
+  const candWith = (ingCategory: string, id: string): RecipeCandidate =>
+    ({
+      recipeId: "r",
+      slug: "s",
+      titleUk: "s",
+      servings: 4,
+      activeMinutes: 20,
+      ingredients: [{ id, amount: 300, unit: "g", category: ingCategory, optional: false }],
+      macrosPerServing: { kcal: 700, protein: 45, fat: 20, carbs: 60, fiber: 6 },
+    }) as RecipeCandidate;
+
+  const mapper = (matches: unknown[]) =>
+    ({ branchId: "b", consolidated: [], matches, stats: {} }) as never;
+  const slugById = new Map([["id-chicken", "chicken"]]);
+
+  it("true when there is no mapper result or no protein ingredient", () => {
+    expect(proteinAvailable(candWith("meat", "id-chicken"), null, slugById)).toBe(true);
+    expect(proteinAvailable(candWith("vegetable", "id-x"), mapper([]), slugById)).toBe(true);
+  });
+
+  it("false when the protein match is sku_unknown / out of stock / wrong form", () => {
+    expect(
+      proteinAvailable(
+        candWith("meat", "id-chicken"),
+        mapper([{ slug: "chicken", decision: "sku_unknown", outOfStock: false, match: null }]),
+        slugById,
+      ),
+    ).toBe(false);
+    expect(
+      proteinAvailable(
+        candWith("meat", "id-chicken"),
+        mapper([
+          {
+            slug: "chicken",
+            decision: "accepted",
+            outOfStock: false,
+            match: { name: "Курка тушкована" },
+          },
+        ]),
+        slugById,
+      ),
+    ).toBe(false);
+  });
+
+  it("true when the protein match is a normal in-stock SKU", () => {
+    expect(
+      proteinAvailable(
+        candWith("meat", "id-chicken"),
+        mapper([
+          {
+            slug: "chicken",
+            decision: "accepted",
+            outOfStock: false,
+            match: { name: "Куряче філе охолоджене" },
+          },
+        ]),
+        slugById,
+      ),
+    ).toBe(true);
   });
 });
 

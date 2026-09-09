@@ -35,23 +35,23 @@ describe("toCartContext", () => {
   const slots = {
     slots: [
       { start: "s0", end: "e0", available: false },
-      { start: "s1", end: "e1", available: true },
+      { start: "s1", end: "e1", available: true, minOrderCost: 550 },
     ],
   };
 
-  it("picks the first available slot, not the cart's stale one", () => {
+  it("picks the first available slot, not the cart's stale one, and keeps minOrderCost", () => {
     expect(toCartContext({ exists: true, shoppingCartId: "c1" }, cartById, slots)).toEqual({
       branchId: "branch-1",
       deliveryType: "DeliveryHome",
-      timeslot: { start: "s1", end: "e1" },
+      timeslot: { start: "s1", end: "e1", minOrderCost: 550 },
     });
   });
 
-  it("falls back to the first slot when none are available", () => {
+  it("falls back to the first slot when none are available; minOrderCost defaults to null", () => {
     const ctx = toCartContext({ exists: true, shoppingCartId: "c1" }, cartById, {
       slots: [{ start: "s0", end: "e0", available: false }],
     });
-    expect(ctx.timeslot).toEqual({ start: "s0", end: "e0" });
+    expect(ctx.timeslot).toEqual({ start: "s0", end: "e0", minOrderCost: null });
   });
 
   it("throws NoCartError when the guest has no cart", () => {
@@ -154,7 +154,25 @@ describe("toProductDetails", () => {
       fat100: 0.8,
       carbs100: 39.7,
       inStock: true,
+      step: null,
     });
+  });
+
+  it("keeps `step` for a weighted product (kg, MCP 1.109.8)", () => {
+    const d = toProductDetails({
+      product: {
+        slug: "chasnyk-1",
+        name: "Часник",
+        price: 159,
+        stock: 8,
+        available: true,
+        weighted: true,
+        displayRatio: "100г",
+        step: 0.1,
+        attributes: null,
+      },
+    });
+    expect(d).toMatchObject({ weighted: true, step: 0.1 });
   });
 
   it("is fail-safe when attributes is null (weighed produce)", () => {
@@ -175,6 +193,7 @@ describe("toProductDetails", () => {
       protein100: null,
       fat100: null,
       carbs100: null,
+      step: null,
     });
   });
 });

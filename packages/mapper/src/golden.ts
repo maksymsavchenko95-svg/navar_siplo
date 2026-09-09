@@ -22,6 +22,8 @@ export const goldenPairSchema = z.object({
   expectQueryExcludes: z.array(z.string()).default([]),
   expectCategory: ingredientCategorySchema.optional(),
   acceptSkuKeywords: z.array(z.string()).default([]),
+  /** Substrings that must NOT appear in the chosen SKU name — wrong form / non-food (R7). */
+  rejectSkuKeywords: z.array(z.string()).default([]),
 });
 export type GoldenPair = z.infer<typeof goldenPairSchema>;
 
@@ -45,4 +47,24 @@ export function evaluateQuery(pair: GoldenPair, entry: MapperDictEntry): GoldenQ
     pair.expectQueryExcludes.every((s) => !query.includes(s));
   const categoryPass = pair.expectCategory == null || entry.category === pair.expectCategory;
   return { slug: pair.slug, query, queryPass, categoryPass };
+}
+
+/**
+ * Evaluate the SKU-side assertions of one pair against a chosen SKU name (case-insensitive):
+ * `acceptSkuKeywords` — at least one present; `rejectSkuKeywords` — none present (R7). For
+ * the live hit-rate probe (`mapper:probe`). A missing SKU fails both.
+ */
+export function evaluateSkuMatch(
+  pair: GoldenPair,
+  skuName: string | null | undefined,
+): { acceptPass: boolean; rejectPass: boolean } {
+  const n = (skuName ?? "").toLowerCase();
+  return {
+    acceptPass:
+      pair.acceptSkuKeywords.length === 0 ||
+      pair.acceptSkuKeywords.some((k) => n.includes(k.toLowerCase())),
+    // No SKU picked → nothing wrong was chosen; `acceptPass` still fails, so the probe
+    // shows `acc?` (unresolved), not `❌rej` (a wrong pick).
+    rejectPass: !pair.rejectSkuKeywords.some((k) => n.includes(k.toLowerCase())),
+  };
 }

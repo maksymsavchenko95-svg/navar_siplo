@@ -1,4 +1,11 @@
-import { getPlanDetail, replacePlanRows, setPlanExplanation, toPlanRows } from "@navar/db";
+import {
+  db,
+  getPlanDetail,
+  replacePlanRows,
+  schema,
+  setPlanExplanation,
+  toPlanRows,
+} from "@navar/db";
 import type {
   ExplainChangeInput,
   MapperResult,
@@ -10,6 +17,7 @@ import type {
   PlanReplaceItemResult,
 } from "@navar/domain";
 import { explainChangeStep, runStep } from "@navar/llm";
+import { isWrongForm } from "@navar/mapper";
 import {
   type DayAlternative,
   dayAlternatives,
@@ -24,6 +32,7 @@ import {
   type SolverInput,
 } from "@navar/planner";
 import { AuthRequiredError, NoCartError, type RetailProvider } from "@navar/retail";
+import { inArray } from "drizzle-orm";
 
 import { clearPreview } from "./cart.js";
 import { getLlm, getLlmTracer } from "./llm.js";
@@ -82,6 +91,28 @@ export function assignmentFrom(
 /** `form` mode is read off the constraints, never off `goal` (ADR-09). */
 const isFormInput = (input: SolverInput): boolean =>
   input.hardConstraints.proteinMinPerDay != null || input.hardConstraints.kcalRange != null;
+
+/**
+ * C — true when a recipe's main protein can be sourced *fresh* at the branch, from the
+ * plan's own corpus-wide mapper run. Used to float meal alternatives whose meat/fish the
+ * shop actually has above ones the Guest would hit the same wall on.
+ */
+export function proteinAvailable(
+  candidate: RecipeCandidate,
+  mapper: MapperResult | null,
+  slugById: ReadonlyMap<string, string>,
+): boolean {
+  if (!mapper) return true;
+  const protein = candidate.ingredients.find(
+    (i) => (i.category === "meat" || i.category === "fish") && !i.optional,
+  );
+  if (!protein) return true; // no protein line — nothing to check
+  const slug = slugById.get(protein.id);
+  const m = slug ? mapper.matches.find((x) => x.slug === slug) : undefined;
+  if (!m) return true; // not priced → don't penalise
+  if (m.decision === "sku_unknown" || m.outOfStock) return false;
+  return !(m.match && isWrongForm(protein.category, m.match.name));
+}
 
 /**
  * The plan's solver context — from Redis when it is still warm, otherwise rebuilt.
@@ -177,7 +208,25 @@ export async function proposeReplacements(
     if (!current) return { status: "ok", day, current: null, alternatives: [] };
 
     const dayIdx = day - 1;
-    const alts = dayAlternatives(dayIdx, current, hf.kept, byId, ctx.input, isFormInput(ctx.input));
+    // C — enumerate all valid substitutions, then float the ones whose protein the branch
+    // stocks fresh above the rest (stable sort keeps `dayAlternatives`' score order within a
+    // tier), and take the best 3.
+    const slugById = new Map([...ctx.idBySlug].map(([s, i]) => [i, s] as const));
+    const alts = dayAlternatives(
+      dayIdx,
+      current,
+      hf.kept,
+      byId,
+      ctx.input,
+      isFormInput(ctx.input),
+      hf.kept.length,
+    )
+      .sort(
+        (a, b) =>
+          Number(!proteinAvailable(a.candidate, ctx.mapperResult, slugById)) -
+          Number(!proteinAvailable(b.candidate, ctx.mapperResult, slugById)),
+      )
+      .slice(0, 3);
     const currentPick = current.picks[dayIdx];
 
     return {
@@ -212,6 +261,23 @@ async function persistEdit(
     matches: [],
     stats: { total: 0, matched: 0, needsConfirmation: 0, noMatch: 0, blocked: 0 },
   };
+
+  // Re-resolve each pick's `recipe_id` against the *live* `recipes` table by slug. The
+  // cached solver context can hold recipe ids from a corpus that was re-imported since
+  // (dev-machine `pnpm db:seed`), which would fail the `plan_items.recipe_id` FK on write.
+  const liveRecipeIdBySlug = new Map(
+    (
+      await db
+        .select({ id: schema.recipes.id, slug: schema.recipes.slug })
+        .from(schema.recipes)
+        .where(inArray(schema.recipes.slug, [...new Set(picks.map((p) => p.slug))]))
+    ).map((r) => [r.slug, r.id] as const),
+  );
+  const safePicks = picks.map((p) => ({
+    ...p,
+    recipeId: liveRecipeIdBySlug.get(p.slug) ?? "",
+  }));
+
   const rows = toPlanRows({
     householdId,
     goal: plan.goal,
@@ -219,7 +285,7 @@ async function persistEdit(
     days: plan.days,
     budgetUah,
     servings: ctx.input.servings,
-    picks,
+    picks: safePicks,
     totals: {
       costUah: totals.costUah,
       promoSharePct: totals.promoSharePct,

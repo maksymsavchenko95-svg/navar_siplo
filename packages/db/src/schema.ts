@@ -369,7 +369,7 @@ export const listLines = pgTable(
     oldPrice: numeric("old_price", { precision: 10, scale: 2 }), // pre-promo — for the savings figure
     isPromo: boolean("is_promo").notNull().default(false),
     confidence: numeric("confidence", { precision: 3, scale: 2 }),
-    decision: text("decision"), // accepted|reranked|needs_confirmation|no_match|replacement|blocked_unsafe
+    decision: text("decision"), // accepted|reranked|needs_confirmation|sku_unknown|no_match(deprecated)|replacement|blocked_unsafe
     replacedFromName: text("replaced_from_name"), // set when decision='replacement' (T4.4 B4)
     needsConfirmation: boolean("needs_confirmation").notNull().default(false),
     outOfStock: boolean("out_of_stock").notNull().default(false), // F5

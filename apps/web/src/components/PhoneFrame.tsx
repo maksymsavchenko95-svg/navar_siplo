@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 export function PhoneFrame({ children }: { children: ReactNode }) {
   return (
     <div className="phone-shell">
-      <div className="phone-screen-container">
+      <div className="phone-screen-container" id="phone-screen">
         <div className="phone-status-bar">
           <span className="status-time">09:41</span>
 

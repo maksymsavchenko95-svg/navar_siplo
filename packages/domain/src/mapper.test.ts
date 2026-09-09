@@ -54,7 +54,7 @@ describe("skuMatchSchema", () => {
     match: null,
     score: null,
     confidence: 0,
-    decision: "no_match" as const,
+    decision: "sku_unknown" as const,
     needsConfirmation: true,
     packCount: 0,
     packSize: null,
@@ -71,6 +71,10 @@ describe("skuMatchSchema", () => {
 
   it("round-trips a hand-built match", () => {
     expect(skuMatchSchema.parse(base)).toEqual(base);
+  });
+
+  it("still accepts the deprecated `no_match` decision from older persisted rows", () => {
+    expect(skuMatchSchema.parse({ ...base, decision: "no_match" }).decision).toBe("no_match");
   });
 
   it("round-trips a safety-blocked match", () => {

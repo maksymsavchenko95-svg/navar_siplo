@@ -6,9 +6,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getPlanDetail = vi.fn<(id: string, hh: string) => Promise<PlanDetail | null>>();
 const markPlanMaterialized = vi.fn(async () => 1);
+const getPlanLineDays = vi.fn(async () => new Map<string, number[]>());
 vi.mock("@navar/db", () => ({
   getPlanDetail: (...a: [string, string]) => getPlanDetail(...a),
   markPlanMaterialized: (...a: unknown[]) => markPlanMaterialized(...(a as [])),
+  getPlanLineDays: (...a: unknown[]) => getPlanLineDays(...(a as [])),
+}));
+
+// `previewPlanInner` loads dictionary categories to flag unavailable-protein lines (C).
+const loadMapperDict = vi.fn(async () => new Map());
+vi.mock("./mapper.js", () => ({
+  loadMapperDict: (...a: unknown[]) => loadMapperDict(...(a as [])),
 }));
 
 const redis = new Map<string, string>();
@@ -25,6 +33,7 @@ const {
   offerBonus,
   partitionPlanLines,
   previewPlan,
+  proteinLineUnavailable,
   toCartWriteItems,
   totalsDiscrepancyPct,
   withinDataTolerance,
@@ -129,6 +138,32 @@ describe("partitionPlanLines", () => {
     expect(part.unmatched.map((l) => l.slug)).toEqual(["unmatched"]);
     expect(part.outOfStock.map((l) => l.slug)).toEqual(["oos"]);
     expect(part.needsConfirmation.map((l) => l.slug)).toEqual(["lowconf", "needsconf"]);
+  });
+
+  it("trusts a userOverridden line into addable even at low confidence", () => {
+    const part = partitionPlanLines([
+      line({ slug: "picked", confidence: 0.3, needsConfirmation: true, userOverridden: true }),
+      line({ slug: "oosPick", outOfStock: true, userOverridden: true }), // OOS still wins
+    ]);
+    expect(part.addable.map((l) => l.slug)).toEqual(["picked"]);
+    expect(part.outOfStock.map((l) => l.slug)).toEqual(["oosPick"]);
+  });
+});
+
+describe("proteinLineUnavailable (C)", () => {
+  const l = (over: Partial<ListLine>) => line({ slug: "beef", ...over });
+  it("flags a meat/fish line with no fresh SKU", () => {
+    expect(proteinLineUnavailable(l({ decision: "sku_unknown" }), "meat")).toBe(true);
+    expect(proteinLineUnavailable(l({ outOfStock: true }), "fish")).toBe(true);
+    expect(proteinLineUnavailable(l({ productName: "Яловичина тушкована" }), "meat")).toBe(true);
+    expect(proteinLineUnavailable(l({ confidence: 0.3 }), "meat")).toBe(true);
+  });
+  it("does not flag a healthy meat line or any non-protein category", () => {
+    expect(
+      proteinLineUnavailable(l({ productName: "Яловичина вирізка", confidence: 0.9 }), "meat"),
+    ).toBe(false);
+    expect(proteinLineUnavailable(l({ decision: "sku_unknown" }), "pantry")).toBe(false);
+    expect(proteinLineUnavailable(l({ decision: "sku_unknown" }), undefined)).toBe(false);
   });
 });
 
@@ -277,6 +312,21 @@ describe("materializePlan", () => {
       confirmedLines: ["cream"],
     });
     expect(withConfirm.status === "ok" && withConfirm.addedCount).toBe(1);
+  });
+
+  it("excludeSlugs — an unchecked line is not written and lands in skipped «вилучено»", async () => {
+    getPlanDetail.mockResolvedValue(planDetail([line({ slug: "a" }), line({ slug: "salt" })]));
+    const retail = fakeRetail();
+    const r = await materializePlan("p1", "hh", retail, {
+      skipPreviewGuard: true,
+      excludeSlugs: ["salt"],
+    });
+    expect(r.status).toBe("ok");
+    if (r.status !== "ok") return;
+    expect(retail.addCartProducts).toHaveBeenCalledWith([
+      { productId: "a-sku", companyId: "co", branchId: "br", quantity: 1 },
+    ]);
+    expect(r.skipped).toContainEqual({ slug: "salt", nameUk: "salt", reason: "вилучено Гостем" });
   });
 
   it("honours the preview guard once armed (via cart.preview)", async () => {

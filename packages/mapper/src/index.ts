@@ -16,17 +16,19 @@
 export { consolidate, toBaseAmount, ConsolidationError } from "./consolidate.js";
 export { buildQuery, chunkQueries, MODIFIER_STOPWORDS } from "./normalize-query.js";
 export { parsePackSize, computePack, type PackPlan } from "./pack.js";
-export { scoreCandidate, rankCandidates, type ScoredCandidate } from "./score.js";
+export { scoreCandidate, rankCandidates, isWrongForm, type ScoredCandidate } from "./score.js";
 export { decideMatch, type Decision } from "./decide.js";
 export { mapPlan, type MapPlanInput, type MapPlanDeps } from "./map.js";
 export {
   loadGolden,
   evaluateQuery,
+  evaluateSkuMatch,
   goldenPairSchema,
   GOLDEN_DIR,
   type GoldenPair,
   type GoldenQueryOutcome,
 } from "./golden.js";
+export { isNonFoodSku } from "./nonfood.js";
 export {
   ACCEPT_GAP,
   MIN_CONFIDENCE,

@@ -1,4 +1,4 @@
-import { db, savePlan, setPlanExplanation, toPlanRows } from "@navar/db";
+import { db, type PlanRecipeRow, savePlan, setPlanExplanation, toPlanRows } from "@navar/db";
 import {
   type ConsumptionModel,
   type ExplainPlanInput,
@@ -10,6 +10,7 @@ import {
   type MapperResult,
   type NearestPlan,
   type PlanGenerateResult,
+  type PlanRecipeResult,
 } from "@navar/domain";
 import { explainPlanStep, runStep } from "@navar/llm";
 import { mapPlan, type MapperRetail, type PlanIngredientLine, toBaseAmount } from "@navar/mapper";
@@ -424,6 +425,47 @@ export function toInfeasibleReason(args: {
     return `на ${args.shortfallUah} ₴ більше — найдешевший план з урахуванням ваших обмежень (${args.restrictionLabels.join(", ")})`;
   }
   return args.plannerReason;
+}
+
+/**
+ * `plan.recipe` (R2, pure). Scale a saved dinner's recipe to the household: ingredient
+ * amounts by `servings / recipe.servings × portionScale`; `macrosPerServing` is taken
+ * straight from the `plan_items` snapshot (already post-`portionScale` per `@navar/planner`'s
+ * `scalePortionMacros`) and never recomputed. `null` row → `not_found`; a pruned recipe
+ * (`row.recipe === null`) → `recipe_unavailable` carrying the stored title + day.
+ */
+export function toPlanRecipeView(row: PlanRecipeRow | null): PlanRecipeResult {
+  if (!row) return { status: "not_found" };
+  const { item, recipe } = row;
+  if (!recipe) {
+    return { status: "recipe_unavailable", titleUk: item.titleUk, dayIndex: item.dayIndex };
+  }
+
+  const scale = (item.servings / recipe.servings) * item.portionScale;
+  const round1 = (n: number): number => Math.round(n * 10) / 10;
+  const KNOWN_UNITS = new Set(["g", "ml", "pcs", "kg", "l"]);
+
+  return {
+    status: "ok",
+    recipe: {
+      dayIndex: item.dayIndex,
+      titleUk: item.titleUk,
+      totalMinutes: recipe.totalMinutes,
+      activeMinutes: recipe.activeMinutes,
+      difficulty: recipe.difficulty,
+      servings: item.servings,
+      portionScale: item.portionScale,
+      steps: recipe.steps,
+      ingredients: recipe.ingredients.map((ri) => ({
+        nameUk: ri.nameUk,
+        amount: round1(ri.amount * scale),
+        unit: (KNOWN_UNITS.has(ri.unit) ? ri.unit : "g") as "g" | "ml" | "pcs" | "kg" | "l",
+        optional: ri.optional,
+      })),
+      macrosPerServing: item.macrosPerServing,
+      allergens: recipe.allergens,
+    },
+  };
 }
 
 /**

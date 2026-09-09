@@ -593,6 +593,16 @@ textarea {
   transition: background-color var(--transition-fast);
 }
 
+.app-brand-home {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
 .app-back-btn:hover {
   background-color: var(--color-peach-light);
 }
@@ -1544,8 +1554,68 @@ textarea {
 }
 
 .dish-card.is-locked {
-  cursor: default;
   opacity: 0.75;
+}
+
+.dish-card__replace {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-orange-subtle);
+  background: var(--color-peach-light);
+  color: var(--color-silpo-orange-dark);
+  font-size: 10.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* ---- recipe (day) screen (R2) ------------------------------------- */
+
+.recipe-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recipe-ingredients {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.recipe-ingredient-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 12.5px;
+}
+
+.recipe-ingredient-amount {
+  flex: none;
+  font-weight: 800;
+  color: var(--color-text-hero);
+  font-variant-numeric: tabular-nums;
+}
+
+.recipe-ingredient-opt {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.recipe-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 
 .dish-card-header {
@@ -1647,6 +1717,16 @@ textarea {
   align-items: flex-end;
   justify-content: center;
   z-index: 50;
+}
+
+/* Portalled into the phone frame (BottomSheet) — anchor to the visible screen, not the
+   scrolled body, so the sheet is in view no matter how far the list under it is scrolled. */
+#phone-screen > .sheet-backdrop {
+  position: absolute;
+}
+
+#phone-screen > .sheet-backdrop .sheet {
+  max-height: 85%; /* of the phone screen, not the browser viewport */
 }
 
 .sheet {
@@ -1823,6 +1903,26 @@ textarea {
 
 .cart-confirm-check input {
   margin-top: 2px;
+}
+
+.cart-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.cart-item-warn {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-warning-text);
+}
+
+.alt-card--current {
+  border-color: var(--color-border-orange-subtle);
+  opacity: 0.7;
 }
 
 .cart-summary-block {

@@ -1,5 +1,5 @@
 import { closeDb, db } from "@navar/db";
-import { mapPlan, type PlanIngredientLine } from "@navar/mapper";
+import { evaluateSkuMatch, loadGolden, mapPlan, type PlanIngredientLine } from "@navar/mapper";
 import { hasHardExclusion } from "@navar/safety";
 
 import { resolveHouseholdId } from "../household.js";
@@ -72,6 +72,8 @@ async function main(): Promise<void> {
     },
   );
 
+  const goldenBySlug = new Map(loadGolden().map((p) => [p.slug, p]));
+
   console.log(`\nbranch ${result.branchId || "—"}\n`);
   const col = (s: string, n: number) => s.slice(0, n).padEnd(n);
   console.log(
@@ -80,9 +82,21 @@ async function main(): Promise<void> {
     col("SKU", 34),
     col("pack", 10),
     col("conf", 6),
+    col("golden", 7),
     "decision",
   );
+  let goldenChecked = 0;
+  let goldenPass = 0;
   for (const m of result.matches) {
+    const pair = goldenBySlug.get(m.slug);
+    let goldenCell = "—";
+    if (pair) {
+      goldenChecked++;
+      const { acceptPass, rejectPass } = evaluateSkuMatch(pair, m.match?.name);
+      const ok = acceptPass && rejectPass;
+      if (ok) goldenPass++;
+      goldenCell = ok ? "✅" : rejectPass ? "acc?" : "❌rej";
+    }
     console.log(
       col(m.ingredientNameUk, 22),
       col(m.query, 20),
@@ -92,6 +106,7 @@ async function main(): Promise<void> {
       ),
       col(m.match ? `${m.packCount}×${m.packSize ?? "?"}` : "—", 10),
       col(m.confidence.toFixed(2), 6),
+      col(goldenCell, 7),
       m.decision,
     );
   }
@@ -102,6 +117,14 @@ async function main(): Promise<void> {
     `\n${matched}/${total} matched (${pct}%) · ${needsConfirmation} need confirmation · ` +
       `${noMatch} no match · ${blocked} blocked (safety)`,
   );
+  if (goldenChecked > 0) {
+    console.log(
+      `golden SKU assertions: ${goldenPass}/${goldenChecked} pass` +
+        (goldenPass === goldenChecked
+          ? " ✅"
+          : " ⚠️  — a ❌rej is a wrong-form / non-food pick (R7)"),
+    );
+  }
   console.log(pct >= 85 ? "✅ at or above the 85% AC-P0-05 bar" : "⚠️  below the 85% AC-P0-05 bar");
 }
 

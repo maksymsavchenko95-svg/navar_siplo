@@ -1,8 +1,8 @@
 "use client";
 
 import type { NearestPlan } from "@navar/domain";
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
 import { useReconnect } from "@/lib/auth";
@@ -21,10 +21,29 @@ import {
 const PHASES = ["Читаю акції та персональні пропозиції", "Підбираю товари", "Рахую меню"];
 
 export default function GeneratePage() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenShell step={4} back="/tastes">
+          <SpinnerDots />
+        </ScreenShell>
+      }
+    >
+      <GenerateInner />
+    </Suspense>
+  );
+}
+
+function GenerateInner() {
   const router = useRouter();
   const reconnect = useReconnect();
   const household = trpc.household.get.useQuery();
   const generate = trpc.plan.generate.useMutation();
+
+  // `/tastes` sends the Guest here with `?run=1` to generate immediately. A bare `/plan`
+  // (brand mark, «Новий план», or a back-navigation) must NOT auto-generate — otherwise
+  // every "Back" from a plan silently runs the solver and persists a duplicate (R1).
+  const runParam = useSearchParams().get("run") === "1";
 
   const [seed, setSeed] = useState(1);
   const [elapsed, setElapsed] = useState(0);
@@ -40,11 +59,12 @@ export default function GeneratePage() {
   };
 
   useEffect(() => {
-    if (fired.current || household.data?.status !== "ok") return;
+    if (!runParam || fired.current || household.data?.status !== "ok") return;
     fired.current = true;
+    router.replace("/plan"); // drop `?run=1` so a reload / back-nav here does not re-fire
     generate.mutate({ goal, budgetUah, days: 5, seed });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [household.data?.status]);
+  }, [runParam, household.data?.status]);
 
   useEffect(() => {
     if (!generate.isPending) return;
@@ -53,6 +73,7 @@ export default function GeneratePage() {
   }, [generate.isPending]);
 
   const res = generate.data;
+  const idle = !generate.isPending && !res && !runParam;
 
   useEffect(() => {
     if (res?.status === "ok") router.replace(`/plan/${res.planId}`);
@@ -60,7 +81,10 @@ export default function GeneratePage() {
 
   return (
     <ScreenShell step={4} back="/tastes">
-      <ScreenTitle title="Складаю план" sub="5 вечерь у межах бюджету, без порушення обмежень." />
+      <ScreenTitle
+        title={idle ? "Скласти план" : "Складаю план"}
+        sub="5 вечерь у межах бюджету, без порушення обмежень."
+      />
 
       <label
         style={{
@@ -82,6 +106,13 @@ export default function GeneratePage() {
         />
         <span>однаковий seed → однаковий план</span>
       </label>
+
+      {idle && (
+        <PrimaryButton onClick={run}>
+          <span>Скласти план</span>
+        </PrimaryButton>
+      )}
+      {runParam && !generate.isPending && !res && <SpinnerDots />}
 
       {generate.isPending && (
         <div className="progress-card">

@@ -48,3 +48,49 @@ export function minutes(n: number | null | undefined): string {
 export function approx(s: string): string {
   return `≈${NBSP}${s}`;
 }
+
+const MONTHS_UK_GENITIVE = [
+  "січня",
+  "лютого",
+  "березня",
+  "квітня",
+  "травня",
+  "червня",
+  "липня",
+  "серпня",
+  "вересня",
+  "жовтня",
+  "листопада",
+  "грудня",
+];
+
+/** `1 особу` / `2 особи` / `5 осіб` — Ukrainian count of people (nominative-object form). */
+export function pluralPeople(n: number): string {
+  const mod100 = Math.abs(n) % 100;
+  const mod10 = Math.abs(n) % 10;
+  let word: string;
+  if (mod100 >= 11 && mod100 <= 14) word = "осіб";
+  else if (mod10 === 1) word = "особу";
+  else if (mod10 >= 2 && mod10 <= 4) word = "особи";
+  else word = "осіб";
+  return `${n} ${word}`;
+}
+
+const UNIT_LABEL_UK: Record<string, string> = { g: "г", ml: "мл", pcs: "шт", kg: "кг", l: "л" };
+
+/** Recipe-ingredient unit → Ukrainian short label. Unknown units pass through unchanged. */
+export function unitLabel(unit: string): string {
+  return UNIT_LABEL_UK[unit] ?? unit;
+}
+
+/**
+ * `8 вересня, 14:32` — a plan's creation moment, local time. Deterministic month names
+ * (no `Intl`), so duplicate plans a minute apart stay distinguishable on `/plans`.
+ */
+export function planTimestamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${d.getDate()} ${MONTHS_UK_GENITIVE[d.getMonth()]}, ${hh}:${mm}`;
+}

@@ -51,7 +51,7 @@ interface CartById {
   };
 }
 interface TimeSlots {
-  slots?: { start?: string; end?: string; available?: boolean }[];
+  slots?: { start?: string; end?: string; available?: boolean; minOrderCost?: number }[];
 }
 
 /**
@@ -72,7 +72,16 @@ export function toCartContext(myCart: MyCart, cartById: CartById, slots: TimeSlo
   if (!chosen?.start || !chosen?.end) {
     throw new Error("Silpo returned no delivery timeslots for this branch");
   }
-  return { branchId, deliveryType, timeslot: { start: chosen.start, end: chosen.end } };
+  return {
+    branchId,
+    deliveryType,
+    timeslot: {
+      start: chosen.start,
+      end: chosen.end,
+      // Only `silpo_get_time_slots` carries this (MCP `1.109.8`); keep it for R4.
+      minOrderCost: typeof chosen.minOrderCost === "number" ? chosen.minOrderCost : null,
+    },
+  };
 }
 
 /** The product shape shared by `find_products_batch`, `get_replacements`, `get_similar_products`. */
@@ -166,6 +175,8 @@ export function toProductDetails(raw: unknown): ProductDetails {
     inStock: p.available === true && (typeof p.stock === "number" ? p.stock : 0) > 0,
     weighted: p.weighted === true,
     packSize: typeof p.displayRatio === "string" ? p.displayRatio : null,
+    // For `weighted:true` this is kilograms regardless of `displayRatio` (MCP `1.109.8`).
+    step: typeof p.step === "number" && p.step > 0 ? p.step : null,
     attributes,
     composition: typeof attributes["Склад"] === "string" ? (attributes["Склад"] as string) : null,
     allergens:

@@ -630,3 +630,59 @@ describe("callTool tracing", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("SilpoRetailProvider.listTools cache (MCP 1.109.8 tools.listChanged)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  const rawTools = () => ({
+    tools: [
+      { name: "silpo_get_my_shopping_cart", description: "d", inputSchema: { type: "object" } },
+    ],
+  });
+
+  function toolsProvider(listToolsImpl: () => unknown) {
+    const provider = new SilpoRetailProvider({
+      mcpUrl: "https://mcp.example/mcp",
+      store: {
+        load: async () => ({ tokens: { access_token: "x" } }),
+        save: async () => {},
+        clear: async () => {},
+      } as never,
+      householdId: "hh-1",
+      redirectUrl: "http://localhost:0/callback",
+    });
+    const listTools = vi.fn(listToolsImpl);
+    (provider as unknown as { client: unknown }).client = { listTools };
+    return { provider, listTools };
+  }
+
+  it("serves from cache within the TTL and re-fetches once it lapses", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.useFakeTimers();
+    const { provider, listTools } = toolsProvider(rawTools);
+
+    await provider.listTools();
+    await provider.listTools();
+    expect(listTools).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(61 * 60_000); // past TOOLS_TTL_MS (1 h)
+    await provider.listTools();
+    expect(listTools).toHaveBeenCalledTimes(2);
+  });
+
+  it("handleToolListChanged() drops the cache so the next call re-lists", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const { provider, listTools } = toolsProvider(rawTools);
+
+    await provider.listTools();
+    expect(listTools).toHaveBeenCalledTimes(1);
+
+    provider.handleToolListChanged(); // what the notifications/tools/list_changed handler runs
+
+    await provider.listTools();
+    expect(listTools).toHaveBeenCalledTimes(2);
+  });
+});

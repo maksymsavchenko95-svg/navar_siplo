@@ -104,8 +104,58 @@ export const cartPreviewLineSchema = z.object({
   blockReason: z.string().nullable(),
   /** For a `replacement` row — the out-of-stock SKU it stands in for. */
   replacedFromName: z.string().nullable(),
+  /** The Guest picked this SKU by hand on the preview screen (`cart.setLineSku`). */
+  userOverridden: z.boolean().default(false),
+  /** A meat/fish line whose fresh form the branch does not stock — offer a meal swap. */
+  proteinUnavailable: z.boolean().default(false),
+  /** Plan days that cook with this ingredient (for the «Замінити страву» action). */
+  affectedDays: z.array(z.number().int().positive()).default([]),
 });
 export type CartPreviewLine = z.infer<typeof cartPreviewLineSchema>;
+
+// ── per-line SKU swap (`cart.lineAlternatives` / `cart.setLineSku`) ──────────
+
+/** One alternative SKU for a shopping-list line, priced for the line's needed amount. */
+export const cartLineAlternativeSchema = z.object({
+  productId: z.string(),
+  companyId: z.string(),
+  branchId: z.string(),
+  name: z.string(),
+  priceUah: z.number(),
+  packSizeLabel: z.string().nullable(), // Silpo `displayRatio`
+  packCount: z.number().int().positive(),
+  lineTotalUah: z.number(), // price × packCount
+  isPromo: z.boolean(),
+  inStock: z.boolean(),
+  weighted: z.boolean(),
+  isCurrent: z.boolean(), // the SKU the line currently uses
+});
+export type CartLineAlternative = z.infer<typeof cartLineAlternativeSchema>;
+
+export const cartLineAlternativesResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    slug: z.string(),
+    nameUk: z.string(),
+    alternatives: z.array(cartLineAlternativeSchema),
+  }),
+  z.object({ status: z.literal("not_found") }),
+  z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
+  z.object({ status: z.literal("no_cart"), hint: z.string().optional() }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+export type CartLineAlternativesResult = z.infer<typeof cartLineAlternativesResultSchema>;
+
+export const cartSetLineSkuResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok") }),
+  z.object({ status: z.literal("not_found") }),
+  z.object({ status: z.literal("already_materialized"), reason: z.string() }),
+  z.object({ status: z.literal("rejected"), reason: z.string() }),
+  z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
+  z.object({ status: z.literal("no_cart"), hint: z.string().optional() }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+export type CartSetLineSkuResult = z.infer<typeof cartSetLineSkuResultSchema>;
 
 /**
  * `cart.preview(planId)` — exactly what a `cart.materialize` would add, partitioned so the

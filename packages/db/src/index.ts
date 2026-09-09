@@ -22,9 +22,14 @@ export {
   updatePlanDay,
   replacePlanRows,
   getPlanDetail,
+  getPlanRecipe,
+  getPlanLineDays,
+  updateListLineSku,
   listPlans,
   type ToPlanRowsInput,
   type PlanRows,
+  type PlanRecipeRow,
+  type ListLineSkuPatch,
 } from "./plans.js";
 export {
   toMcpCallRows,

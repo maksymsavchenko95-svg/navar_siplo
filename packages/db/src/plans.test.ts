@@ -6,15 +6,25 @@ import { closeDb, db } from "./client.js";
 import { importCanonicalIngredients } from "./import-ingredients.js";
 import {
   getPlanDetail,
+  getPlanLineDays,
   markPlanMaterialized,
   replacePlanRows,
   savePlan,
   setPlanExplanation,
   toPlanRows,
+  updateListLineSku,
   updatePlanDay,
   type ToPlanRowsInput,
 } from "./plans.js";
-import { canonicalIngredients, households, listLines, planItems, plans } from "./schema.js";
+import {
+  canonicalIngredients,
+  households,
+  listLines,
+  planItems,
+  plans,
+  recipeIngredients,
+  recipes,
+} from "./schema.js";
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
@@ -164,7 +174,7 @@ describe("toPlanRows", () => {
         skuMatch({
           slug: "rice",
           match: null,
-          decision: "no_match",
+          decision: "sku_unknown",
           outOfStock: true,
           needsConfirmation: true,
         }),
@@ -174,7 +184,7 @@ describe("toPlanRows", () => {
     const { lines } = toPlanRows(input);
     expect(lines.map((l) => l.slug)).toEqual(["rice"]);
     expect(lines[0]).toMatchObject({
-      decision: "no_match",
+      decision: "sku_unknown",
       outOfStock: true,
       needsConfirmation: true,
       price: null,
@@ -380,6 +390,135 @@ describe.skipIf(!process.env.DATABASE_URL)("savePlan / getPlanDetail (integratio
     // identity columns survive the body swap
     expect(after!.seed).toBe(7);
     expect(after!.goal).toBe("routine");
+  });
+
+  it("updateListLineSku rewrites one line's product columns, household-scoped", async () => {
+    await setup();
+    const planId = await savePlan(rowsFor());
+
+    const patch = {
+      productRef: "new-sku",
+      externalProductId: "999",
+      companyId: "co2",
+      branchId: "br2",
+      productName: "Морква вагова свіжа",
+      packSize: 1000,
+      packCount: 1,
+      price: 22.5,
+      oldPrice: null,
+      isPromo: false,
+      confidence: null,
+      decision: "accepted",
+      replacedFromName: null,
+      needsConfirmation: false,
+      outOfStock: false,
+      blockReason: null,
+      userOverridden: true,
+    };
+
+    // wrong household → 0, nothing changes
+    expect(
+      await updateListLineSku(planId, "00000000-0000-0000-0000-000000000000", "carrot", patch),
+    ).toBe(0);
+
+    expect(await updateListLineSku(planId, householdId, "carrot", patch)).toBe(1);
+    const after = await getPlanDetail(planId, householdId);
+    const carrot = after!.list.find((l) => l.slug === "carrot")!;
+    expect(carrot).toMatchObject({
+      productRef: "new-sku",
+      productName: "Морква вагова свіжа",
+      price: 22.5,
+      userOverridden: true,
+      needsConfirmation: false,
+    });
+    // the other lines are untouched
+    expect(after!.list.find((l) => l.slug === "onion")!.userOverridden).toBe(false);
+
+    await db.delete(plans).where(eq(plans.id, planId));
+  });
+
+  it("getPlanLineDays maps an ingredient to the plan days that cook with it", async () => {
+    await setup();
+    const carrotId = ingredientIds.get("carrot")!;
+    const potatoId = ingredientIds.get("potato")!;
+    const slugA = `pld_a_${Date.now()}`;
+    const slugB = `pld_b_${Date.now()}`;
+    const [r1] = await db
+      .insert(recipes)
+      .values({
+        slug: slugA,
+        titleUk: "A",
+        servings: 4,
+        activeMinutes: 20,
+        totalMinutes: 60,
+        difficulty: 2,
+        steps: ["крок"],
+      })
+      .returning();
+    const [r2] = await db
+      .insert(recipes)
+      .values({
+        slug: slugB,
+        titleUk: "B",
+        servings: 4,
+        activeMinutes: 20,
+        totalMinutes: 45,
+        difficulty: 2,
+        steps: ["крок"],
+      })
+      .returning();
+    await db.insert(recipeIngredients).values([
+      { recipeId: r1!.id, ingredientId: carrotId, amount: "200", unit: "g", optional: false },
+      { recipeId: r2!.id, ingredientId: carrotId, amount: "150", unit: "g", optional: false },
+      { recipeId: r2!.id, ingredientId: potatoId, amount: "400", unit: "g", optional: false },
+    ]);
+
+    const rows = toPlanRows(
+      baseInput({
+        householdId,
+        recipeSlugIngredients: new Map([
+          [slugA, ["carrot"]],
+          [slugB, ["carrot", "potato"]],
+        ]),
+        picks: [
+          {
+            day: 1,
+            recipeId: "",
+            slug: slugA,
+            titleUk: "A",
+            portionScale: 1,
+            costUah: 100,
+            promoShareUah: 0,
+            macrosPerServing: { kcal: 500, protein: 25, fat: 15, carbs: 50 },
+          },
+          {
+            day: 2,
+            recipeId: "",
+            slug: slugB,
+            titleUk: "B",
+            portionScale: 1,
+            costUah: 100,
+            promoShareUah: 0,
+            macrosPerServing: { kcal: 500, protein: 25, fat: 15, carbs: 50 },
+          },
+        ],
+        mapper: mapperResult([skuMatch({ slug: "carrot" }), skuMatch({ slug: "potato" })]),
+        idBySlug: new Map([
+          ["carrot", carrotId],
+          ["potato", potatoId],
+        ]),
+      }),
+    );
+    const planId = await savePlan(rows);
+
+    const map = await getPlanLineDays(planId, householdId);
+    expect(map.get("carrot")).toEqual([1, 2]);
+    expect(map.get("potato")).toEqual([2]);
+    expect((await getPlanLineDays(planId, "00000000-0000-0000-0000-000000000000")).size).toBe(0);
+
+    await db.delete(plans).where(eq(plans.id, planId));
+    await db.delete(recipes).where(eq(recipes.id, r1!.id));
+    await db.delete(recipes).where(eq(recipes.id, r2!.id));
   });
 
   it("markPlanMaterialized flips status + records cartId/materializedAt, scoped to household", async () => {

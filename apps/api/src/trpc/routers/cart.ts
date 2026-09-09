@@ -2,8 +2,10 @@ import type {
   CartApplyBonusResult,
   CartBonusOfferResult,
   CartCheckoutLinkResult,
+  CartLineAlternativesResult,
   CartMaterializeResult,
   CartPreviewResult,
+  CartSetLineSkuResult,
 } from "@navar/domain";
 import { z } from "zod";
 
@@ -15,6 +17,7 @@ import {
   offerBonus,
   previewPlan,
 } from "../../cart.js";
+import { lineAlternatives, setLineSku } from "../../cart-edit.js";
 import { protectedProcedure, router } from "../trpc.js";
 
 /**
@@ -38,13 +41,29 @@ export const cartRouter = router({
       z.object({
         planId: z.string().uuid(),
         confirmedLines: z.array(z.string()).optional(),
+        excludeSlugs: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }): Promise<CartMaterializeResult> => {
       return materializePlan(input.planId, ctx.householdId, ctx.retail, {
         sessionId: ctx.sessionId,
         confirmedLines: input.confirmedLines,
+        excludeSlugs: input.excludeSlugs,
       });
+    }),
+
+  /** `cart.lineAlternatives(planId, slug)` — the branch's other SKUs for one list line. */
+  lineAlternatives: protectedProcedure
+    .input(z.object({ planId: z.string().uuid(), slug: z.string() }))
+    .query(async ({ ctx, input }): Promise<CartLineAlternativesResult> => {
+      return lineAlternatives(input.planId, ctx.householdId, input.slug, ctx.retail);
+    }),
+
+  /** `cart.setLineSku(planId, slug, productId)` — swap one line's SKU (pre-materialize). */
+  setLineSku: protectedProcedure
+    .input(z.object({ planId: z.string().uuid(), slug: z.string(), productId: z.string() }))
+    .mutation(async ({ ctx, input }): Promise<CartSetLineSkuResult> => {
+      return setLineSku(input.planId, ctx.householdId, input.slug, input.productId, ctx.retail);
     }),
 
   checkoutLink: protectedProcedure

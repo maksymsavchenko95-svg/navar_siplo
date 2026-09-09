@@ -17,6 +17,8 @@ export const mcpCallPhaseSchema = z.enum([
   "cart_materialize",
   "cart_checkout_link",
   "cart_bonus",
+  "cart_line_alternatives",
+  "cart_set_line_sku",
   "bootstrap",
   "other",
 ]);

@@ -31,7 +31,8 @@ export const skuMatchDecisionSchema = z.enum([
   "accepted", // top1 − top2 > 0.25, took top1
   "reranked", // gap ≤ 0.25, LLM (or its deterministic fallback) chose
   "needs_confirmation", // confidence < 0.6 — flagged, never added silently
-  "no_match", // search returned nothing usable
+  "sku_unknown", // search returned nothing — may be out of stock at this branch (MCP 1.109.8), NOT a definitive "no such product"
+  "no_match", // DEPRECATED — kept so older persisted `list_lines.decision` rows still validate; superseded by `sku_unknown`
   "replacement", // chosen via the get_replacements funnel
   "blocked_unsafe", // failed the safety gate (T2.2) — fail-closed, non-overridable
 ]);

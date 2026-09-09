@@ -1,6 +1,7 @@
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import type {
   CartContext,
   CartView,
@@ -62,6 +63,11 @@ export interface SilpoRetailProviderOptions {
 
 const AUTH_HINT = "run `pnpm mcp:auth` (one-time Silpo login)";
 const CART_TTL_MS = 60_000;
+// `tools/list` is cached, but the server now advertises `tools.listChanged` (MCP `1.109.8`)
+// and the per-household provider is a process-lifetime singleton, so "re-list per worker
+// start" (`INT-MCP-001`) never fires. The notification handler invalidates on the real
+// signal; this TTL is the safety net for a missed notification.
+const TOOLS_TTL_MS = 60 * 60_000;
 const PRODUCT_TTL_MS = 5 * 60_000; // prices/stock: never cached beyond 60 min (NFR-DATA-002)
 const WRITE_GAP_MS = 6_000; // the server frees a rate-limited cart write after ~6 s
 const PROMO_TTL_MS = 15 * 60_000; // campaign lists carry no prices; well inside NFR-DATA-002
@@ -100,7 +106,7 @@ async function writeWithRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T>
  */
 export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
   private client: Client | undefined;
-  private toolsCache: McpToolsResult | undefined;
+  private toolsCache: { at: number; value: McpToolsResult } | undefined;
   private cartCache: { at: number; value: CartContext } | undefined;
   private productCache = new Map<string, { at: number; value: ProductSearchResult }>();
   private detailsCache = new Map<string, { at: number; value: ProductDetails }>();
@@ -124,7 +130,9 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
   }
 
   async listTools(): Promise<McpToolsResult> {
-    if (this.toolsCache) return this.toolsCache;
+    if (this.toolsCache && Date.now() - this.toolsCache.at < TOOLS_TTL_MS) {
+      return this.toolsCache.value;
+    }
     if (!(await this.hasToken())) return { status: "auth_required", hint: AUTH_HINT };
     const started = Date.now();
     let attempts = 0;
@@ -134,7 +142,7 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
         attempts += 1;
         return this.client!.listTools();
       });
-      this.toolsCache = { status: "ok", tools: toToolSummaries(tools) };
+      this.toolsCache = { at: Date.now(), value: { status: "ok", tools: toToolSummaries(tools) } };
       recordMcpCall({
         tool: "tools/list",
         args: {},
@@ -144,7 +152,7 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
         status: "ok",
         resultBytes: JSON.stringify(tools).length,
       });
-      return this.toolsCache;
+      return this.toolsCache.value;
     } catch (err) {
       recordMcpCall({
         tool: "tools/list",
@@ -504,9 +512,22 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
     return Boolean(stored?.tokens?.access_token);
   }
 
+  /**
+   * Drop the cached `tools/list` so the next `listTools()` re-fetches. Fired by the
+   * `notifications/tools/list_changed` handler (the server advertises `tools.listChanged`
+   * as of MCP `1.109.8`) — keeps `INT-MCP-001` honest as Silpo ships description-level
+   * changes. Pulled out so it is unit-testable without a live client.
+   */
+  handleToolListChanged(): void {
+    this.toolsCache = undefined;
+  }
+
   private async connect(): Promise<void> {
     if (this.client) return;
     const client = new Client({ name: "navar", version: "0.0.0" }, { capabilities: {} });
+    client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+      this.handleToolListChanged();
+    });
     const transport = new StreamableHTTPClientTransport(new URL(this.opts.mcpUrl), {
       authProvider: new SilpoOAuthProvider({
         store: this.opts.store,

@@ -35,6 +35,7 @@ const cleanDetails = (slug: string): ProductDetails => ({
   inStock: true,
   weighted: false,
   packSize: "500г",
+  step: null,
   attributes: {},
   composition: "інгредієнти",
   allergens: [],

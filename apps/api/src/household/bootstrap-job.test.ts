@@ -66,7 +66,7 @@ function fakeReader(over: Partial<BootstrapReader> = {}): BootstrapReader {
     getCartContext: async () => ({
       branchId: "b1",
       deliveryType: "DeliveryHome",
-      timeslot: { start: "s", end: "e" },
+      timeslot: { start: "s", end: "e", minOrderCost: null },
     }),
     getProfile: async () => PROFILE,
     getFamily: async () => FAMILY,

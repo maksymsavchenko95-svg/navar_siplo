@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { useReconnect } from "@/lib/auth";
 import { approx, pct, uah } from "@/lib/format";
+import { LineSkuSheet } from "@/components/plan/LineSkuSheet";
+import { ReplaceSheet } from "@/components/plan/ReplaceSheet";
 import {
   ArrowRight,
   NoCartBanner,
@@ -41,8 +43,14 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
 
   const preview = trpc.cart.preview.useMutation();
   const materialize = trpc.cart.materialize.useMutation();
+  const applyReplacement = trpc.plan.applyReplacement.useMutation();
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [skuSheetSlug, setSkuSheetSlug] = useState<string | null>(null);
+  const [mealSheetDay, setMealSheetDay] = useState<number | null>(null);
   const fired = useRef(false);
+
+  const refetchPreview = () => preview.mutate({ planId });
 
   useEffect(() => {
     if (fired.current) return;
@@ -53,6 +61,13 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
 
   const p = preview.data;
   const m = materialize.data;
+
+  const toggleExclude = (slug: string, on: boolean) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      on ? next.delete(slug) : next.add(slug);
+      return next;
+    });
 
   // ── phase C: result ──────────────────────────────────────────────────────
   if (m?.status === "ok" || (p?.status === "ok" && p.alreadyMaterialized)) {
@@ -81,126 +96,205 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
       )}
       {p?.status === "error" && <StateBanner title="Помилка">{p.message}</StateBanner>}
 
-      {p?.status === "ok" && (
-        <>
-          {p.blocked.length > 0 && (
-            <div className="allergies-container">
-              <div className="allergies-title">Не додано — запобіжник безпеки</div>
-              {p.blocked.map((l) => (
-                <div key={l.slug} className="cart-item-row is-blocked">
-                  <div className="cart-item-name">{l.productName ?? l.nameUk}</div>
-                  <div className="cart-item-reason">
-                    {l.blockReason ?? "склад товару невідомий або неоднозначний"}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {p.needsConfirmation.length > 0 && (
-            <div className="cart-items-list">
-              <div className="cart-group-title">Потрібне підтвердження</div>
-              {p.needsConfirmation.map((l) => (
-                <label key={l.slug} className="cart-item-row cart-confirm-check">
-                  <input
-                    type="checkbox"
-                    checked={confirmed.has(l.slug)}
-                    onChange={(e) =>
-                      setConfirmed((prev) => {
-                        const next = new Set(prev);
-                        e.target.checked ? next.add(l.slug) : next.delete(l.slug);
-                        return next;
-                      })
-                    }
-                  />
-                  <div className="cart-item-info">
-                    <span className="cart-item-name">{l.productName ?? l.nameUk}</span>
-                    <span className="cart-item-pack">
-                      {l.confidence != null ? `впевненість ${pct(l.confidence * 100)}` : ""}
-                      {l.priceUah != null ? ` · ${uah(l.priceUah)} × ${l.quantity}` : ""}
-                    </span>
-                  </div>
-                </label>
-              ))}
-            </div>
-          )}
-
-          {(p.outOfStock.length > 0 || p.unmatched.length > 0) && (
-            <div className="cart-items-list">
-              <div className="cart-group-title">Не вдалося підібрати</div>
-              {[...p.outOfStock, ...p.unmatched].map((l) => (
-                <div
-                  key={l.slug}
-                  className={`cart-item-row is-muted ${l.decision === "replacement" ? "is-replacement" : ""}`}
+      {p?.status === "ok" &&
+        (() => {
+          const addableTotal =
+            Math.round(
+              p.addable
+                .filter((l) => !excluded.has(l.slug))
+                .reduce((s, l) => s + (l.priceUah ?? 0) * l.quantity, 0) * 100,
+            ) / 100;
+          const rowActions = (l: CartPreviewLine) => (
+            <div className="cart-item-actions">
+              <button
+                type="button"
+                className="dish-card__replace"
+                onClick={() => setSkuSheetSlug(l.slug)}
+              >
+                Замінити
+              </button>
+              {l.proteinUnavailable && l.affectedDays.length > 0 && (
+                <button
+                  type="button"
+                  className="dish-card__replace"
+                  onClick={() => setMealSheetDay(l.affectedDays[0]!)}
                 >
-                  <div className="cart-item-name">{l.productName ?? l.nameUk}</div>
-                  <div className="cart-item-pack">
-                    {l.decision === "replacement"
-                      ? l.replacedFromName
-                        ? `заміна — замість «${l.replacedFromName}»`
-                        : "немає в наявності, підібрали заміну"
-                      : "немає в наявності"}
-                  </div>
+                  Замінити страву
+                </button>
+              )}
+            </div>
+          );
+
+          return (
+            <>
+              {p.blocked.length > 0 && (
+                <div className="allergies-container">
+                  <div className="allergies-title">Не додано — запобіжник безпеки</div>
+                  {p.blocked.map((l) => (
+                    <div key={l.slug} className="cart-item-row is-blocked">
+                      <div className="cart-item-name">{l.productName ?? l.nameUk}</div>
+                      <div className="cart-item-reason">
+                        {l.blockReason ?? "склад товару невідомий або неоднозначний"}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              )}
 
-          <div className="cart-items-list">
-            <div className="cart-group-title">Додаємо в кошик ({p.addable.length})</div>
-            {p.addable.map((l) => (
-              <PreviewRow key={l.slug} line={l} />
-            ))}
-          </div>
+              {p.needsConfirmation.length > 0 && (
+                <div className="cart-items-list">
+                  <div className="cart-group-title">Потрібне підтвердження</div>
+                  {p.needsConfirmation.map((l) => (
+                    <div key={l.slug} className="cart-item-row cart-confirm-check">
+                      <input
+                        type="checkbox"
+                        checked={confirmed.has(l.slug)}
+                        onChange={(e) =>
+                          setConfirmed((prev) => {
+                            const next = new Set(prev);
+                            e.target.checked ? next.add(l.slug) : next.delete(l.slug);
+                            return next;
+                          })
+                        }
+                      />
+                      <div className="cart-item-info">
+                        <span className="cart-item-name">{l.productName ?? l.nameUk}</span>
+                        <span className="cart-item-pack">
+                          {l.confidence != null ? `впевненість ${pct(l.confidence * 100)}` : ""}
+                          {l.priceUah != null ? ` · ${uah(l.priceUah)} × ${l.quantity}` : ""}
+                        </span>
+                        {l.proteinUnavailable && (
+                          <span className="cart-item-warn">
+                            Свіжого {l.nameUk} немає в магазині
+                          </span>
+                        )}
+                        {rowActions(l)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-          <div className="cart-summary-block">
-            <div className="cart-summary-line">
-              <span>Орієнтовно</span>
-              <strong>{approx(uah(p.estimatedAddUah))}</strong>
-            </div>
-            {p.currentCartLines > 0 && (
-              <p className="screen-sub-title">
-                У вашому кошику «Сільпо» вже є {p.currentCartLines} позицій — ми їх не чіпаємо.
-              </p>
-            )}
-          </div>
+              {(p.outOfStock.length > 0 || p.unmatched.length > 0) && (
+                <div className="cart-items-list">
+                  <div className="cart-group-title">Не вдалося підібрати</div>
+                  {[...p.outOfStock, ...p.unmatched].map((l) => (
+                    <div key={l.slug} className="cart-item-row is-muted">
+                      <div className="cart-item-info">
+                        <span className="cart-item-name">{l.productName ?? l.nameUk}</span>
+                        <span className="cart-item-pack">
+                          {l.proteinUnavailable
+                            ? `Свіжого ${l.nameUk} немає в магазині`
+                            : "немає в наявності"}
+                        </span>
+                        {rowActions(l)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-          {materialize.data?.status === "needs_preview" && (
-            <StateBanner tone="warn">Оновіть перегляд і спробуйте ще раз.</StateBanner>
-          )}
-          {materialize.data?.status === "auth_required" && (
-            <ReconnectBanner onReconnect={reconnect} />
-          )}
-          {materialize.data?.status === "error" && (
-            <StateBanner title="Не вдалося записати">{materialize.data.message}</StateBanner>
-          )}
+              <div className="cart-items-list">
+                <div className="cart-group-title">Додаємо в кошик</div>
+                {p.addable.map((l) => {
+                  const on = !excluded.has(l.slug);
+                  return (
+                    <div
+                      key={l.slug}
+                      className={`cart-item-row cart-confirm-check ${on ? "" : "is-muted"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) => toggleExclude(l.slug, e.target.checked)}
+                      />
+                      <div className="cart-item-info">
+                        <span className="cart-item-name">{l.productName ?? l.nameUk}</span>
+                        <span className="cart-item-pack">
+                          {l.priceUah != null ? `${uah(l.priceUah)} × ${l.quantity} уп.` : ""}
+                          {l.isPromo ? " · Акція" : ""}
+                        </span>
+                        {l.proteinUnavailable && (
+                          <span className="cart-item-warn">
+                            Свіжого {l.nameUk} немає в магазині
+                          </span>
+                        )}
+                        {rowActions(l)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-          <PrimaryButton
-            onClick={() => materialize.mutate({ planId, confirmedLines: [...confirmed] })}
-            disabled={materialize.isPending}
-          >
-            {materialize.isPending ? <SpinnerDots /> : <span>Додати в кошик Сільпо</span>}
-          </PrimaryButton>
-        </>
+              <div className="cart-summary-block">
+                <div className="cart-summary-line">
+                  <span>Орієнтовно</span>
+                  <strong>{approx(uah(addableTotal))}</strong>
+                </div>
+                {excluded.size > 0 && (
+                  <p className="screen-sub-title">Вилучено позицій: {excluded.size}</p>
+                )}
+                {p.currentCartLines > 0 && (
+                  <p className="screen-sub-title">
+                    У вашому кошику «Сільпо» вже є {p.currentCartLines} позицій — ми їх не чіпаємо.
+                  </p>
+                )}
+              </div>
+
+              {materialize.data?.status === "needs_preview" && (
+                <StateBanner tone="warn">Оновіть перегляд і спробуйте ще раз.</StateBanner>
+              )}
+              {materialize.data?.status === "auth_required" && (
+                <ReconnectBanner onReconnect={reconnect} />
+              )}
+              {materialize.data?.status === "error" && (
+                <StateBanner title="Не вдалося записати">{materialize.data.message}</StateBanner>
+              )}
+
+              <PrimaryButton
+                onClick={() =>
+                  materialize.mutate({
+                    planId,
+                    confirmedLines: [...confirmed],
+                    excludeSlugs: [...excluded],
+                  })
+                }
+                disabled={materialize.isPending}
+              >
+                {materialize.isPending ? <SpinnerDots /> : <span>Додати в кошик Сільпо</span>}
+              </PrimaryButton>
+            </>
+          );
+        })()}
+
+      {skuSheetSlug && (
+        <LineSkuSheet
+          planId={planId}
+          slug={skuSheetSlug}
+          onClose={() => setSkuSheetSlug(null)}
+          onDone={refetchPreview}
+        />
+      )}
+      {mealSheetDay != null && (
+        <ReplaceSheet
+          planId={planId}
+          day={mealSheetDay}
+          applying={applyReplacement.isPending}
+          onClose={() => setMealSheetDay(null)}
+          onPick={(alt) =>
+            applyReplacement.mutate(
+              { planId, day: mealSheetDay, recipeId: alt.recipeId },
+              {
+                onSettled: () => {
+                  setMealSheetDay(null);
+                  refetchPreview();
+                },
+              },
+            )
+          }
+        />
       )}
     </ScreenShell>
-  );
-}
-
-function PreviewRow({ line: l }: { line: CartPreviewLine }) {
-  return (
-    <div className="cart-item-row">
-      <div className="cart-item-main">
-        <div className="cart-item-info">
-          <span className="cart-item-name">{l.productName ?? l.nameUk}</span>
-          <span className="cart-item-pack">{l.quantity} уп.</span>
-        </div>
-        <div className="cart-item-pricing">
-          <div className="cart-item-price">{uah(l.priceUah)}</div>
-          {l.isPromo && <div className="dish-pill-promo">Акція</div>}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -213,6 +307,7 @@ function CartResult({
   planId: string;
   materialized: MaterializedOk | null;
 }) {
+  const router = useRouter();
   const bonus = trpc.cart.offerBonus.useQuery({ planId });
   const checkout = trpc.cart.checkoutLink.useQuery({ planId });
   const applyBonus = trpc.cart.applyBonus.useMutation({ onSettled: () => void bonus.refetch() });
@@ -343,6 +438,7 @@ function CartResult({
       <SecondaryButton onClick={() => (window.location.href = `/plan/${planId}/trace`)}>
         Як це працювало
       </SecondaryButton>
+      <SecondaryButton onClick={() => router.push("/plans")}>До планів</SecondaryButton>
     </div>
   );
 }

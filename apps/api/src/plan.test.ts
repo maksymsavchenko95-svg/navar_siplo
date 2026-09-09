@@ -14,7 +14,9 @@ import {
   toExplainInput,
   toInfeasibleReason,
   toNearestView,
+  toPlanRecipeView,
 } from "./plan.js";
+import type { PlanRecipeRow } from "@navar/db";
 import { getSilpoProvider } from "./retail.js";
 
 describe("perDinnerTargets", () => {
@@ -152,6 +154,67 @@ describe("toNearestView (T2.5)", () => {
     });
     expect(view.days[0]!.macrosPerServing).toEqual({ kcal: 520, protein: 34, fat: 18, carbs: 60 });
     expect(view).toMatchObject({ costUah: 2740, promoSharePct: 12, proteinFloorMet: true });
+  });
+});
+
+describe("toPlanRecipeView (R2)", () => {
+  const row = (item?: Partial<PlanRecipeRow["item"]>, prune = false): PlanRecipeRow => ({
+    item: {
+      dayIndex: 2,
+      titleUk: "Борщ",
+      servings: 2,
+      portionScale: 1,
+      macrosPerServing: { kcal: 520, protein: 28, fat: 18, carbs: 60 },
+      ...item,
+    },
+    recipe: prune
+      ? null
+      : {
+          servings: 4,
+          steps: ["Наріжте", "Варіть"],
+          totalMinutes: 45,
+          activeMinutes: 20,
+          difficulty: 2,
+          allergens: [],
+          ingredients: [
+            { nameUk: "Морква", amount: 300, unit: "g", optional: false },
+            { nameUk: "Лавровий лист", amount: 2, unit: "pcs", optional: true },
+          ],
+        },
+  });
+
+  it("null row → not_found", () => {
+    expect(toPlanRecipeView(null)).toEqual({ status: "not_found" });
+  });
+
+  it("pruned recipe → recipe_unavailable with the stored title + day", () => {
+    expect(toPlanRecipeView(row(undefined, true))).toEqual({
+      status: "recipe_unavailable",
+      titleUk: "Борщ",
+      dayIndex: 2,
+    });
+  });
+
+  it("scales ingredient amounts by servings / recipe.servings × portionScale", () => {
+    const r = toPlanRecipeView(row()); // 2 / 4 × 1 = 0.5
+    if (r.status !== "ok") throw new Error(r.status);
+    expect(r.recipe.ingredients).toEqual([
+      { nameUk: "Морква", amount: 150, unit: "g", optional: false },
+      { nameUk: "Лавровий лист", amount: 1, unit: "pcs", optional: true },
+    ]);
+  });
+
+  it("applies portionScale and rounds to 1 dp", () => {
+    const r = toPlanRecipeView(row({ servings: 3, portionScale: 1.4 }));
+    if (r.status !== "ok") throw new Error(r.status);
+    // 3 / 4 × 1.4 = 1.05 → 300 × 1.05 = 315
+    expect(r.recipe.ingredients[0]!.amount).toBe(315);
+  });
+
+  it("passes the item's macro snapshot through untouched", () => {
+    const r = toPlanRecipeView(row({ portionScale: 1.4 }));
+    if (r.status !== "ok") throw new Error(r.status);
+    expect(r.recipe.macrosPerServing).toEqual({ kcal: 520, protein: 28, fat: 18, carbs: 60 });
   });
 });
 

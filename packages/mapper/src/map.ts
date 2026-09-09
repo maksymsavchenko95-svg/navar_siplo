@@ -10,6 +10,7 @@ import {
 
 import { consolidate } from "./consolidate.js";
 import { decideMatch } from "./decide.js";
+import { isNonFoodSku } from "./nonfood.js";
 import { buildQuery, chunkQueries } from "./normalize-query.js";
 import { computePack, parsePackSize } from "./pack.js";
 import { rankCandidates, type ScoredCandidate } from "./score.js";
@@ -141,7 +142,9 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
 
     const entry = input.dict.get(c.slug)!;
     const query = queryBySlug.get(c.slug)!;
-    const candidates = resultsByQuery.get(query) ?? [];
+    // R7: drop non-food hits (gift bows, homeware, pet items) before scoring — a trigram
+    // coincidence, never a real match. An emptied list → `sku_unknown` via `decideMatch`.
+    const candidates = (resultsByQuery.get(query) ?? []).filter((p) => !isNonFoodSku(p.name));
 
     let ranked = rankCandidates(entry, c.amount, candidates, input.history);
     let reranked: Awaited<ReturnType<RerankFn>> | undefined;
@@ -251,7 +254,8 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
       total: matches.length,
       matched: matches.filter((m) => m.match).length,
       needsConfirmation: matches.filter((m) => m.needsConfirmation).length,
-      noMatch: matches.filter((m) => m.decision === "no_match").length,
+      noMatch: matches.filter((m) => m.decision === "sku_unknown" || m.decision === "no_match")
+        .length,
       blocked: matches.filter((m) => m.decision === "blocked_unsafe").length,
     },
   };

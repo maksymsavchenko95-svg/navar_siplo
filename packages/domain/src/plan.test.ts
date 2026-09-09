@@ -5,6 +5,7 @@ import {
   planGenerateResultSchema,
   planGetResultSchema,
   planItemSchema,
+  planRecipeResultSchema,
   planSchema,
 } from "./plan.js";
 
@@ -164,5 +165,31 @@ describe("plan schemas", () => {
 
   it("discriminates the get result union", () => {
     expect(planGetResultSchema.parse({ status: "not_found" })).toEqual({ status: "not_found" });
+  });
+
+  it("round-trips the three plan.recipe result variants (R2)", () => {
+    const ok = {
+      status: "ok" as const,
+      recipe: {
+        dayIndex: 2,
+        titleUk: "Борщ",
+        totalMinutes: 45,
+        activeMinutes: 20,
+        difficulty: 2,
+        servings: 3,
+        portionScale: 1,
+        steps: ["Наріжте овочі", "Варіть 30 хв"],
+        ingredients: [
+          { nameUk: "Морква", amount: 225, unit: "g" as const, optional: false },
+          { nameUk: "Лавровий лист", amount: 1, unit: "pcs" as const, optional: true },
+        ],
+        macrosPerServing: { kcal: 520, protein: 28, fat: 18, carbs: 60 },
+        allergens: [],
+      },
+    };
+    expect(planRecipeResultSchema.parse(ok)).toEqual(ok);
+    expect(planRecipeResultSchema.parse({ status: "not_found" })).toEqual({ status: "not_found" });
+    const unavailable = { status: "recipe_unavailable" as const, titleUk: "Борщ", dayIndex: 2 };
+    expect(planRecipeResultSchema.parse(unavailable)).toEqual(unavailable);
   });
 });

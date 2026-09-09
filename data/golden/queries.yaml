@@ -33,6 +33,7 @@
   expectQueryExcludes: ["тушкуванн"]
   expectCategory: meat
   acceptSkuKeywords: ["яловичина"]
+  rejectSkuKeywords: ["тушкован", "консерв", "вялен", "jerky", "снек"] # R7 — canned / jerky is the wrong form
 
 - slug: pork_loin
   expectQueryContains: ["свинина"]
@@ -103,6 +104,7 @@
   expectQueryContains: ["морква"]
   expectCategory: vegetable
   acceptSkuKeywords: ["морква"]
+  rejectSkuKeywords: ["корейськ", "маринован"] # R7 — «морква по-корейськи» is a salad
 
 - slug: potato
   expectQueryContains: ["картопля"]
@@ -113,6 +115,7 @@
   expectQueryContains: ["перець"]
   expectCategory: vegetable
   acceptSkuKeywords: ["перець"]
+  rejectSkuKeywords: ["маринован", "корейськ", "консерв"] # R7 — trigram loves the pickled jar
 
 - slug: tomato
   expectQueryContains: ["помідор"]
@@ -241,6 +244,13 @@
   expectQueryExcludes: ["кухонна", "морська"]
   expectCategory: pantry
   acceptSkuKeywords: ["сіль"]
+  rejectSkuKeywords: ["млинок"] # R7 — a 159₴ 90g spice mill, not a kitchen staple
+
+- slug: cumin_ground
+  expectQueryContains: ["зіра"]
+  expectCategory: spice_herb
+  acceptSkuKeywords: ["зіра", "кмин", "кумин"]
+  rejectSkuKeywords: ["бант", "подарун", "зірка"] # R7 — «зірка» ≈ «зіра» trigram trap
 
 - slug: bay_leaf
   expectQueryContains: ["лавр"]

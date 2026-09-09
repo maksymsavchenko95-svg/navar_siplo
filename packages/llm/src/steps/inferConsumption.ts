@@ -43,9 +43,12 @@ function templateSummary(input: InferConsumptionInput): string {
   if (input.orderCount < 5) {
     return `Історія покупок ще коротка (${input.orderCount} чек${input.orderCount === 1 ? "" : "и"}) — портрет орієнтовний.`;
   }
+  // `topItems` is already gated to genuinely-regular items by `toInferConsumptionInput`
+  // (R3b) — when it is empty, don't claim "регулярно берете" anything.
   const top = input.topItems
     .slice(0, 3)
-    .map((i) => i.label)
+    .map((i) => i.label.trim())
+    .filter(Boolean)
     .join(", ");
   const chequePart = input.medianWeeklyChequeUah
     ? ` Середній тижневий чек — близько ${Math.round(input.medianWeeklyChequeUah)} ₴.`

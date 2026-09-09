@@ -7,9 +7,12 @@ import {
   minutes,
   NBSP,
   pct,
+  planTimestamp,
+  pluralPeople,
   signedUah,
   THIN_SPACE,
   uah,
+  unitLabel,
 } from "./format";
 
 describe("groupNumber", () => {
@@ -64,5 +67,45 @@ describe("pct / minutes / approx", () => {
   });
   it("prefixes an approx marker", () => {
     expect(approx(uah(2340))).toBe(`≈${NBSP}2${THIN_SPACE}340${NBSP}₴`);
+  });
+});
+
+describe("planTimestamp", () => {
+  it("renders a local date + time with a genitive month name", () => {
+    // build from local components so the assertion is TZ-independent
+    const iso = new Date(2026, 8, 8, 14, 32).toISOString();
+    expect(planTimestamp(iso)).toBe("8 вересня, 14:32");
+  });
+  it("zero-pads hours and minutes", () => {
+    const iso = new Date(2026, 0, 9, 9, 5).toISOString();
+    expect(planTimestamp(iso)).toBe("9 січня, 09:05");
+  });
+  it("returns — for an unparseable string", () => {
+    expect(planTimestamp("not-a-date")).toBe("—");
+  });
+});
+
+describe("pluralPeople", () => {
+  it("uses the Ukrainian count forms", () => {
+    expect([1, 2, 3, 4, 5, 11, 12, 21, 22].map(pluralPeople)).toEqual([
+      "1 особу",
+      "2 особи",
+      "3 особи",
+      "4 особи",
+      "5 осіб",
+      "11 осіб",
+      "12 осіб",
+      "21 особу",
+      "22 особи",
+    ]);
+  });
+});
+
+describe("unitLabel", () => {
+  it("maps every recipe unit to a Ukrainian short label", () => {
+    expect(["g", "ml", "pcs", "kg", "l"].map(unitLabel)).toEqual(["г", "мл", "шт", "кг", "л"]);
+  });
+  it("passes an unknown unit through unchanged", () => {
+    expect(unitLabel("tbsp")).toBe("tbsp");
   });
 });

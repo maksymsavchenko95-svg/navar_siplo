@@ -158,6 +158,48 @@ export const planGetResultSchema = z.discriminatedUnion("status", [
 ]);
 export type PlanGetResult = z.infer<typeof planGetResultSchema>;
 
+// ── plan.recipe — one dinner's cooking view (R2) ────────────────────────────
+
+/**
+ * One dinner of a saved plan as a cooking recipe: steps + ingredient amounts **scaled to
+ * the household** (`servings / recipe.servings × portionScale`). Distinct from `PlanItem`
+ * (header snapshot) — this is fetched on demand for the day screen, not part of `plan.get`.
+ */
+export const planRecipeSchema = z.object({
+  dayIndex: z.number().int().positive(),
+  titleUk: z.string(),
+  totalMinutes: z.number().int().nonnegative().nullable(),
+  activeMinutes: z.number().int().nonnegative().nullable(),
+  difficulty: z.number().int().min(1).max(3).nullable(),
+  /** Household servings for this dinner (the `plan_items` snapshot). */
+  servings: z.number().int().positive(),
+  portionScale: z.number().min(0.6).max(1.4),
+  steps: z.array(z.string()),
+  ingredients: z.array(
+    z.object({
+      nameUk: z.string(),
+      amount: z.number().nonnegative(), // scaled; base recipe unit
+      unit: z.enum(["g", "ml", "pcs", "kg", "l"]),
+      optional: z.boolean(),
+    }),
+  ),
+  /** Per-serving, from the item snapshot (already post-`portionScale`) — never recomputed. */
+  macrosPerServing: servingMacrosSchema.nullable(),
+  allergens: z.array(z.string()),
+});
+export type PlanRecipe = z.infer<typeof planRecipeSchema>;
+
+export const planRecipeResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok"), recipe: planRecipeSchema }),
+  z.object({ status: z.literal("not_found") }),
+  z.object({
+    status: z.literal("recipe_unavailable"),
+    titleUk: z.string(),
+    dayIndex: z.number().int().positive(),
+  }),
+]);
+export type PlanRecipeResult = z.infer<typeof planRecipeResultSchema>;
+
 // ─── plan edits (T4.2, FR-PLAN-007/008) ─────────────────────────────────────
 
 /** One offered substitution for a single day, with its whole-plan effect. */

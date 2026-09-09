@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
+import { pluralPeople } from "@/lib/format";
 import { RESTRICTION_PICKER } from "@/lib/enums";
 import {
   ArrowRight,
@@ -102,9 +103,11 @@ export default function TastesPage() {
             busy={confirm.isPending}
             onEdit={(edit) => confirm.mutate({ edits: [edit] })}
           />
-          {cookingFor != null && <p className="members-line">Готуємо на {cookingFor} осіб</p>}
+          {cookingFor != null && (
+            <p className="members-line">Готуємо на {pluralPeople(cookingFor)}</p>
+          )}
           <div style={{ marginTop: "auto", paddingTop: 12 }}>
-            <PrimaryButton onClick={() => router.push("/plan")}>
+            <PrimaryButton onClick={() => router.push("/plan?run=1")}>
               <span>Скласти план</span>
               <ArrowRight />
             </PrimaryButton>

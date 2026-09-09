@@ -41,6 +41,12 @@ const DICT = new Map(
       allergens: ["gluten"],
     }),
     dictEntry({ slug: "soy_sauce", nameUk: "Соус соєвий", category: "pantry", baseUnit: "ml" }),
+    dictEntry({
+      slug: "cumin_ground",
+      nameUk: "Зіра",
+      category: "spice_herb",
+      synonyms: ["зіра", "кмин"],
+    }),
   ].map((e) => [e.slug, e]),
 );
 
@@ -153,13 +159,24 @@ describe("mapPlan", () => {
     expect(res.stats.needsConfirmation).toBe(1);
   });
 
-  it("no search results → no_match", async () => {
+  it("no search results → sku_unknown, still counted in stats.noMatch", async () => {
     const res = await mapPlan(
       { lines: lines([{ slug: "dill", amount: 10, unit: "g" }]), dict: DICT },
       { retail: fakeRetail({}), rerank: vi.fn(fallbackRerank) },
     );
-    expect(res.matches[0]).toMatchObject({ decision: "no_match", match: null });
+    expect(res.matches[0]).toMatchObject({ decision: "sku_unknown", match: null });
     expect(res.stats).toMatchObject({ total: 1, matched: 0, noMatch: 1 });
+  });
+
+  it("R7: search returns only a non-food SKU → filtered out → sku_unknown", async () => {
+    const retail = fakeRetail({
+      зіра: [sku({ productId: "bow", name: "Бант для оздоблення подарунку Happy.com Зірка 8 см" })],
+    });
+    const res = await mapPlan(
+      { lines: lines([{ slug: "cumin_ground", amount: 3, unit: "g" }]), dict: DICT },
+      { retail, rerank: vi.fn(fallbackRerank) },
+    );
+    expect(res.matches[0]).toMatchObject({ decision: "sku_unknown", match: null });
   });
 
   it("out-of-stock pick → replacement funnel chooses a new SKU", async () => {

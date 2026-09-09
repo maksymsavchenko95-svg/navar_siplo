@@ -1,16 +1,17 @@
-import { getPlanDetail, listPlans } from "@navar/db";
+import { getPlanDetail, getPlanRecipe, listPlans } from "@navar/db";
 import {
   type Plan,
   type PlanEditResult,
   type PlanGenerateResult,
   type PlanGetResult,
+  type PlanRecipeResult,
   type PlanReplaceItemResult,
   planGenerateInputSchema,
 } from "@navar/domain";
 import { z } from "zod";
 
 import { applyReplacement, makeCheaper, proposeReplacements } from "../../plan-edit.js";
-import { generateAndPersistPlan } from "../../plan.js";
+import { generateAndPersistPlan, toPlanRecipeView } from "../../plan.js";
 import { protectedProcedure, router } from "../trpc.js";
 
 /**
@@ -41,6 +42,17 @@ export const planRouter = router({
   list: protectedProcedure.query(async ({ ctx }): Promise<Plan[]> => {
     return listPlans(ctx.householdId);
   }),
+
+  /**
+   * `R2` — one saved dinner as a cooking recipe: steps + ingredient amounts scaled to the
+   * household (`servings / recipe.servings × portionScale`). A pure DB read, no MCP/LLM —
+   * the screen the Guest lives in for the week, so it works for materialized plans too.
+   */
+  recipe: protectedProcedure
+    .input(z.object({ planId: z.string().uuid(), day: z.number().int().positive() }))
+    .query(async ({ ctx, input }): Promise<PlanRecipeResult> => {
+      return toPlanRecipeView(await getPlanRecipe(input.planId, ctx.householdId, input.day));
+    }),
 
   /**
    * `FR-PLAN-007` — three alternatives for one day. A query: it writes nothing, so the Guest

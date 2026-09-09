@@ -53,6 +53,22 @@ describe("inferConsumptionStep", () => {
     expect(() => inferConsumptionOutputSchema.parse(result.value)).not.toThrow();
   });
 
+  it("R3b: no 'регулярно берете' when nothing is regular (topItems empty, history not thin)", async () => {
+    const provider: LlmProvider = {
+      generateObject: vi.fn(async () => {
+        throw new Error("x");
+      }) as never,
+    };
+    const result = await runStep(
+      inferConsumptionStep,
+      { ...INPUT, orderCount: 12, topItems: [] },
+      { provider, tracer: noopTracer },
+    );
+    if (result.source !== "fallback") throw new Error("expected fallback");
+    expect(result.value.summary).not.toMatch(/регулярно берете/);
+    expect(result.value.summary).toMatch(/купівель/);
+  });
+
   it("fallback for a thin history says so", async () => {
     const provider: LlmProvider = {
       generateObject: vi.fn(async () => {

@@ -48,14 +48,14 @@ export default function PlanPage({ params }: { params: Promise<{ planId: string 
 
   if (plan.isLoading) {
     return (
-      <ScreenShell step={4} back="/plan">
+      <ScreenShell step={4} back="/plans">
         <SpinnerDots />
       </ScreenShell>
     );
   }
   if (plan.data?.status !== "ok") {
     return (
-      <ScreenShell step={4} back="/plan">
+      <ScreenShell step={4} back="/plans">
         <StateBanner title="План не знайдено">
           Можливо, його видалили. <button onClick={() => router.push("/plans")}>До списку</button>
         </StateBanner>
@@ -68,7 +68,7 @@ export default function PlanPage({ params }: { params: Promise<{ planId: string 
   const busy = applyReplacement.isPending || cheaper.isPending;
 
   return (
-    <ScreenShell step={4} back="/plan">
+    <ScreenShell step={4} back="/plans">
       <PlanHero plan={p} />
 
       {p.explanation && (
@@ -84,40 +84,62 @@ export default function PlanPage({ params }: { params: Promise<{ planId: string 
       {toast && <StateBanner tone="info">{toast}</StateBanner>}
 
       <div className="dishes-list">
-        {p.items.map((item) => (
-          <button
-            key={item.dayIndex}
-            type="button"
-            className={`dish-card ${locked ? "is-locked" : ""}`}
-            disabled={locked || busy}
-            onClick={() => !locked && setSheetDay(item.dayIndex)}
-          >
-            <div className="dish-card-header">
-              <span className="dish-card-title">{item.titleUk}</span>
-              <span className="dish-day-tag">День {item.dayIndex}</span>
-            </div>
-            <div className="dish-meta-row">
-              {item.totalMinutes != null && (
-                <span className="dish-pill-meta">{minutes(item.totalMinutes)}</span>
-              )}
-              <span
-                className="dish-pill-meta"
-                style={{ fontWeight: 800, color: "var(--color-text-hero)" }}
-              >
-                {uah(item.costUah)}
-              </span>
-              {item.macrosPerServing && (
-                <span className="dish-pill-protein">
-                  {Math.round(item.macrosPerServing.protein)} г білка · за порцію
+        {p.items.map((item) => {
+          const openRecipe = () => router.push(`/plan/${planId}/day/${item.dayIndex}`);
+          return (
+            <div
+              key={item.dayIndex}
+              role="button"
+              tabIndex={0}
+              className={`dish-card ${locked ? "is-locked" : ""}`}
+              onClick={openRecipe}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openRecipe();
+                }
+              }}
+            >
+              <div className="dish-card-header">
+                <span className="dish-card-title">{item.titleUk}</span>
+                <span className="dish-day-tag">День {item.dayIndex}</span>
+              </div>
+              <div className="dish-meta-row">
+                {item.totalMinutes != null && (
+                  <span className="dish-pill-meta">{minutes(item.totalMinutes)}</span>
+                )}
+                <span
+                  className="dish-pill-meta"
+                  style={{ fontWeight: 800, color: "var(--color-text-hero)" }}
+                >
+                  {uah(item.costUah)}
                 </span>
-              )}
-              {item.promoShareUah > 0 && <span className="dish-pill-promo">Акція</span>}
-              {p.goal === "form" && item.portionScale !== 1 && (
-                <span className="dish-pill-meta">×{item.portionScale.toFixed(2)}</span>
+                {item.macrosPerServing && (
+                  <span className="dish-pill-protein">
+                    {Math.round(item.macrosPerServing.protein)} г білка · за порцію
+                  </span>
+                )}
+                {item.promoShareUah > 0 && <span className="dish-pill-promo">Акція</span>}
+                {p.goal === "form" && item.portionScale !== 1 && (
+                  <span className="dish-pill-meta">×{item.portionScale.toFixed(2)}</span>
+                )}
+              </div>
+              {!locked && (
+                <button
+                  type="button"
+                  className="dish-card__replace"
+                  disabled={busy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSheetDay(item.dayIndex);
+                  }}
+                >
+                  Замінити
+                </button>
               )}
             </div>
-          </button>
-        ))}
+          );
+        })}
       </div>
 
       {locked ? (

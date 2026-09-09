@@ -12,7 +12,8 @@ import type {
   TasteCard,
 } from "@navar/domain";
 
-const OFTEN_MIN_ORDER_SHARE = 0.25;
+import { OFTEN_MIN_ORDER_SHARE } from "./consumption.js";
+
 const OFTEN_MAX_CARDS = 8;
 
 function freq(buysPer4Weeks: number): string {

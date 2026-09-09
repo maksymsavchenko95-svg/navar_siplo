@@ -30,9 +30,12 @@ export function decideMatch(args: {
   const { ranked, reranked } = args;
 
   if (ranked.length === 0) {
+    // The search returned zero candidates. Per MCP `1.109.8` a zero-stock SKU can be
+    // omitted from results even when searched by exact article code — so this is
+    // "couldn't find it here", not a definitive "no such product" (`no_match`).
     return {
       chosen: null,
-      decision: "no_match",
+      decision: "sku_unknown",
       confidence: 0,
       needsConfirmation: true,
       rerankSource: null,

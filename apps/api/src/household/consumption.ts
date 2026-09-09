@@ -10,6 +10,98 @@ import type { BrandAffinity, BuyFrequency, ConsumptionModel, RetailOrder } from 
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
 
+/**
+ * `orderShare` a `buyFrequency` item needs to count as "regularly bought" — the threshold
+ * `buildPortrait`'s `oftenBought` cards and `toInferConsumptionInput`'s `topItems` share
+ * (R3b: the LLM summary must not name an item the cards call rarely-bought).
+ */
+export const OFTEN_MIN_ORDER_SHARE = 0.25;
+
+// ─── non-food filter (R3) ────────────────────────────────────────────────────
+
+/** Any token starts with one of these — safe as a prefix (no food word shares the stem). */
+const NON_FOOD_PREFIX = [
+  "нікотин",
+  "тютюн",
+  "сигарет",
+  "velo",
+  "пакет",
+  "pepsi",
+  "schweppes",
+  "серветк",
+  "рушник",
+  "шампун",
+  "батарей",
+  "лампа",
+  "порошок",
+  "горілк",
+  "коньяк",
+  "віскі",
+  "памперс",
+  "бритв",
+  "станок",
+  "дезодорант",
+  "зубн",
+];
+
+/** A whole token equals one of these — ambiguous as a prefix («вино» ⊂ «виноград»). */
+const NON_FOOD_EXACT = new Set([
+  "вино",
+  "пиво",
+  "сидр",
+  "кола",
+  "cola",
+  "квас",
+  "алкоголь",
+  "мило",
+  "корм",
+  "засіб",
+  "жуйка",
+]);
+
+/** The normalised name contains one of these phrases. */
+const NON_FOOD_PHRASE = [
+  "вода мінеральн",
+  "вода газов",
+  "вода питн",
+  "напій",
+  "енергетичн",
+  "жувальн гумк",
+  "папір туалет",
+  "гель для",
+  "засіб для",
+  "корм для",
+];
+
+function normalizeLineName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[ʼ'`’‘]/g, "")
+    .replace(/ё/g, "е")
+    .replace(/[^\p{L}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * True when a receipt-line name is clearly not a cooking ingredient (R3) — bags, nicotine,
+ * alcohol, sweet/energy drinks, bottled water, household chemicals, pet food, hardware.
+ * Deterministic + pure; token-aware so «виноград» ≠ «вино», «шоколад» ≠ «кола».
+ */
+export function isNonFoodLine(name: string): boolean {
+  const norm = normalizeLineName(name);
+  if (NON_FOOD_PHRASE.some((p) => norm.includes(p))) return true;
+  const tokens = norm.split(" ");
+  return tokens.some((t) => NON_FOOD_EXACT.has(t) || NON_FOOD_PREFIX.some((p) => t.startsWith(p)));
+}
+
+/** How many purchased lines across `orders` are non-food (for the bootstrap summary log). */
+export function countNonFoodLines(orders: readonly RetailOrder[]): number {
+  let n = 0;
+  for (const o of orders) for (const l of o.lines) if (isNonFoodLine(l.name)) n++;
+  return n;
+}
+
 /** Monday-start ISO week key (`YYYY-Www`), computed in UTC. */
 export function isoWeekKey(d: Date): string {
   const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -111,6 +203,14 @@ export function buildConsumptionModel(orders: RetailOrder[], now: Date): Consump
     };
   }
 
+  // R3: non-food lines (bags, nicotine, drinks, chemicals…) never enter buyFrequency /
+  // brandAffinity. medianWeeklyCheque below still uses `o.total`, so the budget default is
+  // untouched; `receipt_lines` keeps the complete raw record separately.
+  const foodOrders: RetailOrder[] = orders.map((o) => ({
+    ...o,
+    lines: o.lines.filter((l) => !isNonFoodLine(l.name)),
+  }));
+
   const times = orders.map((o) => new Date(o.createdAt).getTime()).sort((a, b) => a - b);
   const windowStart = new Date(times[0]!);
   const windowEnd = new Date(times[times.length - 1]!);
@@ -127,7 +227,7 @@ export function buildConsumptionModel(orders: RetailOrder[], now: Date): Consump
   };
   const agg = new Map<string, Agg>();
 
-  for (const o of orders) {
+  for (const o of foodOrders) {
     const orderMs = new Date(o.createdAt).getTime();
     for (const l of dedupeLines(o.lines)) {
       const a = agg.get(l.key) ?? {
@@ -166,9 +266,9 @@ export function buildConsumptionModel(orders: RetailOrder[], now: Date): Consump
     source: "receipts",
     orderCount: orders.length,
     window: { start: windowStart.toISOString(), end: windowEnd.toISOString() },
-    medianWeeklyChequeUah: medianWeeklyCheque(orders),
+    medianWeeklyChequeUah: medianWeeklyCheque(orders), // real spend — keep every line
     buyFrequency,
-    brandAffinity: tallyBrands(orders),
+    brandAffinity: tallyBrands(foodOrders),
   };
 }
 
@@ -185,11 +285,16 @@ export function toInferConsumptionInput(model: ConsumptionModel) {
   return {
     orderCount: model.orderCount,
     weeks,
-    topItems: model.buyFrequency.slice(0, 25).map((b) => ({
-      label: b.label,
-      buysPer4Weeks: b.buysPer4Weeks,
-      category: b.category,
-    })),
+    // R3b: only genuinely-regular items — the same gate `buildPortrait`'s oftenBought cards
+    // use — so the LLM (and the fallback summary) can't name an item the cards call rare.
+    topItems: model.buyFrequency
+      .filter((b) => b.orderShare >= OFTEN_MIN_ORDER_SHARE)
+      .slice(0, 25)
+      .map((b) => ({
+        label: b.label,
+        buysPer4Weeks: b.buysPer4Weeks,
+        category: b.category,
+      })),
     topBrands: model.brandAffinity
       .slice(0, 15)
       .map((b) => ({ brand: b.brand, category: b.category })),
