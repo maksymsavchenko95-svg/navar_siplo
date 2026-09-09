@@ -105,12 +105,14 @@ export function partitionPlanLines(list: readonly ListLine[]): PlanLinePartition
 /** `ListLine[]` → `silpo_add_or_update_cart_products` items. Drops rows missing an id / packs. */
 export function toCartWriteItems(lines: readonly ListLine[]): CartWriteItem[] {
   return lines
-    .filter((l) => l.productRef && l.companyId && l.branchId && l.packCount > 0)
+    .filter((l) => l.productRef && l.companyId && l.branchId && (l.quantityKg ?? l.packCount) > 0)
     .map((l) => ({
       productId: l.productRef as string,
       companyId: l.companyId as string,
       branchId: l.branchId as string,
-      quantity: l.packCount,
+      // Weighted goods send kilograms (MCP 1.109.8: a multiple of the weighing step);
+      // packaged goods send the whole-pack count.
+      quantity: l.quantityKg ?? l.packCount,
     }));
 }
 
@@ -124,6 +126,7 @@ function toPreviewLine(
     productName: l.productName,
     productRef: l.productRef,
     quantity: l.packCount,
+    quantityKg: l.quantityKg,
     priceUah: l.price,
     isPromo: l.isPromo,
     decision: l.decision,
@@ -248,7 +251,9 @@ async function previewPlanInner(
 
   const part = partitionPlanLines(plan.list);
   const estimatedAddUah =
-    Math.round(part.addable.reduce((s, l) => s + (l.price ?? 0) * l.packCount, 0) * 100) / 100;
+    Math.round(
+      part.addable.reduce((s, l) => s + (l.price ?? 0) * (l.quantityKg ?? l.packCount), 0) * 100,
+    ) / 100;
 
   // C — flag meat/fish lines whose fresh form the branch can't source, with the days that
   // cook with them (for the «Замінити страву» action). Two cheap DB reads, no MCP.

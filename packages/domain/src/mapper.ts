@@ -51,6 +51,12 @@ export const skuMatchSchema = z.object({
   needsConfirmation: z.boolean(),
   packCount: z.number().int().nonnegative(),
   packSize: z.number().positive().nullable(), // parsed pack size, base unit
+  /**
+   * Kilograms to send to the cart — non-null only for weighted goods (MCP `1.109.8`: a
+   * weighted product's cart `quantity` and `step` are kg, its `price` is ₴/kg). Packaged
+   * goods are `null` and the cart gets `packCount`.
+   */
+  quantityKg: z.number().positive().nullable().default(null),
   surplusAmount: z.number().nonnegative(), // bought − needed, base unit → future pantry
   isPromo: z.boolean(),
   /**

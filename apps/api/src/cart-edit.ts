@@ -130,6 +130,8 @@ function toAlternative(
     step: m.step,
   });
   const packCount = Math.max(1, pack.packCount);
+  // Weighted goods are priced kg × ₴/kg (MCP 1.109.8); packaged goods packs × ₴/pack.
+  const billedQty = pack.quantityKg ?? packCount;
   return {
     productId: m.productId,
     companyId: m.companyId,
@@ -138,7 +140,8 @@ function toAlternative(
     priceUah: m.price,
     packSizeLabel: m.packSize,
     packCount,
-    lineTotalUah: Math.round(m.price * packCount * 100) / 100,
+    quantityKg: pack.quantityKg,
+    lineTotalUah: Math.round(m.price * billedQty * 100) / 100,
     isPromo: isPromoMatch(m),
     inStock: m.inStock,
     weighted: m.weighted,
@@ -208,6 +211,7 @@ export async function setLineSku(
       productName: chosen.name,
       packSize: pack.packSize,
       packCount: Math.max(1, pack.packCount),
+      quantityKg: pack.quantityKg,
       price: chosen.price,
       oldPrice: hasShelfMarkdown(chosen) ? chosen.oldPrice : null,
       isPromo: isPromoMatch(chosen),

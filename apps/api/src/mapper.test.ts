@@ -1,5 +1,6 @@
 import type { ProductDetails, ProductMatch } from "@navar/domain";
 import type { SkuMatch } from "@navar/domain";
+import type { RecipeCandidate } from "@navar/planner";
 import type { RetailProvider } from "@navar/retail";
 import type { Exclusions } from "@navar/safety";
 import { describe, expect, it, vi } from "vitest";
@@ -9,6 +10,7 @@ import {
   loadMapperDict,
   makeIngredientSafety,
   makeSkuSafety,
+  resizePlanList,
   skuMatchesToPrices,
 } from "./mapper.js";
 
@@ -39,6 +41,7 @@ const match = (over: Partial<SkuMatch> & Pick<SkuMatch, "slug">): SkuMatch => ({
   needsConfirmation: false,
   packCount: 1,
   packSize: 400,
+  quantityKg: null,
   surplusAmount: 100,
   isPromo: false,
   promoTier: null,
@@ -97,6 +100,121 @@ describe("skuMatchesToPrices", () => {
       ids,
     );
     expect(prices.size).toBe(0);
+  });
+
+  it("prices weighted goods per weighing step so recipeCost lands on kg × ₴/kg (R0b)", () => {
+    // Silpo weighted: price is ₴/kg (250.38), step is kg (0.5), packSize is stepGrams (500).
+    const weighed = match({ slug: "carrot" });
+    weighed.match!.weighted = true;
+    weighed.match!.step = 0.5;
+    weighed.match!.price = 250.38;
+    weighed.packSize = 500;
+    weighed.promoTier = { minCount: 2, price: 200 };
+    // recipeCost: packs = ceil(needed / packSize); lineCost = packs × uah.
+    // uah = 250.38 × 0.5 = 125.19 → a 600 g need buys 2 steps → 250.38 ₴ = 1 kg × ₴/kg. ✓
+    expect(skuMatchesToPrices([weighed], ids).get("id-carrot")).toEqual({
+      uah: 125.19,
+      promo: false,
+      packSize: 500,
+      tier: null, // per-kg tier can't compose with per-step pricing
+    });
+  });
+});
+
+describe("resizePlanList (R0)", () => {
+  const idBySlug = new Map([
+    ["carrot", "id-carrot"],
+    ["onion", "id-onion"],
+    ["beef", "id-beef"],
+  ]);
+
+  const cand = (slug: string, servings: number, lines: [string, number][]): RecipeCandidate => ({
+    recipeId: `r-${slug}`,
+    slug,
+    titleUk: slug,
+    servings,
+    activeMinutes: 20,
+    ingredients: lines.map(([s, amount]) => ({
+      id: idBySlug.get(s)!,
+      amount,
+      unit: "g",
+      category: "vegetable",
+      optional: false,
+    })),
+    macrosPerServing: { kcal: 500, protein: 25, fat: 15, carbs: 55, fiber: 0 },
+  });
+
+  // corpus mapper: carrot summed across the whole corpus (2 kg), onion 1 kg, plus a
+  // parsley line no chosen recipe uses.
+  const corpus = {
+    branchId: "br",
+    consolidated: [],
+    stats: { total: 3, matched: 3, needsConfirmation: 0, noMatch: 0, blocked: 0 },
+    matches: [
+      match({ slug: "carrot", neededAmount: 2000, packCount: 5 }),
+      match({ slug: "onion", neededAmount: 1000, packCount: 3 }),
+      match({ slug: "parsley", neededAmount: 200, packCount: 1 }),
+    ],
+  };
+
+  it("re-consolidates only the picked recipes, scaled by servings / recipe.servings", () => {
+    // household of 4; recipe A yields 4 (scale 1) uses 300 g carrot; recipe B yields 2
+    // (scale 2) uses 100 g carrot + 250 g onion.
+    const candidates = [
+      cand("stew", 4, [["carrot", 300]]),
+      cand("soup", 2, [
+        ["carrot", 100],
+        ["onion", 250],
+      ]),
+    ];
+    const out = resizePlanList(
+      corpus,
+      [
+        { slug: "stew", portionScale: 1 },
+        { slug: "soup", portionScale: 1 },
+      ],
+      candidates,
+      4,
+      idBySlug,
+    );
+    const bySlug = new Map(out.matches.map((m) => [m.slug, m]));
+    // carrot: 300×1 + 100×(4/2)×1 = 500 g
+    expect(bySlug.get("carrot")).toMatchObject({ neededAmount: 500, packCount: 2 });
+    // onion: 250×(4/2) = 500 g
+    expect(bySlug.get("onion")).toMatchObject({ neededAmount: 500, packCount: 2 });
+    // parsley is used by no picked recipe → dropped
+    expect(bySlug.has("parsley")).toBe(false);
+    expect(out.stats).toEqual({
+      total: 2,
+      matched: 2,
+      needsConfirmation: 0,
+      noMatch: 0,
+      blocked: 0,
+    });
+  });
+
+  it("multiplies the need by the day's portionScale", () => {
+    const out = resizePlanList(
+      corpus,
+      [{ slug: "stew", portionScale: 1.4 }],
+      [cand("stew", 4, [["carrot", 300]])],
+      4,
+      idBySlug,
+    );
+    // 300 × (4/4) × 1.4 = 420 g → 2 packs of 400
+    expect(out.matches[0]).toMatchObject({ slug: "carrot", neededAmount: 420, packCount: 2 });
+  });
+
+  it("Σ neededAmount for a 1-serving plan is far below the corpus sum", () => {
+    const out = resizePlanList(
+      corpus,
+      [{ slug: "stew", portionScale: 1 }],
+      [cand("stew", 4, [["carrot", 300]])],
+      1,
+      idBySlug,
+    );
+    // 300 × (1/4) = 75 g, vs the corpus 2000 g
+    expect(out.matches[0]!.neededAmount).toBe(75);
   });
 });
 

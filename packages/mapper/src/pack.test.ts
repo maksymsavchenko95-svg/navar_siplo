@@ -28,6 +28,8 @@ describe("computePack", () => {
       boughtAmount: 400,
       surplusAmount: 100,
       packSize: 400,
+      weighted: false,
+      quantityKg: null,
     });
     expect(computePack(900, 400)).toMatchObject({
       packCount: 3,
@@ -40,13 +42,24 @@ describe("computePack", () => {
     expect(computePack(800, 400)).toMatchObject({ packCount: 2, surplusAmount: 0 });
   });
 
-  it("weighed goods buy the exact mass rounded up to the weighing step", () => {
-    // need 618 g, step 0.4 kg → 400 g increments → buy 800 g
+  it("weighed goods buy the exact mass rounded up to the weighing step, quantity in kg", () => {
+    // need 618 g, step 0.4 kg → 400 g increments → buy 800 g = 0.8 kg (2 steps)
     expect(computePack(618, null, { weighted: true, step: 0.4 })).toEqual({
-      packCount: 1,
+      packCount: 2,
       boughtAmount: 800,
       surplusAmount: 182,
       packSize: 400,
+      weighted: true,
+      quantityKg: 0.8,
+    });
+    // need 251 g garlic, step 0.1 kg → buy 300 g = 0.3 kg (3 steps)
+    expect(computePack(251, null, { weighted: true, step: 0.1 })).toEqual({
+      packCount: 3,
+      boughtAmount: 300,
+      surplusAmount: 49,
+      packSize: 100,
+      weighted: true,
+      quantityKg: 0.3,
     });
   });
 
@@ -56,6 +69,8 @@ describe("computePack", () => {
       boughtAmount: 250,
       surplusAmount: 0,
       packSize: null,
+      weighted: false,
+      quantityKg: null,
     });
   });
 

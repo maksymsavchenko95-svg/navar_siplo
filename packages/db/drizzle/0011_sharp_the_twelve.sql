@@ -1,0 +1,1 @@
+ALTER TABLE "list_lines" ADD COLUMN "quantity_kg" numeric(10, 3);

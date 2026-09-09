@@ -19,6 +19,7 @@ export { parsePackSize, computePack, type PackPlan } from "./pack.js";
 export { scoreCandidate, rankCandidates, isWrongForm, type ScoredCandidate } from "./score.js";
 export { decideMatch, type Decision } from "./decide.js";
 export { mapPlan, type MapPlanInput, type MapPlanDeps } from "./map.js";
+export { resizeMatches, statsFor } from "./resize.js";
 export {
   loadGolden,
   evaluateQuery,

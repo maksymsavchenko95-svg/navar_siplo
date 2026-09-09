@@ -9,6 +9,7 @@ import {
   pct,
   planTimestamp,
   pluralPeople,
+  quantityLabel,
   signedUah,
   THIN_SPACE,
   uah,
@@ -107,5 +108,13 @@ describe("unitLabel", () => {
   });
   it("passes an unknown unit through unchanged", () => {
     expect(unitLabel("tbsp")).toBe("tbsp");
+  });
+});
+
+describe("quantityLabel", () => {
+  it("shows kilograms for a weighted line, packs otherwise", () => {
+    expect(quantityLabel({ quantity: 1, quantityKg: 0.3 })).toBe("0.3 кг");
+    expect(quantityLabel({ quantity: 2, quantityKg: null })).toBe("2 уп.");
+    expect(quantityLabel({ packCount: 3 })).toBe("3 уп.");
   });
 });

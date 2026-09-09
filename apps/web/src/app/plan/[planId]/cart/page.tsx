@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
 import { useReconnect } from "@/lib/auth";
-import { approx, pct, uah } from "@/lib/format";
+import { approx, pct, quantityLabel, uah } from "@/lib/format";
 import { LineSkuSheet } from "@/components/plan/LineSkuSheet";
 import { ReplaceSheet } from "@/components/plan/ReplaceSheet";
 import {
@@ -102,7 +102,7 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
             Math.round(
               p.addable
                 .filter((l) => !excluded.has(l.slug))
-                .reduce((s, l) => s + (l.priceUah ?? 0) * l.quantity, 0) * 100,
+                .reduce((s, l) => s + (l.priceUah ?? 0) * (l.quantityKg ?? l.quantity), 0) * 100,
             ) / 100;
           const rowActions = (l: CartPreviewLine) => (
             <div className="cart-item-actions">
@@ -161,7 +161,7 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
                         <span className="cart-item-name">{l.productName ?? l.nameUk}</span>
                         <span className="cart-item-pack">
                           {l.confidence != null ? `впевненість ${pct(l.confidence * 100)}` : ""}
-                          {l.priceUah != null ? ` · ${uah(l.priceUah)} × ${l.quantity}` : ""}
+                          {l.priceUah != null ? ` · ${uah(l.priceUah)} × ${quantityLabel(l)}` : ""}
                         </span>
                         {l.proteinUnavailable && (
                           <span className="cart-item-warn">
@@ -211,7 +211,7 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
                       <div className="cart-item-info">
                         <span className="cart-item-name">{l.productName ?? l.nameUk}</span>
                         <span className="cart-item-pack">
-                          {l.priceUah != null ? `${uah(l.priceUah)} × ${l.quantity} уп.` : ""}
+                          {l.priceUah != null ? `${uah(l.priceUah)} × ${quantityLabel(l)}` : ""}
                           {l.isPromo ? " · Акція" : ""}
                         </span>
                         {l.proteinUnavailable && (

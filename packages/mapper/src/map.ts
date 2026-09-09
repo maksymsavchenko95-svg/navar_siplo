@@ -84,6 +84,7 @@ function blockedMatch(c: ConsolidatedIngredient, query: string, reason: string):
     needsConfirmation: false,
     packCount: 0,
     packSize: null,
+    quantityKg: null,
     surplusAmount: 0,
     isPromo: false,
     promoTier: null,
@@ -231,6 +232,7 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
       needsConfirmation: d.needsConfirmation,
       packCount: chosen ? pack.packCount : 0,
       packSize: chosen ? pack.packSize : null,
+      quantityKg: chosen ? pack.quantityKg : null,
       surplusAmount: chosen ? pack.surplusAmount : 0,
       isPromo: chosen ? isPromoMatch(chosen) : false,
       // The multi-buy tier travels to the solver so budget arithmetic can decide whether

@@ -126,6 +126,24 @@ describe("lineAlternatives", () => {
     expect(r.alternatives.find((a) => a.productId === "fresh")!.lineTotalUah).toBe(210);
   });
 
+  it("prices a weighted alternative as kg × ₴/kg and carries quantityKg (R0b)", async () => {
+    const retail = fakeRetail([
+      // fresh beef sold by weight: 210 ₴/kg, step 0.5 kg, need 500 g → 0.5 kg
+      sku({
+        productId: "fresh",
+        name: "Яловичина лопатка",
+        price: 210,
+        packSize: "100г",
+        weighted: true,
+        step: 0.5,
+      }),
+    ]);
+    const r = await lineAlternatives("p1", "hh", "beef", retail);
+    if (r.status !== "ok") throw new Error(r.status);
+    const alt = r.alternatives.find((a) => a.productId === "fresh")!;
+    expect(alt).toMatchObject({ quantityKg: 0.5, lineTotalUah: 105 }); // 210 × 0.5, not 210 × 1
+  });
+
   it("drops a safety-blocked candidate", async () => {
     skuBlocked = true;
     const retail = fakeRetail([
@@ -159,6 +177,7 @@ describe("setLineSku", () => {
       needsConfirmation: false,
       userOverridden: true,
       confidence: null,
+      quantityKg: null, // packaged SKU
     });
     expect(clearPreview).toHaveBeenCalledWith("p1");
   });

@@ -53,6 +53,7 @@ const line = (over: Partial<ListLine> & Pick<ListLine, "slug">): ListLine => ({
   productName: `${over.slug} SKU`,
   packSize: 400,
   packCount: 1,
+  quantityKg: null,
   price: 40,
   oldPrice: null,
   isPromo: false,
@@ -177,6 +178,12 @@ describe("toCartWriteItems", () => {
       ]),
     ).toEqual([{ productId: "a-sku", companyId: "co", branchId: "br", quantity: 1 }]);
   });
+
+  it("sends weighted goods as kilograms, not the pack count (R0b)", () => {
+    expect(toCartWriteItems([line({ slug: "garlic", packCount: 3, quantityKg: 0.3 })])).toEqual([
+      { productId: "garlic-sku", companyId: "co", branchId: "br", quantity: 0.3 },
+    ]);
+  });
 });
 
 // ── previewPlan ─────────────────────────────────────────────────────────────
@@ -197,6 +204,17 @@ describe("previewPlan", () => {
     expect(r.estimatedAddUah).toBe(90); // 40*2 + 10
     expect(r.currentCartLines).toBe(1);
     expect(r.addable).toHaveLength(2);
+  });
+
+  it("estimates a weighted line as ₴/kg × kg, not ₴ × pack count (R0b)", async () => {
+    getPlanDetail.mockResolvedValue(
+      // chicken fillet: price 250.38 ₴/kg, need 0.6 kg (packCount 2 steps of 0.5)
+      planDetail([line({ slug: "chicken", price: 250.38, packCount: 2, quantityKg: 1 })]),
+    );
+    const r = await previewPlan("p1", "hh", fakeRetail());
+    expect(r.status).toBe("ok");
+    if (r.status !== "ok") return;
+    expect(r.estimatedAddUah).toBe(250.38); // 250.38 × 1 kg, not 250.38 × 2
   });
 
   it("surfaces not_found / auth_required / no_cart", async () => {

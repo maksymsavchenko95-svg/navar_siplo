@@ -76,9 +76,11 @@ describe("toExplainInput", () => {
         { isPromo: true, price: "40.00", oldPrice: "55.00", packCount: 2 }, // 30 saved
         { isPromo: true, price: "10.00", oldPrice: "8.00", packCount: 1 }, // negative → ignored
         { isPromo: false, price: "99.00", oldPrice: "150.00", packCount: 1 }, // not promo → ignored
+        // weighted: ₴/kg delta × kg, not × pack count → (200-170) × 0.5 = 15
+        { isPromo: true, price: "170.00", oldPrice: "200.00", packCount: 1, quantityKg: "0.500" },
       ],
     });
-    expect(out.savingsUah).toBe(30);
+    expect(out.savingsUah).toBe(45);
     expect(out.promoSharePct).toBe(100);
     expect(out.dishes).toEqual(["Борщ", "Плов"]);
   });
@@ -263,10 +265,33 @@ describe.skipIf(!process.env.DATABASE_URL)("plan generation (integration)", () =
       const { getPlanDetail, schema, db } = await import("@navar/db");
       const { eq } = await import("drizzle-orm");
       const detail = await getPlanDetail(res.planId, id);
-      expect(detail).not.toBeNull();
-      expect(detail!.items.length).toBe(5);
-      expect(detail!.explanation).toBeTruthy(); // template fallback always fills it
-      expect(["llm", "fallback"]).toContain(detail!.explanationSource); // never null once explained
+      if (!detail) throw new Error("plan not found after persist");
+      expect(detail.items.length).toBe(5);
+      expect(detail.explanation).toBeTruthy(); // template fallback always fills it
+      expect(["llm", "fallback"]).toContain(detail.explanationSource); // never null once explained
+
+      // R0 — the shopping list is sized for 5 dinners × servings, not the whole corpus.
+      // A single ingredient across 5 dinners at 3 servings can't plausibly exceed a few kg.
+      for (const l of detail.list) {
+        if (l.unit === "g" || l.unit === "ml") expect(l.neededAmount).toBeLessThan(6000);
+      }
+      // R0 + R0b — Σ(price × billed quantity) reconciles with the solver's plan total.
+      // The list consolidates across the 5 picks and `recipeCost` counts packs per-recipe
+      // (plus it prices unmapped lines with a category median the list leaves null), so the
+      // list total sits *at or below* the plan total — never the 2–3× blow-out R0 caused.
+      const priced = detail.list.filter((l) => l.price != null);
+      const listTotal = priced.reduce((s, l) => s + l.price! * (l.quantityKg ?? l.packCount), 0);
+      if (priced.length > 0 && detail.totalEstUah != null && detail.totalEstUah > 0) {
+        expect(listTotal).toBeLessThan(detail.totalEstUah * 1.05);
+        expect(listTotal).toBeGreaterThan(detail.totalEstUah * 0.5);
+      }
+      // R0b — a weighted line carries a plausible fractional-kg quantity, never a bare pack.
+      for (const l of detail.list) {
+        if (l.quantityKg != null) {
+          expect(l.quantityKg).toBeGreaterThan(0);
+          expect(l.quantityKg).toBeLessThan(5);
+        }
+      }
 
       // T4.3 — the MCP calls that built the plan are recorded against it.
       const { getMcpCallsByPlan } = await import("@navar/db");

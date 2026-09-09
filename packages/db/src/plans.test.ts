@@ -55,6 +55,7 @@ const skuMatch = (over: Partial<SkuMatch> & Pick<SkuMatch, "slug">): SkuMatch =>
   needsConfirmation: false,
   packCount: 1,
   packSize: 400,
+  quantityKg: null,
   surplusAmount: 100,
   isPromo: false,
   promoTier: null,
@@ -163,7 +164,23 @@ describe("toPlanRows", () => {
       companyId: "co",
       price: "42.00",
       packCount: 1,
+      quantityKg: null, // packaged
       isPromo: false,
+    });
+  });
+
+  it("carries quantityKg for a weighted line (R0b)", () => {
+    const { lines } = toPlanRows(
+      baseInput({
+        mapper: mapperResult([
+          skuMatch({ slug: "beet", packCount: 3, quantityKg: 0.3, packSize: 100 }),
+          skuMatch({ slug: "rice" }),
+        ]),
+      }),
+    );
+    expect(lines.find((l) => l.slug === "beet")).toMatchObject({
+      quantityKg: "0.300",
+      packCount: 3,
     });
   });
 
@@ -402,8 +419,9 @@ describe.skipIf(!process.env.DATABASE_URL)("savePlan / getPlanDetail (integratio
       companyId: "co2",
       branchId: "br2",
       productName: "Морква вагова свіжа",
-      packSize: 1000,
-      packCount: 1,
+      packSize: 200,
+      packCount: 5,
+      quantityKg: 1,
       price: 22.5,
       oldPrice: null,
       isPromo: false,
@@ -428,6 +446,7 @@ describe.skipIf(!process.env.DATABASE_URL)("savePlan / getPlanDetail (integratio
       productRef: "new-sku",
       productName: "Морква вагова свіжа",
       price: 22.5,
+      quantityKg: 1,
       userOverridden: true,
       needsConfirmation: false,
     });

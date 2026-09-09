@@ -97,6 +97,8 @@ export const cartPreviewLineSchema = z.object({
   productName: z.string().nullable(),
   productRef: z.string().nullable(),
   quantity: z.number().int().nonnegative(), // packCount
+  /** Kilograms for a weighted line («0.3 кг»); `null` → packaged, show `quantity` packs. */
+  quantityKg: z.number().positive().nullable().default(null),
   priceUah: z.number().nullable(),
   isPromo: z.boolean(),
   decision: skuMatchDecisionSchema.nullable(),
@@ -124,7 +126,9 @@ export const cartLineAlternativeSchema = z.object({
   priceUah: z.number(),
   packSizeLabel: z.string().nullable(), // Silpo `displayRatio`
   packCount: z.number().int().positive(),
-  lineTotalUah: z.number(), // price × packCount
+  /** Kilograms for a weighted alternative; `null` for packaged goods. */
+  quantityKg: z.number().positive().nullable().default(null),
+  lineTotalUah: z.number(), // price × (quantityKg ?? packCount)
   isPromo: z.boolean(),
   inStock: z.boolean(),
   weighted: z.boolean(),

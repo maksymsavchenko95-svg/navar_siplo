@@ -365,6 +365,7 @@ export const listLines = pgTable(
     productName: text("product_name"),
     packSize: numeric("pack_size", { precision: 10, scale: 2 }),
     packCount: integer("pack_count").notNull().default(0),
+    quantityKg: numeric("quantity_kg", { precision: 10, scale: 3 }), // weighted goods — kg for the cart write (MCP 1.109.8)
     price: numeric("price", { precision: 10, scale: 2 }),
     oldPrice: numeric("old_price", { precision: 10, scale: 2 }), // pre-promo — for the savings figure
     isPromo: boolean("is_promo").notNull().default(false),

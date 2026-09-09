@@ -169,6 +169,7 @@ export function toPlanRows(input: ToPlanRowsInput): Omit<PlanRows, "plan"> & {
         productName: match?.name ?? null,
         packSize: m.packSize != null ? num(m.packSize, 2) : null,
         packCount: m.packCount,
+        quantityKg: m.quantityKg != null ? num(m.quantityKg, 3) : null,
         price: match ? num(match.price, 2) : null,
         oldPrice: match?.oldPrice != null ? num(match.oldPrice, 2) : null,
         isPromo: m.isPromo,
@@ -295,6 +296,7 @@ export async function getPlanDetail(
     productName: l.productName,
     packSize: toNum(l.packSize),
     packCount: l.packCount,
+    quantityKg: toNum(l.quantityKg),
     price: toNum(l.price),
     oldPrice: toNum(l.oldPrice),
     isPromo: l.isPromo,
@@ -313,7 +315,7 @@ export async function getPlanDetail(
       list.reduce(
         (sum, l) =>
           l.isPromo && l.oldPrice != null && l.price != null
-            ? sum + Math.max(0, l.oldPrice - l.price) * l.packCount
+            ? sum + Math.max(0, l.oldPrice - l.price) * (l.quantityKg ?? l.packCount)
             : sum,
         0,
       ) * 100,
@@ -471,6 +473,7 @@ export interface ListLineSkuPatch {
   productName: string | null;
   packSize: number | null;
   packCount: number;
+  quantityKg: number | null;
   price: number | null;
   oldPrice: number | null;
   isPromo: boolean;
@@ -513,6 +516,7 @@ export async function updateListLineSku(
         productName: patch.productName,
         packSize: patch.packSize == null ? null : num(patch.packSize, 2),
         packCount: patch.packCount,
+        quantityKg: patch.quantityKg == null ? null : num(patch.quantityKg, 3),
         price: patch.price == null ? null : num(patch.price, 2),
         oldPrice: patch.oldPrice == null ? null : num(patch.oldPrice, 2),
         isPromo: patch.isPromo,

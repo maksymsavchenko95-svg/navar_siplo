@@ -84,6 +84,20 @@ export function unitLabel(unit: string): string {
 }
 
 /**
+ * A shopping-list line's buy quantity for display: «0.3 кг» for a weighted line (MCP
+ * `1.109.8` — the cart quantity is kilograms), «2 уп.» for packaged goods. Accepts either
+ * a preview line (`quantity`) or a SKU alternative (`packCount`).
+ */
+export function quantityLabel(l: {
+  quantity?: number;
+  packCount?: number;
+  quantityKg?: number | null;
+}): string {
+  if (l.quantityKg != null) return `${l.quantityKg} кг`;
+  return `${l.quantity ?? l.packCount ?? 0} уп.`;
+}
+
+/**
  * `8 вересня, 14:32` — a plan's creation moment, local time. Deterministic month names
  * (no `Intl`), so duplicate plans a minute apart stay distinguishable on `/plans`.
  */

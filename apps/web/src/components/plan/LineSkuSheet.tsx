@@ -1,7 +1,7 @@
 "use client";
 
 import { trpc } from "@/lib/trpc";
-import { uah } from "@/lib/format";
+import { quantityLabel, uah } from "@/lib/format";
 import { BottomSheet } from "@/components/plan/BottomSheet";
 import { SpinnerDots } from "@/components/ui";
 
@@ -65,7 +65,7 @@ export function LineSkuSheet({
             <div className="dish-meta-row">
               {a.packSizeLabel && <span className="dish-pill-meta">{a.packSizeLabel}</span>}
               <span className="dish-pill-meta">
-                {uah(a.lineTotalUah)} ({a.packCount} уп.)
+                {uah(a.lineTotalUah)} ({quantityLabel(a)})
               </span>
               {a.isPromo && <span className="dish-pill-promo">Акція</span>}
               {!a.inStock && <span className="dish-pill-meta">немає</span>}

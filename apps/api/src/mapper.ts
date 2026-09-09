@@ -2,19 +2,22 @@ import { db, schema } from "@navar/db";
 import {
   hasShelfMarkdown,
   type Macros,
+  type MapperResult,
   type ProductDetails,
   type SkuMatch,
   type StoredRestriction,
 } from "@navar/domain";
 import { llmRerank } from "@navar/llm";
-import type {
-  IngredientSafetyCheck,
-  MapperDictEntry,
-  RerankFn,
-  SkuSafetyCheck,
+import {
+  type IngredientSafetyCheck,
+  type MapperDictEntry,
+  resizeMatches,
+  type RerankFn,
+  type SkuSafetyCheck,
+  statsFor,
 } from "@navar/mapper";
 import type { RetailProvider } from "@navar/retail";
-import type { SolverInput } from "@navar/planner";
+import type { RecipeCandidate, SolverInput } from "@navar/planner";
 import {
   checkIngredient,
   checkSku,
@@ -192,14 +195,56 @@ export function skuMatchesToPrices(
   for (const m of matches) {
     const id = idBySlug.get(m.slug);
     if (!id || !m.match) continue;
+    // Weighted goods (MCP 1.109.8): `price` is ₴/kg and `step` is kg. The solver prices a
+    // line as `ceil(needed / packSize) × uah`, so `packSize` is the step in grams (as
+    // `computePack` set `m.packSize`) and `uah` must be the ₴-per-step price for the line
+    // total to come out as `kg × ₴/kg`.
+    const weighted = m.match.weighted && m.match.step != null && m.match.step > 0;
     out.set(id, {
-      uah: m.match.price,
+      uah: weighted ? m.match.price * m.match.step! : m.match.price,
       // Markdown only — a multi-buy tier travels separately, since the solver may only
       // count it once the plan buys enough units to collect it (T4.1).
       promo: hasShelfMarkdown(m.match),
       packSize: m.packSize ?? m.neededAmount,
-      tier: m.promoTier,
+      // A per-kg multi-buy tier can't compose with per-step line pricing — drop it for
+      // weighted goods (rare in practice).
+      tier: weighted ? null : m.promoTier,
     });
   }
   return out;
+}
+
+/**
+ * Re-size the corpus-wide mapper output to the 5 chosen dinners (R0). The mapper runs once
+ * over the whole usable corpus at each recipe's own yield (so the solver can price every
+ * candidate); the persisted `list_lines` and the cart write must instead reflect the picked
+ * dinners × the household's servings × each day's portion scale. This re-consolidates the
+ * picks' ingredient lines — scaled the same way `recipeCost` scales them
+ * (`servings / recipe.servings × portionScale`) — and re-runs the pack maths for each
+ * already-chosen SKU. No new MCP search: the match is already known.
+ */
+export function resizePlanList(
+  mapper: MapperResult,
+  picks: readonly { slug: string; portionScale: number }[],
+  candidates: readonly RecipeCandidate[],
+  servings: number,
+  idBySlug: ReadonlyMap<string, string>,
+): MapperResult {
+  const slugById = new Map([...idBySlug].map(([slug, id]) => [id, slug]));
+  const candBySlug = new Map(candidates.map((c) => [c.slug, c]));
+
+  const neededBySlug = new Map<string, number>();
+  for (const pick of picks) {
+    const cand = candBySlug.get(pick.slug);
+    if (!cand) continue;
+    const scale = (cand.servings > 0 ? servings / cand.servings : 1) * pick.portionScale;
+    for (const line of cand.ingredients) {
+      const slug = slugById.get(line.id);
+      if (!slug) continue;
+      neededBySlug.set(slug, (neededBySlug.get(slug) ?? 0) + line.amount * scale);
+    }
+  }
+
+  const matches = resizeMatches(mapper.matches, neededBySlug);
+  return { branchId: mapper.branchId, consolidated: [], matches, stats: statsFor(matches) };
 }

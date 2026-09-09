@@ -58,6 +58,7 @@ describe("skuMatchSchema", () => {
     needsConfirmation: true,
     packCount: 0,
     packSize: null,
+    quantityKg: null,
     surplusAmount: 0,
     isPromo: false,
     promoTier: null,

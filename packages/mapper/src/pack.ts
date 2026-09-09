@@ -46,6 +46,13 @@ export interface PackPlan {
   boughtAmount: number; // total acquired, base unit
   surplusAmount: number; // boughtAmount − needed, base unit → future pantry
   packSize: number | null; // parsed pack size (base unit); null when unknown
+  weighted: boolean; // priced by weight — `quantity` sent to the cart is kilograms
+  /**
+   * Kilograms to send to the Silpo cart, non-null only when `weighted` (MCP `1.109.8`:
+   * for weighted goods the cart `quantity` and `step` are ALWAYS kg, `price` is ₴/kg).
+   * Packaged goods buy whole units → `null`, the cart gets `packCount`.
+   */
+  quantityKg: number | null;
 }
 
 /**
@@ -64,15 +71,26 @@ export function computePack(
     const stepGrams = opts.step && opts.step > 0 ? opts.step * 1000 : null;
     const bought = stepGrams ? Math.ceil(needed / stepGrams) * stepGrams : needed;
     return {
-      packCount: 1,
+      // The count of weighing steps, kept for display («3 × 100 г»); the cart write and
+      // pricing use `quantityKg`, not this.
+      packCount: stepGrams ? Math.round(bought / stepGrams) : 1,
       boughtAmount: round(bought),
       surplusAmount: round(Math.max(0, bought - needed)),
       packSize: stepGrams,
+      weighted: true,
+      quantityKg: round(bought / 1000),
     };
   }
 
   if (packSize == null || packSize <= 0) {
-    return { packCount: 1, boughtAmount: round(needed), surplusAmount: 0, packSize: null };
+    return {
+      packCount: 1,
+      boughtAmount: round(needed),
+      surplusAmount: 0,
+      packSize: null,
+      weighted: false,
+      quantityKg: null,
+    };
   }
 
   const packCount = Math.max(1, Math.ceil(needed / packSize));
@@ -82,6 +100,8 @@ export function computePack(
     boughtAmount: round(bought),
     surplusAmount: round(Math.max(0, bought - needed)),
     packSize,
+    weighted: false,
+    quantityKg: null,
   };
 }
 

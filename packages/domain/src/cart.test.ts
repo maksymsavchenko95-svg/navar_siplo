@@ -136,6 +136,7 @@ describe("cart result unions (discriminated on status)", () => {
           priceUah: 210,
           packSizeLabel: "1кг",
           packCount: 1,
+          quantityKg: null,
           lineTotalUah: 210,
           isPromo: false,
           inStock: true,

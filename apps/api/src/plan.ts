@@ -41,6 +41,7 @@ import {
   loadMapperDict,
   makeIngredientSafety,
   makeSkuSafety,
+  resizePlanList,
   skuMatchesToPrices,
 } from "./mapper.js";
 
@@ -354,11 +355,13 @@ export function toExplainInput(args: {
     price?: string | null;
     oldPrice?: string | null;
     packCount?: number;
+    quantityKg?: string | null;
   }[];
 }): ExplainPlanInput {
   const savingsUah = args.lines.reduce((s, l) => {
     if (!l.isPromo || l.price == null || l.oldPrice == null) return s;
-    return s + Math.max(0, (Number(l.oldPrice) - Number(l.price)) * (l.packCount ?? 0));
+    const qty = l.quantityKg != null ? Number(l.quantityKg) : (l.packCount ?? 0);
+    return s + Math.max(0, (Number(l.oldPrice) - Number(l.price)) * qty);
   }, 0);
   return {
     days: args.days,
@@ -523,6 +526,18 @@ export async function generateAndPersistPlan(
     stats: { total: 0, matched: 0, needsConfirmation: 0, noMatch: 0, blocked: 0 },
   };
 
+  // The mapper priced the whole corpus at each recipe's own yield; the shopping list must
+  // reflect the 5 chosen dinners × servings × portion scale (R0).
+  const sizedMapper = ctx.mapperResult
+    ? resizePlanList(
+        ctx.mapperResult,
+        result.days,
+        ctx.input.candidates,
+        ctx.input.servings,
+        ctx.idBySlug,
+      )
+    : emptyMapper;
+
   const rows = toPlanRows({
     householdId,
     goal: result.goal,
@@ -539,7 +554,7 @@ export async function generateAndPersistPlan(
       proteinFloorMet: result.totals.proteinFloorMet,
       kcalCorridorMet: result.totals.kcalCorridorMet,
     },
-    mapper: ctx.mapperResult ?? emptyMapper,
+    mapper: sizedMapper,
     idBySlug: ctx.idBySlug,
     recipeSlugIngredients: ctx.recipeSlugIngredients,
   });

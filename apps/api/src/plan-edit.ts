@@ -36,6 +36,7 @@ import { inArray } from "drizzle-orm";
 
 import { clearPreview } from "./cart.js";
 import { getLlm, getLlmTracer } from "./llm.js";
+import { resizePlanList } from "./mapper.js";
 import {
   type CachedPlanContext,
   loadPlanContext,
@@ -278,6 +279,18 @@ async function persistEdit(
     recipeId: liveRecipeIdBySlug.get(p.slug) ?? "",
   }));
 
+  // Re-size the corpus-wide mapper output to the edited pick set × servings × portion
+  // scale (R0) — same as the generate path.
+  const sizedMapper = ctx.mapperResult
+    ? resizePlanList(
+        ctx.mapperResult,
+        safePicks,
+        ctx.input.candidates,
+        ctx.input.servings,
+        ctx.idBySlug,
+      )
+    : emptyMapper;
+
   const rows = toPlanRows({
     householdId,
     goal: plan.goal,
@@ -294,7 +307,7 @@ async function persistEdit(
       proteinFloorMet: totals.proteinFloorMet,
       kcalCorridorMet: totals.kcalCorridorMet,
     },
-    mapper: ctx.mapperResult ?? emptyMapper,
+    mapper: sizedMapper,
     idBySlug: ctx.idBySlug,
     recipeSlugIngredients: ctx.recipeSlugIngredients,
   });

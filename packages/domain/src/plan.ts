@@ -44,6 +44,8 @@ export const listLineSchema = z.object({
   productName: z.string().nullable(),
   packSize: z.number().positive().nullable(),
   packCount: z.number().int().nonnegative(),
+  /** Kilograms to add to the cart for a weighted line (MCP `1.109.8`); `null` for packaged goods. */
+  quantityKg: z.number().positive().nullable(),
   price: z.number().nullable(),
   oldPrice: z.number().nullable(),
   isPromo: z.boolean(),
