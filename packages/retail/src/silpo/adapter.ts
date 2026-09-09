@@ -8,6 +8,8 @@ import type {
   CartWriteItem,
   CartWriteResult,
   CredentialStore,
+  DeliverySlot,
+  DeliverySlotRef,
   McpToolsResult,
   PersonalPromo,
   ProductDetails,
@@ -44,8 +46,10 @@ import {
   parseRestrictionsRaw,
   parseToolResult,
   toCartContext,
+  toCartDeliveryBase,
   toCartView,
   toCartWriteResult,
+  toDeliverySlots,
   toProductDetails,
   toProductSearchResults,
   toReplacementResults,
@@ -369,6 +373,46 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
         address: cart.delivery!.address,
         shipments: cart.delivery!.shipments,
         bonusRequested,
+      }),
+    );
+    this.clearCartCache();
+    return toCartWriteResult(raw);
+  }
+
+  async listDeliverySlots(): Promise<DeliverySlot[]> {
+    if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
+    const shoppingCartId = await this.myShoppingCartId(); // throws NoCartError
+    const cartById = await this.callTool("silpo_get_shopping_cart_by_id", { shoppingCartId });
+    const cart = (
+      cartById as { cart?: { deliveryType?: string; shipments?: { branchId?: string }[] } }
+    ).cart;
+    const branchId = cart?.shipments?.[0]?.branchId;
+    if (!branchId) throw new NoCartError();
+    const raw = await this.callTool("silpo_get_time_slots", {
+      branchId,
+      deliveryTypes: cart?.deliveryType ? [cart.deliveryType] : undefined,
+      limit: 25,
+    });
+    return toDeliverySlots(raw);
+  }
+
+  async setDeliverySlot(slot: DeliverySlotRef): Promise<CartWriteResult> {
+    if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
+    const shoppingCartId = await this.myShoppingCartId(); // throws NoCartError
+    const cartById = await this.callTool("silpo_get_shopping_cart_by_id", { shoppingCartId });
+    const base = toCartDeliveryBase(cartById);
+    if (!base) {
+      throw new Error(
+        "cart has no usable delivery target — set delivery type and address in the Silpo app first",
+      );
+    }
+    const raw = await writeWithRetry(() =>
+      this.callTool("silpo_update_shopping_cart", {
+        shoppingCartId,
+        deliveryType: base.deliveryType,
+        timeslot: { start: slot.start, end: slot.end },
+        address: base.address,
+        shipments: base.shipments,
       }),
     );
     this.clearCartCache();

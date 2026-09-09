@@ -59,8 +59,14 @@ export function ReplaceSheet({
       {(q.data?.status === "auth_required" || q.data?.status === "no_cart") && (
         <p className="screen-sub-title">Потрібне активне підключення до «Сільпо».</p>
       )}
+      {q.data?.status === "not_found" && (
+        <p className="screen-sub-title">План не знайдено — можливо, його видалили.</p>
+      )}
       {q.data?.status === "error" && (
         <p className="screen-sub-title">Не вдалося підібрати заміни: {q.data.message}</p>
+      )}
+      {q.isError && (
+        <p className="screen-sub-title">Не вдалося підібрати заміни. Спробуйте ще раз.</p>
       )}
 
       <button type="button" className="btn-secondary" onClick={onClose}>

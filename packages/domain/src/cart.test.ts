@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   cartApplyBonusResultSchema,
+  cartDeliverySlotsResultSchema,
   cartLineAlternativesResultSchema,
   cartMaterializeResultSchema,
   cartPreviewLineSchema,
   cartPreviewResultSchema,
+  cartSetDeliverySlotResultSchema,
   cartSetLineSkuResultSchema,
   cartViewSchema,
   cartWriteItemSchema,
@@ -185,5 +187,42 @@ describe("cart result unions (discriminated on status)", () => {
     expect(
       cartApplyBonusResultSchema.parse({ status: "unavailable", reason: "вимкнено" }).status,
     ).toBe("unavailable");
+  });
+
+  it("cartDeliverySlotsResultSchema round-trips ok with slots + a nullable selected", () => {
+    const ok = {
+      status: "ok" as const,
+      slots: [
+        {
+          start: "2026-09-05T10:00:00Z",
+          end: "2026-09-05T12:00:00Z",
+          available: true,
+          minOrderCostUah: 550,
+        },
+        {
+          start: "2026-09-05T12:00:00Z",
+          end: "2026-09-05T14:00:00Z",
+          available: false,
+          minOrderCostUah: null,
+        },
+      ],
+      selected: null,
+    };
+    expect(cartDeliverySlotsResultSchema.parse(ok)).toEqual(ok);
+  });
+
+  it("cartSetDeliverySlotResultSchema accepts ok + rejected", () => {
+    expect(
+      cartSetDeliverySlotResultSchema.parse({
+        status: "ok",
+        selected: { start: "s", end: "e" },
+        validations: [],
+        checkoutWebLink: null,
+        checkoutMobileLink: null,
+      }).status,
+    ).toBe("ok");
+    expect(
+      cartSetDeliverySlotResultSchema.parse({ status: "rejected", reason: "слот зайнято" }).status,
+    ).toBe("rejected");
   });
 });

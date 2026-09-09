@@ -5,10 +5,14 @@ import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
+import { useReconnect } from "@/lib/auth";
 import { approx, minutes, pct, uah } from "@/lib/format";
+import { planEditFeedback } from "@/lib/plan-edit-feedback";
 import { ReplaceSheet } from "@/components/plan/ReplaceSheet";
 import {
+  NoCartBanner,
   PrimaryButton,
+  ReconnectBanner,
   ScreenShell,
   ScreenTitle,
   SecondaryButton,
@@ -25,26 +29,50 @@ export default function PlanPage({ params }: { params: Promise<{ planId: string 
   const router = useRouter();
   const utils = trpc.useUtils();
 
+  const reconnect = useReconnect();
+
   const plan = trpc.plan.get.useQuery({ planId });
   const [sheetDay, setSheetDay] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [editBanner, setEditBanner] = useState<"auth_required" | "no_cart" | "not_found" | null>(
+    null,
+  );
 
-  const onEditResult = (r: PlanEditResult) => {
-    if (r.status === "ok") {
-      setToast(r.change.note);
-      setEditError(null);
-      void utils.plan.get.invalidate({ planId });
-    } else if (r.status === "already_materialized") {
-      setEditError("План уже в кошику «Сільпо». Створіть новий план, щоб змінити меню.");
-    } else if (r.status === "rejected" || r.status === "infeasible" || r.status === "error") {
-      setEditError("reason" in r ? r.reason : r.message);
-    }
-    setSheetDay(null);
+  const clearEditFeedback = () => {
+    setToast(null);
+    setEditError(null);
+    setEditBanner(null);
   };
 
-  const applyReplacement = trpc.plan.applyReplacement.useMutation({ onSuccess: onEditResult });
-  const cheaper = trpc.plan.cheaper.useMutation({ onSuccess: onEditResult });
+  const onEditResult = (r: PlanEditResult) => {
+    setSheetDay(null);
+    clearEditFeedback();
+    const fb = planEditFeedback(r);
+    if (fb.kind === "toast") {
+      setToast(fb.note);
+      void utils.plan.get.invalidate({ planId });
+    } else if (fb.kind === "banner") {
+      setEditBanner(fb.banner);
+    } else {
+      setEditError(fb.message);
+    }
+  };
+
+  const onEditError = (e: { message: string }) => {
+    setSheetDay(null);
+    clearEditFeedback();
+    setEditError(e.message || "Не вдалося застосувати зміну. Спробуйте ще раз.");
+  };
+
+  const applyReplacement = trpc.plan.applyReplacement.useMutation({
+    onSuccess: onEditResult,
+    onError: onEditError,
+  });
+  const cheaper = trpc.plan.cheaper.useMutation({
+    onSuccess: onEditResult,
+    onError: onEditError,
+  });
 
   if (plan.isLoading) {
     return (
@@ -80,6 +108,14 @@ export default function PlanPage({ params }: { params: Promise<{ planId: string 
         </p>
       )}
 
+      {editBanner === "auth_required" && <ReconnectBanner onReconnect={reconnect} />}
+      {editBanner === "no_cart" && <NoCartBanner />}
+      {editBanner === "not_found" && (
+        <StateBanner title="План не знайдено">
+          Можливо, його видалили.{" "}
+          <button onClick={() => router.push("/plans")}>До списку планів</button>
+        </StateBanner>
+      )}
       {editError && <StateBanner title="Зміну не застосовано">{editError}</StateBanner>}
       {toast && <StateBanner tone="info">{toast}</StateBanner>}
 

@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
 import { useReconnect } from "@/lib/auth";
-import { approx, pct, uah } from "@/lib/format";
+import { approx, deliveryWindow, pct, uah } from "@/lib/format";
+import { DeliverySlotSheet } from "@/components/plan/DeliverySlotSheet";
 import { LineSkuSheet } from "@/components/plan/LineSkuSheet";
 import { ReplaceSheet } from "@/components/plan/ReplaceSheet";
 import {
@@ -29,7 +30,7 @@ function humanValidation(v: CartValidation): string {
       ? `Сума кошика нижча за мінімальну для замовлення — ${uah(min)}`
       : "Сума кошика нижча за мінімальну для замовлення";
   }
-  if (m === "timeslot.not_found") return "Оберіть слот доставки в застосунку «Сільпо»";
+  if (m === "timeslot.not_found") return "Оберіть слот доставки нижче";
   if (m === "product.offer.stock.max") return "Деяких товарів немає в потрібній кількості";
   if (m === "order.payment_types.disabled")
     return "Частина способів оплати недоступна для цієї суми";
@@ -308,10 +309,20 @@ function CartResult({
   materialized: MaterializedOk | null;
 }) {
   const router = useRouter();
+  const reconnect = useReconnect();
   const bonus = trpc.cart.offerBonus.useQuery({ planId });
   const checkout = trpc.cart.checkoutLink.useQuery({ planId });
+  const slots = trpc.cart.deliverySlots.useQuery({ planId });
   const applyBonus = trpc.cart.applyBonus.useMutation({ onSettled: () => void bonus.refetch() });
   const [bonusOn, setBonusOn] = useState(false);
+  const [slotOpen, setSlotOpen] = useState(false);
+
+  const selectedSlot = slots.data?.status === "ok" ? slots.data.selected : null;
+  const afterSlotChange = () => {
+    void checkout.refetch();
+    void bonus.refetch();
+    void slots.refetch();
+  };
 
   const cartTotal = materialized?.cartTotalUah ?? null;
   const validations = materialized?.validations ?? [];
@@ -434,11 +445,32 @@ function CartResult({
         <SpinnerDots />
       ) : null}
 
+      <div className="cart-slot-row">
+        <span className="screen-sub-title">
+          {selectedSlot
+            ? `Слот доставки: ${deliveryWindow(selectedSlot.start, selectedSlot.end)}`
+            : "Слот доставки не обрано"}
+        </span>
+        <button type="button" className="dish-card__replace" onClick={() => setSlotOpen(true)}>
+          {selectedSlot ? "Змінити слот" : "Обрати слот доставки"}
+        </button>
+      </div>
+
       <p className="cart-retailer-note">Оплата й доставка — у «Сільпо».</p>
       <SecondaryButton onClick={() => (window.location.href = `/plan/${planId}/trace`)}>
         Як це працювало
       </SecondaryButton>
       <SecondaryButton onClick={() => router.push("/plans")}>До планів</SecondaryButton>
+
+      {slotOpen && (
+        <DeliverySlotSheet
+          planId={planId}
+          selected={selectedSlot}
+          onClose={() => setSlotOpen(false)}
+          onDone={afterSlotChange}
+          onReconnect={reconnect}
+        />
+      )}
     </div>
   );
 }

@@ -3,6 +3,8 @@ import type {
   CartView,
   CartWriteItem,
   CartWriteResult,
+  DeliverySlot,
+  DeliverySlotRef,
   McpToolsResult,
   PersonalPromo,
   ProductDetails,
@@ -93,6 +95,23 @@ export interface RetailProvider {
    * delivery context.
    */
   updateCartBonus(bonusRequested: number | null): Promise<CartWriteResult>;
+
+  // ── delivery slot (cart.deliverySlots / cart.setDeliverySlot) ─────────────
+
+  /**
+   * The cart branch's upcoming delivery windows (`silpo_get_time_slots`), filtered to the
+   * cart's delivery type. `[]` when the branch offers none. Throws `NoCartError` /
+   * `AuthRequiredError`.
+   */
+  listDeliverySlots(): Promise<DeliverySlot[]>;
+
+  /**
+   * Write a delivery window to the cart (`silpo_update_shopping_cart`), echoing the cart's
+   * delivery type / address / shipments. An explicit Guest action; never clears the cart.
+   * Re-read with `getCart()` afterwards (`FR-CART-005`). Throws if the cart has no usable
+   * delivery target, `NoCartError` / `AuthRequiredError` otherwise.
+   */
+  setDeliverySlot(slot: DeliverySlotRef): Promise<CartWriteResult>;
 }
 
 /**

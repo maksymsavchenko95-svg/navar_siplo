@@ -2,9 +2,11 @@ import type {
   CartApplyBonusResult,
   CartBonusOfferResult,
   CartCheckoutLinkResult,
+  CartDeliverySlotsResult,
   CartLineAlternativesResult,
   CartMaterializeResult,
   CartPreviewResult,
+  CartSetDeliverySlotResult,
   CartSetLineSkuResult,
 } from "@navar/domain";
 import { z } from "zod";
@@ -13,9 +15,11 @@ import {
   applyBonus,
   armPreview,
   checkoutLink,
+  deliverySlots,
   materializePlan,
   offerBonus,
   previewPlan,
+  setDeliverySlot,
 } from "../../cart.js";
 import { lineAlternatives, setLineSku } from "../../cart-edit.js";
 import { protectedProcedure, router } from "../trpc.js";
@@ -70,6 +74,25 @@ export const cartRouter = router({
     .input(z.object({ planId: z.string().uuid() }))
     .query(async ({ ctx, input }): Promise<CartCheckoutLinkResult> => {
       return checkoutLink(input.planId, ctx.householdId, ctx.retail);
+    }),
+
+  /** `cart.deliverySlots(planId)` — the branch's upcoming delivery windows (read-only). */
+  deliverySlots: protectedProcedure
+    .input(z.object({ planId: z.string().uuid() }))
+    .query(async ({ ctx, input }): Promise<CartDeliverySlotsResult> => {
+      return deliverySlots(input.planId, ctx.householdId, ctx.retail);
+    }),
+
+  /** `cart.setDeliverySlot(planId, slot)` — write the chosen window to the Silpo cart. */
+  setDeliverySlot: protectedProcedure
+    .input(
+      z.object({
+        planId: z.string().uuid(),
+        slot: z.object({ start: z.string().min(1), end: z.string().min(1) }),
+      }),
+    )
+    .mutation(async ({ ctx, input }): Promise<CartSetDeliverySlotResult> => {
+      return setDeliverySlot(input.planId, ctx.householdId, ctx.retail, input.slot);
     }),
 
   offerBonus: protectedProcedure

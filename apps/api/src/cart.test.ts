@@ -29,11 +29,13 @@ vi.mock("./queue/connection.js", () => ({
 
 const {
   applyBonus,
+  deliverySlots,
   materializePlan,
   offerBonus,
   partitionPlanLines,
   previewPlan,
   proteinLineUnavailable,
+  setDeliverySlot,
   toCartWriteItems,
   totalsDiscrepancyPct,
   withinDataTolerance,
@@ -103,13 +105,23 @@ const cartView = (over: Partial<CartView> = {}): CartView => ({
   ...over,
 });
 
-/** A `RetailProvider` mock that records writes — the four cart methods `cart.ts` uses. */
+const slot = (start: string, end: string, over: Partial<Record<string, unknown>> = {}) => ({
+  start,
+  end,
+  available: true,
+  minOrderCostUah: null,
+  ...over,
+});
+
+/** A `RetailProvider` mock that records writes — the cart methods `cart.ts` uses. */
 function fakeRetail(over: Partial<Record<string, unknown>> = {}) {
   const m = {
     getCart: vi.fn(async () => cartView()),
     addCartProducts: vi.fn(async () => ({ success: true, summary: "ok", products: [] })),
     removeCartProducts: vi.fn(async () => ({ success: true, summary: "ok", products: [] })),
     updateCartBonus: vi.fn(async () => ({ success: true, summary: "ok", products: [] })),
+    listDeliverySlots: vi.fn(async () => [slot("2026-09-05T10:00:00Z", "2026-09-05T12:00:00Z")]),
+    setDeliverySlot: vi.fn(async () => ({ success: true, summary: "ok", products: [] })),
     ...over,
   };
   return m as unknown as typeof m & RetailProvider;
@@ -372,6 +384,119 @@ describe("offerBonus / applyBonus", () => {
       ),
     });
     expect((await applyBonus("p1", "hh", retail, 10)).status).toBe("unavailable");
+  });
+});
+
+// ── delivery slot (cart.deliverySlots / cart.setDeliverySlot) ────────────────
+
+describe("deliverySlots", () => {
+  it("returns the slot list + the cart's current window", async () => {
+    getPlanDetail.mockResolvedValue(planDetail([]));
+    const retail = fakeRetail({
+      getCart: vi.fn(async () =>
+        cartView({
+          delivery: {
+            deliveryType: "DeliveryHome",
+            timeslot: { start: "2026-09-05T10:00:00Z", end: "2026-09-05T12:00:00Z" },
+            address: {},
+            shipments: [],
+          },
+        }),
+      ),
+    });
+    const r = await deliverySlots("p1", "hh", retail);
+    expect(r.status).toBe("ok");
+    if (r.status !== "ok") return;
+    expect(r.slots).toHaveLength(1);
+    expect(r.selected).toEqual({ start: "2026-09-05T10:00:00Z", end: "2026-09-05T12:00:00Z" });
+  });
+
+  it("selected is null when the cart has no valid window", async () => {
+    getPlanDetail.mockResolvedValue(planDetail([]));
+    const r = await deliverySlots("p1", "hh", fakeRetail());
+    expect(r.status === "ok" && r.selected).toBeNull();
+  });
+
+  it("surfaces not_found / auth_required / no_cart", async () => {
+    getPlanDetail.mockResolvedValue(null);
+    expect((await deliverySlots("p1", "hh", fakeRetail())).status).toBe("not_found");
+
+    getPlanDetail.mockResolvedValue(planDetail([]));
+    expect(
+      (
+        await deliverySlots(
+          "p1",
+          "hh",
+          fakeRetail({
+            listDeliverySlots: vi.fn(async () => {
+              throw new AuthRequiredError("reconnect");
+            }),
+          }),
+        )
+      ).status,
+    ).toBe("auth_required");
+
+    expect(
+      (
+        await deliverySlots(
+          "p1",
+          "hh",
+          fakeRetail({
+            listDeliverySlots: vi.fn(async () => {
+              throw new NoCartError();
+            }),
+          }),
+        )
+      ).status,
+    ).toBe("no_cart");
+  });
+});
+
+describe("setDeliverySlot", () => {
+  const wanted = { start: "2026-09-05T10:00:00Z", end: "2026-09-05T12:00:00Z" };
+
+  it("validates the slot, writes it, then re-reads the cart for validations + links", async () => {
+    getPlanDetail.mockResolvedValue(planDetail([]));
+    const retail = fakeRetail({
+      getCart: vi.fn(async () =>
+        cartView({ validations: [], checkoutWebLink: "https://silpo.ua/checkout" }),
+      ),
+    });
+    const r = await setDeliverySlot("p1", "hh", retail, wanted);
+    expect(r).toMatchObject({
+      status: "ok",
+      selected: wanted,
+      checkoutWebLink: "https://silpo.ua/checkout",
+    });
+    expect(retail.setDeliverySlot).toHaveBeenCalledWith(wanted);
+    expect(retail.getCart).toHaveBeenCalled(); // FR-CART-005 re-read
+  });
+
+  it("rejects a slot the branch no longer offers — without writing", async () => {
+    getPlanDetail.mockResolvedValue(planDetail([]));
+    const retail = fakeRetail();
+    const r = await setDeliverySlot("p1", "hh", retail, { start: "gone", end: "gone" });
+    expect(r.status).toBe("rejected");
+    expect(retail.setDeliverySlot).not.toHaveBeenCalled();
+  });
+
+  it("returns error when Silpo does not accept the write", async () => {
+    getPlanDetail.mockResolvedValue(planDetail([]));
+    const retail = fakeRetail({
+      setDeliverySlot: vi.fn(async () => ({ success: false, summary: "нема місць", products: [] })),
+    });
+    const r = await setDeliverySlot("p1", "hh", retail, wanted);
+    expect(r).toMatchObject({ status: "error" });
+  });
+
+  it("surfaces auth_required from the write path", async () => {
+    getPlanDetail.mockResolvedValue(planDetail([]));
+    const retail = fakeRetail({
+      setDeliverySlot: vi.fn(async () => {
+        throw new AuthRequiredError("reconnect");
+      }),
+    });
+    expect((await setDeliverySlot("p1", "hh", retail, wanted)).status).toBe("auth_required");
   });
 });
 

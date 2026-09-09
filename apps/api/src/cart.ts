@@ -19,13 +19,16 @@ import type {
   CartApplyBonusResult,
   CartBonusOfferResult,
   CartCheckoutLinkResult,
+  CartDeliverySlotsResult,
   CartMaterializeResult,
   CartPreviewLine,
   CartPreviewResult,
+  CartSetDeliverySlotResult,
   CartSkippedLine,
   CartValidation,
   CartView,
   CartWriteItem,
+  DeliverySlotRef,
   IngredientCategory,
   ListLine,
 } from "@navar/domain";
@@ -397,6 +400,85 @@ async function checkoutLinkInner(
     return {
       status: "unavailable",
       reason: blocking ? checkoutBlockReason(blocking) : "кошик ще не готовий до оформлення",
+    };
+  } catch (err) {
+    return retailError(err);
+  }
+}
+
+// ── delivery slot (cart.deliverySlots / cart.setDeliverySlot) ────────────────
+
+/**
+ * `cart.deliverySlots(planId)` — the branch's upcoming windows + the one the cart holds.
+ * Read-only. A `null` `selected` with a `timeslot.not_found` validation is why checkout is
+ * blocked; the Guest picks a window and `cart.setDeliverySlot` writes it.
+ */
+export async function deliverySlots(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+): Promise<CartDeliverySlotsResult> {
+  return withPersistedMcpTrace("cart_delivery_slots", { planId, householdId }, () =>
+    deliverySlotsInner(planId, householdId, retail),
+  );
+}
+
+async function deliverySlotsInner(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+): Promise<CartDeliverySlotsResult> {
+  const plan = await getPlanDetail(planId, householdId);
+  if (!plan) return { status: "not_found" };
+  try {
+    const [slots, cart] = await Promise.all([retail.listDeliverySlots(), retail.getCart()]);
+    return { status: "ok", slots, selected: cart.delivery?.timeslot ?? null };
+  } catch (err) {
+    return retailError(err);
+  }
+}
+
+/**
+ * `cart.setDeliverySlot(planId, slot)` — write the chosen window to the Silpo cart, then
+ * re-read (`FR-CART-005`) so `validations[]` / the checkout link reflect it. An explicit
+ * Guest action (ADR-07); never clears the cart. Re-validates the slot against the live
+ * list first so a stale client choice fails as `rejected`, not a confusing MCP error.
+ */
+export async function setDeliverySlot(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+  slot: DeliverySlotRef,
+): Promise<CartSetDeliverySlotResult> {
+  return withPersistedMcpTrace("cart_set_delivery_slot", { planId, householdId }, () =>
+    setDeliverySlotInner(planId, householdId, retail, slot),
+  );
+}
+
+async function setDeliverySlotInner(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+  slot: DeliverySlotRef,
+): Promise<CartSetDeliverySlotResult> {
+  const plan = await getPlanDetail(planId, householdId);
+  if (!plan) return { status: "not_found" };
+  try {
+    const offered = await retail.listDeliverySlots();
+    if (!offered.some((s) => s.start === slot.start && s.end === slot.end)) {
+      return { status: "rejected", reason: "Цей слот більше не доступний — оберіть інший." };
+    }
+    const write = await retail.setDeliverySlot(slot);
+    if (!write.success) {
+      return { status: "error", message: write.summary || "Сільпо не прийняв слот доставки" };
+    }
+    const cart = await retail.getCart(); // FR-CART-005 — never assume the write took
+    return {
+      status: "ok",
+      selected: { start: slot.start, end: slot.end },
+      validations: cart.validations,
+      checkoutWebLink: cart.checkoutWebLink,
+      checkoutMobileLink: cart.checkoutMobileLink,
     };
   } catch (err) {
     return retailError(err);
