@@ -164,14 +164,42 @@ export function proteinLineUnavailable(
 
 /** A checkout-blocking `validations[]` entry → a short Guest-facing reason (non-medical). */
 export function checkoutBlockReason(v: CartValidation): string {
-  if (v.message === "order.cost.min") {
-    const min = typeof v.context?.orderCostMin === "number" ? v.context.orderCostMin : null;
-    return min != null
-      ? `сума кошика нижча за мінімальну для замовлення — ${min} ₴`
-      : "сума кошика нижча за мінімальну для замовлення";
+  switch (v.message) {
+    case "order.cost.min": {
+      const min = typeof v.context?.orderCostMin === "number" ? v.context.orderCostMin : null;
+      return min != null
+        ? `сума кошика нижча за мінімальну для замовлення — ${min} ₴`
+        : "сума кошика нижча за мінімальну для замовлення";
+    }
+    case "timeslot.not_found":
+      return "потрібно обрати слот доставки";
+    case "product.offer.stock.max":
+    case "product.offer.stock.min":
+      return "деяких товарів у «Сільпо» бракує в потрібній кількості — перевірте кошик";
+    case "order.payment_types.disabled":
+      return "частина способів оплати недоступна для цієї суми";
+    default:
+      // Never surface a raw dot-namespaced validation code to the Guest.
+      return "кошик потребує уваги перед оформленням";
   }
-  if (v.message === "timeslot.not_found") return "потрібно обрати слот доставки";
-  return v.message;
+}
+
+/**
+ * The Silpo cart reports `product.offer.stock.max` with `context.stock === 0` for *every*
+ * line when the cart has no valid delivery slot — availability can't be resolved without a
+ * branch/window (docs/app-review-2026-09-08.md F16). In that case the actionable blocker is
+ * the slot, not a stock shortage: this collapses the whole validation set to that.
+ */
+export function checkoutBlocker(cart: CartView): string | null {
+  const errs = cart.validations.filter((v) => v.level === "error");
+  if (errs.length === 0) return null;
+  const slotIsTheCause =
+    !cart.delivery ||
+    errs.some((v) => v.message === "timeslot.not_found") ||
+    errs.every(
+      (v) => v.message === "product.offer.stock.max" && Number(v.context?.stock ?? -1) === 0,
+    );
+  return slotIsTheCause ? "потрібно обрати слот доставки" : checkoutBlockReason(errs[0]!);
 }
 
 // ── NFR-DATA-003 — plan total vs actual cart total, ≤3% ──────────────────────
@@ -401,10 +429,9 @@ async function checkoutLinkInner(
     if (cart.checkoutWebLink || cart.checkoutMobileLink) {
       return { status: "ok", webLink: cart.checkoutWebLink, mobileLink: cart.checkoutMobileLink };
     }
-    const blocking = cart.validations.find((v) => v.level === "error");
     return {
       status: "unavailable",
-      reason: blocking ? checkoutBlockReason(blocking) : "кошик ще не готовий до оформлення",
+      reason: checkoutBlocker(cart) ?? "кошик ще не готовий до оформлення",
     };
   } catch (err) {
     return retailError(err);

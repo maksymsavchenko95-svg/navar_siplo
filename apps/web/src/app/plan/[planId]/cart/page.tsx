@@ -1,12 +1,13 @@
 "use client";
 
-import type { CartMaterializeResult, CartPreviewLine, CartValidation } from "@navar/domain";
+import type { CartMaterializeResult, CartPreviewLine } from "@navar/domain";
 import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
 import { useReconnect } from "@/lib/auth";
 import { approx, deliveryWindow, pct, quantityLabel, uah } from "@/lib/format";
+import { distinctValidationMessages } from "@/lib/cart-validation";
 import { DeliverySlotSheet } from "@/components/plan/DeliverySlotSheet";
 import { LineSkuSheet } from "@/components/plan/LineSkuSheet";
 import { ReplaceSheet } from "@/components/plan/ReplaceSheet";
@@ -21,21 +22,6 @@ import {
   SpinnerDots,
   StateBanner,
 } from "@/components/ui";
-
-function humanValidation(v: CartValidation): string {
-  const m = v.message;
-  if (m === "order.cost.min") {
-    const min = typeof v.context?.orderCostMin === "number" ? v.context.orderCostMin : null;
-    return min != null
-      ? `Сума кошика нижча за мінімальну для замовлення — ${uah(min)}`
-      : "Сума кошика нижча за мінімальну для замовлення";
-  }
-  if (m === "timeslot.not_found") return "Оберіть слот доставки нижче";
-  if (m === "product.offer.stock.max") return "Деяких товарів немає в потрібній кількості";
-  if (m === "order.payment_types.disabled")
-    return "Частина способів оплати недоступна для цієї суми";
-  return m;
-}
 
 export default function CartPage({ params }: { params: Promise<{ planId: string }> }) {
   const { planId } = use(params);
@@ -326,6 +312,8 @@ function CartResult({
 
   const cartTotal = materialized?.cartTotalUah ?? null;
   const validations = materialized?.validations ?? [];
+  const errorMessages = distinctValidationMessages(validations, "error");
+  const infoMessages = distinctValidationMessages(validations, "info");
   const bonusOffer =
     bonus.data?.status === "ok" && bonus.data.isEnabled && bonus.data.available > 0
       ? bonus.data
@@ -350,24 +338,20 @@ function CartResult({
         </div>
       )}
 
-      {validations.filter((v) => v.level === "error").length > 0 && (
+      {errorMessages.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {validations
-            .filter((v) => v.level === "error")
-            .map((v, i) => (
-              <StateBanner key={i} tone="error">
-                {humanValidation(v)}
-              </StateBanner>
-            ))}
+          {errorMessages.map((msg, i) => (
+            <StateBanner key={i} tone="error">
+              {msg}
+            </StateBanner>
+          ))}
         </div>
       )}
-      {validations
-        .filter((v) => v.level === "info")
-        .map((v, i) => (
-          <p key={i} className="screen-sub-title">
-            {humanValidation(v)}
-          </p>
-        ))}
+      {infoMessages.map((msg, i) => (
+        <p key={i} className="screen-sub-title">
+          {msg}
+        </p>
+      ))}
 
       {materialized && cartTotal != null && (
         <div className="cart-summary-block">

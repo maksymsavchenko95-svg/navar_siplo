@@ -29,6 +29,9 @@ vi.mock("./queue/connection.js", () => ({
 
 const {
   applyBonus,
+  checkoutBlocker,
+  checkoutBlockReason,
+  checkoutLink,
   deliverySlots,
   materializePlan,
   offerBonus,
@@ -402,6 +405,106 @@ describe("offerBonus / applyBonus", () => {
       ),
     });
     expect((await applyBonus("p1", "hh", retail, 10)).status).toBe("unavailable");
+  });
+});
+
+// ── checkout link / block reasons ──────────────────────────────────────────
+
+const err = (message: string, context?: Record<string, unknown>) => ({
+  level: "error" as const,
+  type: "order",
+  message,
+  ...(context ? { context } : {}),
+});
+
+describe("checkoutBlockReason", () => {
+  it("maps order.cost.min with the minimum from context", () => {
+    expect(checkoutBlockReason(err("order.cost.min", { orderCostMin: 799 }))).toContain("799");
+  });
+
+  it("maps stock + payment codes to a sentence, never the raw code", () => {
+    for (const code of [
+      "product.offer.stock.max",
+      "product.offer.stock.min",
+      "order.payment_types.disabled",
+    ]) {
+      const r = checkoutBlockReason(err(code));
+      expect(r).not.toContain(".");
+    }
+  });
+
+  it("falls back to a friendly generic for an unknown code — never echoes it", () => {
+    const r = checkoutBlockReason(err("some.brand.new.code"));
+    expect(r).not.toContain("some.brand.new.code");
+    expect(r.length).toBeGreaterThan(0);
+  });
+});
+
+describe("checkoutBlocker", () => {
+  it("returns null when there are no error-level validations", () => {
+    expect(checkoutBlocker(cartView({ validations: [] }))).toBeNull();
+  });
+
+  it("blames the delivery slot when every line is stock:0 (the no-timeslot side-effect)", () => {
+    const cart = cartView({
+      delivery: null,
+      validations: [
+        err("product.offer.stock.max", { productId: "a", stock: 0 }),
+        err("product.offer.stock.max", { productId: "b", stock: 0 }),
+      ],
+    });
+    expect(checkoutBlocker(cart)).toBe("потрібно обрати слот доставки");
+  });
+
+  it("blames the slot when timeslot.not_found is present alongside stock errors", () => {
+    const cart = cartView({
+      delivery: null,
+      validations: [err("product.offer.stock.max", { stock: 0 }), err("timeslot.not_found")],
+    });
+    expect(checkoutBlocker(cart)).toBe("потрібно обрати слот доставки");
+  });
+
+  it("reports a real stock shortage (non-zero stock, slot present) as a stock reason", () => {
+    const cart = cartView({
+      delivery: {
+        deliveryType: "DeliveryHome",
+        timeslot: { start: "s", end: "e" },
+        address: {},
+        shipments: [],
+      },
+      validations: [err("product.offer.stock.max", { productId: "a", stock: 2 })],
+    });
+    expect(checkoutBlocker(cart)).toMatch(/бракує/);
+  });
+});
+
+describe("checkoutLink", () => {
+  it("returns the link when the cart has one", async () => {
+    getPlanDetail.mockResolvedValue(planDetail([]));
+    const retail = fakeRetail({
+      getCart: vi.fn(async () => cartView({ checkoutWebLink: "https://silpo.ua/c" })),
+    });
+    const r = await checkoutLink("p1", "hh", retail);
+    expect(r).toEqual({ status: "ok", webLink: "https://silpo.ua/c", mobileLink: null });
+  });
+
+  it("surfaces the slot as the blocker for a no-timeslot stock:0 cart — not a raw code", async () => {
+    getPlanDetail.mockResolvedValue(planDetail([]));
+    const retail = fakeRetail({
+      getCart: vi.fn(async () =>
+        cartView({
+          checkoutWebLink: null,
+          checkoutMobileLink: null,
+          delivery: null,
+          validations: [
+            err("product.offer.stock.max", { stock: 0 }),
+            err("product.offer.stock.max", { stock: 0 }),
+          ],
+        }),
+      ),
+    });
+    const r = await checkoutLink("p1", "hh", retail);
+    expect(r).toEqual({ status: "unavailable", reason: "потрібно обрати слот доставки" });
   });
 });
 
