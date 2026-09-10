@@ -20,10 +20,12 @@ import type {
   CartBonusOfferResult,
   CartCheckoutLinkResult,
   CartDeliverySlotsResult,
+  CartLiveStateResult,
   CartMaterializeResult,
   CartPreviewLine,
   CartPreviewResult,
   CartSetDeliverySlotResult,
+  CartShortage,
   CartSkippedLine,
   CartValidation,
   CartView,
@@ -80,6 +82,20 @@ export interface PlanLinePartition {
   outOfStock: ListLine[];
   /** The mapper found no usable SKU. */
   unmatched: ListLine[];
+}
+
+/**
+ * Would `cart.materialize` add this line without asking? Mirrors the `addable` bucket of
+ * `partitionPlanLines` — a safe, in-stock, mapped, confident (or Guest-picked) line. Used by
+ * the post-materialize re-sync (`cart-resync.ts`) to decide what to (re)assert in the cart.
+ */
+export function isAddableLine(l: ListLine): boolean {
+  if (l.decision === "blocked_unsafe" || l.blockReason != null) return false;
+  if (l.productRef == null || l.companyId == null || l.branchId == null) return false;
+  if (l.outOfStock) return false;
+  if (l.userOverridden) return true;
+  if (l.needsConfirmation || (l.confidence != null && l.confidence < 0.6)) return false;
+  return true;
 }
 
 /** Split a plan's shopping list into what can be added vs what needs the Guest's attention. */
@@ -188,18 +204,63 @@ export function checkoutBlockReason(v: CartValidation): string {
  * The Silpo cart reports `product.offer.stock.max` with `context.stock === 0` for *every*
  * line when the cart has no valid delivery slot — availability can't be resolved without a
  * branch/window (docs/app-review-2026-09-08.md F16). In that case the actionable blocker is
- * the slot, not a stock shortage: this collapses the whole validation set to that.
+ * the slot, not a stock shortage.
  */
-export function checkoutBlocker(cart: CartView): string | null {
+export function slotIsCheckoutBlocker(cart: CartView): boolean {
   const errs = cart.validations.filter((v) => v.level === "error");
-  if (errs.length === 0) return null;
-  const slotIsTheCause =
+  if (errs.length === 0) return false;
+  return (
     !cart.delivery ||
     errs.some((v) => v.message === "timeslot.not_found") ||
     errs.every(
       (v) => v.message === "product.offer.stock.max" && Number(v.context?.stock ?? -1) === 0,
-    );
-  return slotIsTheCause ? "потрібно обрати слот доставки" : checkoutBlockReason(errs[0]!);
+    )
+  );
+}
+
+/** The single actionable reason checkout is blocked, or `null` when nothing blocks it. */
+export function checkoutBlocker(cart: CartView): string | null {
+  const errs = cart.validations.filter((v) => v.level === "error");
+  if (errs.length === 0) return null;
+  return slotIsCheckoutBlocker(cart)
+    ? "потрібно обрати слот доставки"
+    : checkoutBlockReason(errs[0]!);
+}
+
+const STOCK_SHORTAGE_CODES = new Set(["product.offer.stock.max", "product.offer.stock.min"]);
+
+/**
+ * Genuine stock shortages (not the no-slot side-effect) mapped back to their plan line via
+ * `context.productId` ↔ `list_lines.productRef` / `.externalProductId` (R4). `slug` is `null`
+ * when nothing matched. Pure. Empty whenever the slot is the real blocker.
+ */
+export function mapCartShortages(
+  cart: CartView,
+  list: readonly ListLine[],
+  lineDays: ReadonlyMap<string, number[]>,
+): CartShortage[] {
+  if (slotIsCheckoutBlocker(cart)) return [];
+  const out: CartShortage[] = [];
+  const seen = new Set<string>();
+  for (const v of cart.validations) {
+    if (v.level !== "error" || !STOCK_SHORTAGE_CODES.has(v.message)) continue;
+    const stock = Number(v.context?.stock ?? Number.NaN);
+    if (!Number.isFinite(stock) || stock < 0) continue;
+    const pid = String(v.context?.productId ?? v.context?.productOfferId ?? "");
+    if (!pid || seen.has(pid)) continue;
+    seen.add(pid);
+    const line = list.find((l) => l.productRef === pid || l.externalProductId === pid);
+    out.push({
+      productId: pid,
+      slug: line?.slug ?? null,
+      nameUk: line?.nameUk ?? null,
+      productName: line?.productName ?? null,
+      stock,
+      requested: line ? (line.quantityKg ?? line.packCount) : null,
+      affectedDays: line ? (lineDays.get(line.slug) ?? []) : [],
+    });
+  }
+  return out;
 }
 
 // ── NFR-DATA-003 — plan total vs actual cart total, ≤3% ──────────────────────
@@ -436,6 +497,53 @@ async function checkoutLinkInner(
   } catch (err) {
     return retailError(err);
   }
+}
+
+/**
+ * `cart.liveState(planId)` — a read-only re-read of the Silpo cart for an already-materialized
+ * plan (R4). `CartResult` used to derive its `validations[]` from the one-shot `materialize`
+ * response, so a *revisited* materialized plan showed none. This is the standing source of
+ * truth: current validations, the checkout link / block reason, and any genuine stock
+ * shortage mapped to its plan line. Writes nothing.
+ */
+export async function liveCartState(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+): Promise<CartLiveStateResult> {
+  return withPersistedMcpTrace("cart_live_state", { planId, householdId }, () =>
+    liveCartStateInner(planId, householdId, retail),
+  );
+}
+
+async function liveCartStateInner(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+): Promise<CartLiveStateResult> {
+  const plan = await getPlanDetail(planId, householdId);
+  if (!plan) return { status: "not_found" };
+
+  let cart: CartView;
+  try {
+    cart = await retail.getCart();
+  } catch (err) {
+    return retailError(err);
+  }
+
+  const lineDays = await getPlanLineDays(planId, householdId);
+  return {
+    status: "ok",
+    planId,
+    validations: cart.validations,
+    checkoutWebLink: cart.checkoutWebLink,
+    checkoutMobileLink: cart.checkoutMobileLink,
+    cartTotalUah: cart.totalAfterDiscountsUah ?? cart.totalUah,
+    currentCartLines: cart.lines.length,
+    blockReason: checkoutBlocker(cart),
+    shortages: mapCartShortages(cart, plan.list, lineDays),
+    alreadyMaterialized: plan.status === "materialized" || plan.status === "checked_out",
+  };
 }
 
 // ── delivery slot (cart.deliverySlots / cart.setDeliverySlot) ────────────────

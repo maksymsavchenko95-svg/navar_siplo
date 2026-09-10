@@ -33,12 +33,16 @@ const {
   checkoutBlockReason,
   checkoutLink,
   deliverySlots,
+  isAddableLine,
+  liveCartState,
+  mapCartShortages,
   materializePlan,
   offerBonus,
   partitionPlanLines,
   previewPlan,
   proteinLineUnavailable,
   setDeliverySlot,
+  slotIsCheckoutBlocker,
   toCartWriteItems,
   totalsDiscrepancyPct,
   withinDataTolerance,
@@ -475,6 +479,179 @@ describe("checkoutBlocker", () => {
       validations: [err("product.offer.stock.max", { productId: "a", stock: 2 })],
     });
     expect(checkoutBlocker(cart)).toMatch(/бракує/);
+  });
+});
+
+describe("isAddableLine", () => {
+  it("mirrors the addable bucket of partitionPlanLines", () => {
+    expect(isAddableLine(line({ slug: "ok" }))).toBe(true);
+    expect(isAddableLine(line({ slug: "b", blockReason: "алерген" }))).toBe(false);
+    expect(isAddableLine(line({ slug: "u", productRef: null }))).toBe(false);
+    expect(isAddableLine(line({ slug: "o", outOfStock: true }))).toBe(false);
+    expect(isAddableLine(line({ slug: "c", confidence: 0.4 }))).toBe(false);
+    expect(isAddableLine(line({ slug: "n", needsConfirmation: true }))).toBe(false);
+    expect(isAddableLine(line({ slug: "p", confidence: 0.3, userOverridden: true }))).toBe(true);
+  });
+});
+
+describe("slotIsCheckoutBlocker", () => {
+  const withSlot = {
+    deliveryType: "DeliveryHome",
+    timeslot: { start: "s", end: "e" },
+    address: {},
+    shipments: [],
+  };
+  it("is false with no errors", () => {
+    expect(slotIsCheckoutBlocker(cartView({ validations: [] }))).toBe(false);
+  });
+  it("blames the slot on every-line stock:0 or timeslot.not_found or no delivery", () => {
+    expect(
+      slotIsCheckoutBlocker(
+        cartView({ delivery: null, validations: [err("product.offer.stock.max", { stock: 0 })] }),
+      ),
+    ).toBe(true);
+    expect(
+      slotIsCheckoutBlocker(
+        cartView({ delivery: withSlot, validations: [err("timeslot.not_found")] }),
+      ),
+    ).toBe(true);
+  });
+  it("is false for a genuine shortage with a slot present", () => {
+    expect(
+      slotIsCheckoutBlocker(
+        cartView({
+          delivery: withSlot,
+          validations: [err("product.offer.stock.max", { productId: "a", stock: 2 })],
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("mapCartShortages", () => {
+  const withSlot = {
+    deliveryType: "DeliveryHome",
+    timeslot: { start: "s", end: "e" },
+    address: {},
+    shipments: [],
+  };
+  const list = [
+    line({ slug: "beef", productRef: "sku-beef", externalProductId: "42", nameUk: "Яловичина" }),
+    line({ slug: "rice", productRef: "sku-rice", externalProductId: "77", nameUk: "Рис" }),
+  ];
+
+  it("maps a genuine shortage by productRef and by externalProductId", () => {
+    const cart = cartView({
+      delivery: withSlot,
+      validations: [
+        err("product.offer.stock.max", { productId: "sku-beef", stock: 1 }),
+        err("product.offer.stock.min", { productId: "77", stock: 2 }),
+      ],
+    });
+    const out = mapCartShortages(cart, list, new Map([["beef", [2, 4]]]));
+    expect(out).toEqual([
+      {
+        productId: "sku-beef",
+        slug: "beef",
+        nameUk: "Яловичина",
+        productName: "beef SKU",
+        stock: 1,
+        requested: 1,
+        affectedDays: [2, 4],
+      },
+      {
+        productId: "77",
+        slug: "rice",
+        nameUk: "Рис",
+        productName: "rice SKU",
+        stock: 2,
+        requested: 1,
+        affectedDays: [],
+      },
+    ]);
+  });
+
+  it("is empty when the slot is the real blocker (every line stock:0)", () => {
+    const cart = cartView({
+      delivery: null,
+      validations: [
+        err("product.offer.stock.max", { productId: "sku-beef", stock: 0 }),
+        err("product.offer.stock.max", { productId: "sku-rice", stock: 0 }),
+      ],
+    });
+    expect(mapCartShortages(cart, list, new Map())).toEqual([]);
+  });
+
+  it("keeps an unmapped productId with null line fields", () => {
+    const cart = cartView({
+      delivery: withSlot,
+      validations: [err("product.offer.stock.max", { productId: "ghost", stock: 3 })],
+    });
+    expect(mapCartShortages(cart, list, new Map())).toEqual([
+      {
+        productId: "ghost",
+        slug: null,
+        nameUk: null,
+        productName: null,
+        stock: 3,
+        requested: null,
+        affectedDays: [],
+      },
+    ]);
+  });
+});
+
+describe("liveCartState", () => {
+  it("returns live validations + shortages for a materialized plan", async () => {
+    getPlanDetail.mockResolvedValue(
+      planDetail([line({ slug: "beef", productRef: "sku-beef" })], { status: "materialized" }),
+    );
+    getPlanLineDays.mockResolvedValue(new Map([["beef", [1]]]));
+    const retail = fakeRetail({
+      getCart: vi.fn(async () =>
+        cartView({
+          delivery: {
+            deliveryType: "DeliveryHome",
+            timeslot: { start: "s", end: "e" },
+            address: {},
+            shipments: [],
+          },
+          checkoutWebLink: null,
+          validations: [
+            {
+              level: "error",
+              type: "product",
+              message: "product.offer.stock.max",
+              context: { productId: "sku-beef", stock: 1 },
+            },
+          ],
+          totalAfterDiscountsUah: 640,
+          lines: [{ productId: "sku-beef", name: "Яловичина", quantity: 3, price: 200 }],
+        }),
+      ),
+    });
+    const r = await liveCartState("p1", "hh", retail);
+    expect(r.status).toBe("ok");
+    if (r.status !== "ok") return;
+    expect(r.currentCartLines).toBe(1);
+    expect(r.cartTotalUah).toBe(640);
+    expect(r.shortages).toHaveLength(1);
+    expect(r.shortages[0]).toMatchObject({ slug: "beef", stock: 1, affectedDays: [1] });
+    expect(r.alreadyMaterialized).toBe(true);
+    getPlanLineDays.mockResolvedValue(new Map());
+  });
+
+  it("surfaces not_found / auth_required", async () => {
+    getPlanDetail.mockResolvedValue(null);
+    expect((await liveCartState("p1", "hh", fakeRetail())).status).toBe("not_found");
+
+    getPlanDetail.mockResolvedValue(planDetail([]));
+    const auth = fakeRetail({
+      getCart: vi.fn(async () => {
+        throw new AuthRequiredError("reconnect");
+      }),
+    });
+    expect((await liveCartState("p1", "hh", auth)).status).toBe("auth_required");
   });
 });
 

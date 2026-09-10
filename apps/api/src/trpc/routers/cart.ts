@@ -4,8 +4,10 @@ import type {
   CartCheckoutLinkResult,
   CartDeliverySlotsResult,
   CartLineAlternativesResult,
+  CartLiveStateResult,
   CartMaterializeResult,
   CartPreviewResult,
+  CartReduceLineResult,
   CartSetDeliverySlotResult,
   CartSetLineSkuResult,
 } from "@navar/domain";
@@ -16,12 +18,13 @@ import {
   armPreview,
   checkoutLink,
   deliverySlots,
+  liveCartState,
   materializePlan,
   offerBonus,
   previewPlan,
   setDeliverySlot,
 } from "../../cart.js";
-import { lineAlternatives, setLineSku } from "../../cart-edit.js";
+import { lineAlternatives, reduceLine, setLineSku } from "../../cart-edit.js";
 import { protectedProcedure, router } from "../trpc.js";
 
 /**
@@ -74,6 +77,30 @@ export const cartRouter = router({
     .input(z.object({ planId: z.string().uuid() }))
     .query(async ({ ctx, input }): Promise<CartCheckoutLinkResult> => {
       return checkoutLink(input.planId, ctx.householdId, ctx.retail);
+    }),
+
+  /**
+   * `cart.liveState(planId)` — re-read the Silpo cart for an already-materialized plan:
+   * current `validations[]`, the checkout link / block reason, and any genuine stock
+   * shortage mapped to its plan line (R4). Read-only.
+   */
+  liveState: protectedProcedure
+    .input(z.object({ planId: z.string().uuid() }))
+    .query(async ({ ctx, input }): Promise<CartLiveStateResult> => {
+      return liveCartState(input.planId, ctx.householdId, ctx.retail);
+    }),
+
+  /** `cart.reduceLine(planId, slug, toQuantity)` — cut a materialized line to available stock. */
+  reduceLine: protectedProcedure
+    .input(
+      z.object({
+        planId: z.string().uuid(),
+        slug: z.string(),
+        toQuantity: z.number().nonnegative(),
+      }),
+    )
+    .mutation(async ({ ctx, input }): Promise<CartReduceLineResult> => {
+      return reduceLine(input.planId, ctx.householdId, input.slug, input.toQuantity, ctx.retail);
     }),
 
   /** `cart.deliverySlots(planId)` — the branch's upcoming delivery windows (read-only). */

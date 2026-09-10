@@ -5,9 +5,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getPlanDetail = vi.fn<(id: string, hh: string) => Promise<PlanDetail | null>>();
 const updateListLineSku =
   vi.fn<(id: string, hh: string, slug: string, patch: ListLineSkuPatch) => Promise<number>>();
+const updateListLineQuantity = vi.fn(async () => 1);
 vi.mock("@navar/db", () => ({
   getPlanDetail: (...a: [string, string]) => getPlanDetail(...a),
   updateListLineSku: (...a: [string, string, string, ListLineSkuPatch]) => updateListLineSku(...a),
+  updateListLineQuantity: (...a: unknown[]) => updateListLineQuantity(...(a as [])),
+}));
+
+/** `applyCartDelta` is exercised in cart-resync.test.ts — here it is a controllable stub. */
+const applyCartDelta = vi.fn(async () => ({
+  status: "ok" as const,
+  validations: [],
+  checkoutWebLink: null,
+  checkoutMobileLink: null,
+  cartTotalUah: 123,
+}));
+vi.mock("./cart-resync.js", () => ({
+  applyCartDelta: (...a: unknown[]) => applyCartDelta(...(a as [])),
 }));
 
 const loadMapperDict = vi.fn(
@@ -45,7 +59,7 @@ vi.mock("./mcp-trace.js", () => ({
   withPersistedMcpTrace: (_p: string, _i: unknown, fn: () => unknown) => fn(),
 }));
 
-const { lineAlternatives, setLineSku } = await import("./cart-edit.js");
+const { lineAlternatives, reduceLine, setLineSku } = await import("./cart-edit.js");
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -182,8 +196,8 @@ describe("setLineSku", () => {
     expect(clearPreview).toHaveBeenCalledWith("p1");
   });
 
-  it("refuses a materialised plan", async () => {
-    getPlanDetail.mockResolvedValue(plan({ status: "materialized" }) as PlanDetail);
+  it("refuses a checked-out plan", async () => {
+    getPlanDetail.mockResolvedValue(plan({ status: "checked_out" }) as PlanDetail);
     const r = await setLineSku(
       "p1",
       "hh",
@@ -193,6 +207,38 @@ describe("setLineSku", () => {
     );
     expect(r.status).toBe("already_materialized");
     expect(updateListLineSku).not.toHaveBeenCalled();
+    expect(applyCartDelta).not.toHaveBeenCalled();
+  });
+
+  it("re-syncs the Silpo cart for a materialized plan: drop old SKU, add new, then persist", async () => {
+    getPlanDetail.mockResolvedValue(
+      plan({ status: "materialized", cartId: "cart-1" }) as PlanDetail,
+    );
+    const retail = fakeRetail([
+      sku({ productId: "fresh", name: "Яловичина лопатка", price: 210, packSize: "1кг" }),
+    ]);
+    const r = await setLineSku("p1", "hh", "beef", "fresh", retail);
+    expect(r.status).toBe("ok");
+    expect(applyCartDelta).toHaveBeenCalledWith("p1", "hh", retail, {
+      removeProductIds: ["current"],
+      addItems: [{ productId: "fresh", companyId: "co", branchId: "br", quantity: 1 }],
+    });
+    expect(updateListLineSku).toHaveBeenCalled();
+    expect(clearPreview).toHaveBeenCalledWith("p1");
+  });
+
+  it("does not persist when the cart re-sync fails", async () => {
+    getPlanDetail.mockResolvedValue(plan({ status: "materialized" }) as PlanDetail);
+    applyCartDelta.mockResolvedValueOnce({ status: "auth_required" } as never);
+    const r = await setLineSku(
+      "p1",
+      "hh",
+      "beef",
+      "fresh",
+      fakeRetail([sku({ productId: "fresh", name: "x", packSize: "1кг" })]),
+    );
+    expect(r.status).toBe("auth_required");
+    expect(updateListLineSku).not.toHaveBeenCalled();
   });
 
   it("fails closed when the chosen SKU is safety-blocked", async () => {
@@ -201,5 +247,74 @@ describe("setLineSku", () => {
     const r = await setLineSku("p1", "hh", "beef", "blocked", retail);
     expect(r.status).toBe("rejected");
     expect(updateListLineSku).not.toHaveBeenCalled();
+  });
+});
+
+describe("reduceLine", () => {
+  const materialized = (over: Partial<PlanDetail> = {}) =>
+    ({
+      ...plan(),
+      status: "materialized",
+      list: [
+        {
+          slug: "beef",
+          nameUk: "Яловичина",
+          neededAmount: 500,
+          unit: "g",
+          productRef: "beef-sku",
+          companyId: "co",
+          branchId: "br",
+          productName: "Яловичина вирізка",
+          packCount: 3,
+          quantityKg: null,
+        },
+      ],
+      ...over,
+    }) as unknown as PlanDetail;
+
+  it("cuts a packaged line to the available stock, writes the cart, then the row", async () => {
+    getPlanDetail.mockResolvedValue(materialized());
+    const r = await reduceLine("p1", "hh", "beef", 1, fakeRetail([]));
+    expect(r.status).toBe("ok");
+    expect(applyCartDelta).toHaveBeenCalledWith("p1", "hh", expect.anything(), {
+      removeProductIds: [],
+      addItems: [{ productId: "beef-sku", companyId: "co", branchId: "br", quantity: 1 }],
+    });
+    expect(updateListLineQuantity).toHaveBeenCalledWith("p1", "hh", "beef", {
+      packCount: 1,
+      quantityKg: null,
+    });
+  });
+
+  it("returns not_materialized for a draft / checked-out plan without touching the cart", async () => {
+    getPlanDetail.mockResolvedValue(plan({ status: "draft" }) as PlanDetail);
+    expect((await reduceLine("p1", "hh", "beef", 1, fakeRetail([]))).status).toBe(
+      "not_materialized",
+    );
+
+    getPlanDetail.mockResolvedValue(plan({ status: "checked_out" }) as PlanDetail);
+    expect((await reduceLine("p1", "hh", "beef", 1, fakeRetail([]))).status).toBe(
+      "not_materialized",
+    );
+    expect(applyCartDelta).not.toHaveBeenCalled();
+  });
+
+  it("no-ops (still re-reads) when stock already covers the line", async () => {
+    getPlanDetail.mockResolvedValue(materialized());
+    const r = await reduceLine("p1", "hh", "beef", 9, fakeRetail([]));
+    expect(r.status).toBe("ok");
+    expect(applyCartDelta).toHaveBeenCalledWith("p1", "hh", expect.anything(), {
+      removeProductIds: [],
+      addItems: [],
+    });
+    expect(updateListLineQuantity).not.toHaveBeenCalled();
+  });
+
+  it("does not persist the row when the cart write fails", async () => {
+    getPlanDetail.mockResolvedValue(materialized());
+    applyCartDelta.mockResolvedValueOnce({ status: "error", message: "boom" } as never);
+    const r = await reduceLine("p1", "hh", "beef", 1, fakeRetail([]));
+    expect(r.status).toBe("error");
+    expect(updateListLineQuantity).not.toHaveBeenCalled();
   });
 });

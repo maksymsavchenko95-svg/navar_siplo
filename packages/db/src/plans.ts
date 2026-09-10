@@ -535,6 +535,37 @@ export async function updateListLineSku(
 }
 
 /**
+ * Cut one `list_lines` row's quantity down (`cart.reduceLine` — a materialized line the
+ * branch cannot fulfil in full). Only `pack_count` / `quantity_kg` move; the SKU and every
+ * other column stay. Household-scoped like `updateListLineSku`. Returns rows changed.
+ */
+export async function updateListLineQuantity(
+  planId: string,
+  householdId: string,
+  slug: string,
+  qty: { packCount: number; quantityKg: number | null },
+  database: Db = db,
+): Promise<number> {
+  return database.transaction(async (tx) => {
+    const owned = await tx
+      .select({ id: plans.id })
+      .from(plans)
+      .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)));
+    if (owned.length === 0) return 0;
+
+    const rows = await tx
+      .update(listLines)
+      .set({
+        packCount: qty.packCount,
+        quantityKg: qty.quantityKg == null ? null : num(qty.quantityKg, 3),
+      })
+      .where(and(eq(listLines.planId, planId), eq(listLines.slug, slug)))
+      .returning({ id: listLines.id });
+    return rows.length;
+  });
+}
+
+/**
  * `ingredient slug → plan day numbers that cook with it` (C — the «Замінити страву» action
  * on a protein line the branch can't source fresh). Joins `plan_items` to `recipes` by
  * **slug** (`recipe_id` may be null after a corpus re-import) → `recipe_ingredients` →

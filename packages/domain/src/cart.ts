@@ -153,6 +153,7 @@ export type CartLineAlternativesResult = z.infer<typeof cartLineAlternativesResu
 export const cartSetLineSkuResultSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("ok") }),
   z.object({ status: z.literal("not_found") }),
+  /** The plan's Silpo order is already placed (`checked_out`) — the list is frozen. */
   z.object({ status: z.literal("already_materialized"), reason: z.string() }),
   z.object({ status: z.literal("rejected"), reason: z.string() }),
   z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
@@ -160,6 +161,75 @@ export const cartSetLineSkuResultSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("error"), message: z.string() }),
 ]);
 export type CartSetLineSkuResult = z.infer<typeof cartSetLineSkuResultSchema>;
+
+// ── stock shortage → per-line recovery (`cart.liveState` / `cart.reduceLine`) ──
+
+/**
+ * One Silpo `product.offer.stock.*` shortage mapped back to a plan line (R4). `slug` is
+ * `null` when the shorted `context.productId` matched no `list_lines` row; `stock` is what
+ * the branch can still fulfil, `requested` what the plan asked for.
+ */
+export const cartShortageSchema = z.object({
+  productId: z.string(),
+  slug: z.string().nullable(),
+  nameUk: z.string().nullable(),
+  productName: z.string().nullable(),
+  stock: z.number().nonnegative(),
+  requested: z.number().positive().nullable(),
+  /** Plan days that cook with this line — for the «Замінити страву» action. */
+  affectedDays: z.array(z.number().int().positive()).default([]),
+});
+export type CartShortage = z.infer<typeof cartShortageSchema>;
+
+/**
+ * `cart.liveState(planId)` — a read-only re-read of the Silpo cart for an already-materialized
+ * plan (R4). What `cart.materialize` returns, minus the write: current `validations[]`, the
+ * checkout link (or why it is blocked), and any genuine stock shortage mapped to its plan
+ * line so the Guest can reduce / swap it.
+ */
+export const cartLiveStateResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    planId: z.string().uuid(),
+    validations: z.array(cartValidationSchema),
+    checkoutWebLink: z.string().nullable(),
+    checkoutMobileLink: z.string().nullable(),
+    cartTotalUah: z.number().nullable(),
+    currentCartLines: z.number().int().nonnegative(),
+    /** `checkoutBlocker` — the single actionable reason, or `null` when nothing blocks. */
+    blockReason: z.string().nullable(),
+    shortages: z.array(cartShortageSchema),
+    alreadyMaterialized: z.boolean(),
+  }),
+  z.object({ status: z.literal("not_found") }),
+  z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
+  z.object({ status: z.literal("no_cart"), hint: z.string().optional() }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+export type CartLiveStateResult = z.infer<typeof cartLiveStateResultSchema>;
+
+/**
+ * `cart.reduceLine(planId, slug, toQuantity)` — cut one materialized line down to the stock
+ * the branch can fulfil (R4). Writes the lower quantity to the Silpo cart (set-semantics),
+ * syncs the `list_lines` row, re-reads. `not_materialized` when the plan has no cart yet
+ * (the preview flow owns quantities then).
+ */
+export const cartReduceLineResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    validations: z.array(cartValidationSchema),
+    checkoutWebLink: z.string().nullable(),
+    checkoutMobileLink: z.string().nullable(),
+    cartTotalUah: z.number().nullable(),
+  }),
+  z.object({ status: z.literal("not_found") }),
+  z.object({ status: z.literal("not_materialized"), reason: z.string() }),
+  z.object({ status: z.literal("rejected"), reason: z.string() }),
+  z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
+  z.object({ status: z.literal("no_cart"), hint: z.string().optional() }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+export type CartReduceLineResult = z.infer<typeof cartReduceLineResultSchema>;
 
 /**
  * `cart.preview(planId)` — exactly what a `cart.materialize` would add, partitioned so the

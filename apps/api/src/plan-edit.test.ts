@@ -25,6 +25,24 @@ vi.mock("@navar/db", () => ({
 vi.mock("./cart.js", () => ({ clearPreview: clearPreviewMock }));
 vi.mock("./llm.js", () => ({ getLlm: () => undefined, getLlmTracer: () => undefined }));
 
+const { applyCartDeltaMock, buildPlanContextMock } = vi.hoisted(() => ({
+  applyCartDeltaMock: vi.fn(),
+  buildPlanContextMock: vi.fn(),
+}));
+vi.mock("./cart-resync.js", () => ({
+  applyCartDelta: applyCartDeltaMock,
+  diffCartLines: () => ({ removeProductIds: [], addItems: [] }),
+}));
+vi.mock("./plan-context-cache.js", () => ({
+  loadPlanContext: vi.fn(async () => null),
+  savePlanContext: vi.fn(async () => {}),
+  toCacheable: (x: unknown) => x,
+}));
+vi.mock("./plan.js", () => ({
+  buildPlanContext: buildPlanContextMock,
+  toNearestView: (x: unknown) => x,
+}));
+
 const { applyReplacement, assignmentFrom, makeCheaper, proteinAvailable, roundScale } =
   await import("./plan-edit.js");
 
@@ -172,12 +190,30 @@ describe("proteinAvailable (C — meal-swap bias)", () => {
 });
 
 describe("materialize guard (fail-closed)", () => {
-  it.each([
-    ["status materialized", { status: "materialized" as const }],
-    ["status checked_out", { status: "checked_out" as const }],
-    ["a cart id present", { cartId: "cart-abc" }],
-  ])("refuses applyReplacement when the plan has %s", async (_label, over) => {
-    getPlanDetailMock.mockResolvedValueOnce(plan(over));
+  it("refuses applyReplacement + makeCheaper on a checked-out plan", async () => {
+    getPlanDetailMock.mockResolvedValue(plan({ status: "checked_out" }));
+    expect(
+      (await applyReplacement("11111111-1111-1111-1111-111111111111", "hh", 1, "r9", retail))
+        .status,
+    ).toBe("already_materialized");
+    expect(
+      (await makeCheaper("11111111-1111-1111-1111-111111111111", "hh", 300, retail)).status,
+    ).toBe("already_materialized");
+    expect(clearPreviewMock).not.toHaveBeenCalled();
+    getPlanDetailMock.mockReset();
+  });
+
+  it("refuses makeCheaper on a materialized plan (a full re-solve can't be re-synced)", async () => {
+    getPlanDetailMock.mockResolvedValueOnce(plan({ status: "materialized" }));
+    const res = await makeCheaper("11111111-1111-1111-1111-111111111111", "hh", 300, retail);
+    expect(res.status).toBe("already_materialized");
+  });
+
+  it("lets applyReplacement past the guard on a materialized plan (then re-syncs the cart)", async () => {
+    // The guard no longer blocks `materialized`; downstream context build fails cleanly here,
+    // which proves we got past the freeze rather than being refused outright.
+    getPlanDetailMock.mockResolvedValueOnce(plan({ status: "materialized", cartId: "cart-1" }));
+    buildPlanContextMock.mockRejectedValueOnce(new Error("context unavailable in test"));
     const res = await applyReplacement(
       "11111111-1111-1111-1111-111111111111",
       "hh",
@@ -185,14 +221,8 @@ describe("materialize guard (fail-closed)", () => {
       "r9",
       retail,
     );
-    expect(res.status).toBe("already_materialized");
+    expect(res.status).toBe("error");
     expect(clearPreviewMock).not.toHaveBeenCalled();
-  });
-
-  it("refuses makeCheaper on a materialized plan", async () => {
-    getPlanDetailMock.mockResolvedValueOnce(plan({ status: "materialized" }));
-    const res = await makeCheaper("11111111-1111-1111-1111-111111111111", "hh", 300, retail);
-    expect(res.status).toBe("already_materialized");
   });
 
   it("reports not_found for a missing or foreign plan", async () => {

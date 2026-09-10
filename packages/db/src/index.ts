@@ -25,6 +25,7 @@ export {
   getPlanRecipe,
   getPlanLineDays,
   updateListLineSku,
+  updateListLineQuantity,
   listPlans,
   type ToPlanRowsInput,
   type PlanRows,

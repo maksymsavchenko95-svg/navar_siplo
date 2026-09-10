@@ -8,6 +8,7 @@ import {
 } from "@navar/db";
 import type {
   ExplainChangeInput,
+  ListLine,
   MapperResult,
   PlanAlternative,
   PlanChange,
@@ -35,6 +36,7 @@ import { AuthRequiredError, NoCartError, type RetailProvider } from "@navar/reta
 import { inArray } from "drizzle-orm";
 
 import { clearPreview } from "./cart.js";
+import { applyCartDelta, diffCartLines } from "./cart-resync.js";
 import { getLlm, getLlmTracer } from "./llm.js";
 import { resizePlanList } from "./mapper.js";
 import {
@@ -144,25 +146,28 @@ async function contextFor(
   return cacheable;
 }
 
+const CHECKED_OUT_REASON =
+  "Замовлення в «Сільпо» вже оформлене. Щоб змінити меню, створіть новий план.";
+const MATERIALIZED_REASON =
+  "Цей план уже зібрано в кошик Сільпо. Щоб перебудувати меню повністю, створіть новий план — " +
+  "інакше кошик і план розійдуться.";
+
 /**
- * Common guard for both mutations. Order matters: ownership first (so a foreign plan is
- * indistinguishable from a missing one), then the materialize freeze.
+ * Common guard. Ownership first (so a foreign plan looks missing), then the freeze.
  *
- * **Why the materialize refusal is not optional:** `cart.materializePlan` re-reads
- * `list_lines` at write time, and `addCartProducts` sets an absolute quantity *per product*
- * while never removing anything. Editing a plan whose cart already exists and
- * re-materializing would therefore add the new dish's SKUs and leave the old dish's SKUs in
- * the Guest's cart — they would pay for both.
+ * `checked_out` is always frozen — the Silpo order exists. A `materialized` plan is frozen
+ * for `plan.cheaper` (a full re-solve moves too many lines to re-sync safely) but editable
+ * for `applyReplacement` (`allowMaterialized`), which re-syncs the cart itself: without that,
+ * `addCartProducts`' absolute-per-product, never-remove semantics would leave the swapped-out
+ * dish's SKUs in the Guest's cart.
  */
-function guardEditable(plan: PlanDetail | null): PlanEditResult | null {
+function guardEditable(plan: PlanDetail | null, allowMaterialized = false): PlanEditResult | null {
   if (!plan) return { status: "not_found" };
-  if (plan.status === "materialized" || plan.status === "checked_out" || plan.cartId != null) {
-    return {
-      status: "already_materialized",
-      reason:
-        "Цей план вже зібрано в кошик Сільпо. Щоб змінити меню, створіть новий план — " +
-        "інакше кошик і план розійдуться.",
-    };
+  if (plan.status === "checked_out") {
+    return { status: "already_materialized", reason: CHECKED_OUT_REASON };
+  }
+  if (!allowMaterialized && (plan.status === "materialized" || plan.cartId != null)) {
+    return { status: "already_materialized", reason: MATERIALIZED_REASON };
   }
   return null;
 }
@@ -246,16 +251,51 @@ export async function proposeReplacements(
   }
 }
 
-/** Rebuild every persisted row for a changed plan, then write it in one transaction. */
-async function persistEdit(
-  planId: string,
+type EditedRows = ReturnType<typeof toPlanRows>;
+
+/** One `toPlanRows` `list_lines` insert row → the `ListLine` domain shape (numerics parsed). */
+function insertRowToListLine(r: EditedRows["lines"][number]): ListLine {
+  const n = (v: string | null): number | null => (v == null ? null : Number(v));
+  return {
+    ingredientId: r.ingredientId,
+    slug: r.slug,
+    nameUk: r.nameUk,
+    neededAmount: Number(r.neededAmount),
+    unit: r.unit,
+    productRef: r.productRef ?? null,
+    externalProductId: r.externalProductId ?? null,
+    companyId: r.companyId ?? null,
+    branchId: r.branchId ?? null,
+    productName: r.productName ?? null,
+    packSize: n(r.packSize ?? null),
+    packCount: r.packCount ?? 0,
+    quantityKg: n(r.quantityKg ?? null),
+    price: n(r.price ?? null),
+    oldPrice: n(r.oldPrice ?? null),
+    isPromo: r.isPromo ?? false,
+    confidence: n(r.confidence ?? null),
+    decision: (r.decision as ListLine["decision"]) ?? null,
+    replacedFromName: r.replacedFromName ?? null,
+    needsConfirmation: r.needsConfirmation ?? false,
+    outOfStock: r.outOfStock ?? false,
+    blockReason: r.blockReason ?? null,
+    userOverridden: false,
+  };
+}
+
+/**
+ * Rebuild every persisted row for a changed plan (header totals, days, shopping list) —
+ * without writing. `applyReplacement` needs the recomputed `list_lines` in hand *before* the
+ * DB write so it can re-sync the Silpo cart first (R4).
+ */
+async function computeEditedRows(
   householdId: string,
   plan: PlanDetail,
   ctx: CachedPlanContext,
   picks: readonly PlanDayPick[],
   totals: PlanTotals,
   budgetUah: number,
-): Promise<void> {
+) {
   const emptyMapper: MapperResult = {
     branchId: "",
     consolidated: [],
@@ -311,6 +351,20 @@ async function persistEdit(
     idBySlug: ctx.idBySlug,
     recipeSlugIngredients: ctx.recipeSlugIngredients,
   });
+  return { rows, listLines: rows.lines.map(insertRowToListLine) };
+}
+
+/** Rebuild every persisted row for a changed plan, then write it in one transaction. */
+async function persistEdit(
+  planId: string,
+  householdId: string,
+  plan: PlanDetail,
+  ctx: CachedPlanContext,
+  picks: readonly PlanDayPick[],
+  totals: PlanTotals,
+  budgetUah: number,
+): Promise<void> {
+  const { rows } = await computeEditedRows(householdId, plan, ctx, picks, totals, budgetUah);
   await replacePlanRows(planId, householdId, rows);
 }
 
@@ -389,7 +443,7 @@ export async function applyReplacement(
 ): Promise<PlanEditResult> {
   try {
     const plan = await getPlanDetail(planId, householdId);
-    const blocked = guardEditable(plan);
+    const blocked = guardEditable(plan, true); // materialized is fine — we re-sync the cart
     if (blocked) return blocked;
 
     const ctx = await contextFor(planId, householdId, retail, plan!);
@@ -439,8 +493,7 @@ export async function applyReplacement(
       promoSharePct: plan!.promoSharePct ?? 0,
     };
 
-    await persistEdit(
-      planId,
+    const { rows, listLines } = await computeEditedRows(
       householdId,
       plan!,
       ctx,
@@ -448,6 +501,21 @@ export async function applyReplacement(
       totals,
       plan!.budgetUah,
     );
+
+    // Materialized plan → bring the Silpo cart in line with the new list *before* the DB
+    // write (an MCP failure then leaves nothing half-applied). Dropped dishes' SKUs are
+    // removed, changed lines re-asserted; safety-blocked lines never reach `addItems`.
+    if (plan!.status === "materialized" || plan!.cartId != null) {
+      const sync = await applyCartDelta(
+        planId,
+        householdId,
+        retail,
+        diffCartLines(plan!.list, listLines),
+      );
+      if (sync.status !== "ok") return sync;
+    }
+
+    await replacePlanRows(planId, householdId, rows);
     await clearPreview(planId);
 
     const change = await describeChange(

@@ -1,6 +1,6 @@
 "use client";
 
-import type { CartMaterializeResult, CartPreviewLine } from "@navar/domain";
+import type { CartMaterializeResult, CartPreviewLine, CartShortage } from "@navar/domain";
 import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -35,6 +35,9 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [skuSheetSlug, setSkuSheetSlug] = useState<string | null>(null);
   const [mealSheetDay, setMealSheetDay] = useState<number | null>(null);
+  // Set when the Guest asks to re-sync an already-materialized cart — drops the result-screen
+  // short-circuit so the normal preview → «Додати в кошик» flow runs again (R4).
+  const [resync, setResync] = useState(false);
   const fired = useRef(false);
 
   const refetchPreview = () => preview.mutate({ planId });
@@ -57,11 +60,23 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
     });
 
   // ── phase C: result ──────────────────────────────────────────────────────
-  if (m?.status === "ok" || (p?.status === "ok" && p.alreadyMaterialized)) {
+  // A successful (re-)materialize always lands here; `resync` only defers the *revisit*
+  // short-circuit so the Guest re-previews before re-writing.
+  if (m?.status === "ok" || (!resync && p?.status === "ok" && p.alreadyMaterialized)) {
     return (
       <ScreenShell step={5} back={`/plan/${planId}`}>
         <ScreenTitle title="Кошик Сільпо" sub="Оплата й доставка — у «Сільпо»." />
-        <CartResult planId={planId} materialized={m?.status === "ok" ? m : null} />
+        <CartResult
+          planId={planId}
+          materialized={m?.status === "ok" ? m : null}
+          onResync={() => {
+            setResync(true);
+            materialize.reset();
+            setConfirmed(new Set());
+            setExcluded(new Set());
+            preview.mutate({ planId });
+          }}
+        />
       </ScreenShell>
     );
   }
@@ -114,6 +129,12 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
 
           return (
             <>
+              {resync && p.alreadyMaterialized && (
+                <StateBanner tone="warn">
+                  Кошик уже зібрано — оновимо його після повторного перегляду.
+                </StateBanner>
+              )}
+
               {p.blocked.length > 0 && (
                 <div className="allergies-container">
                   <div className="allergies-title">Не додано — запобіжник безпеки</div>
@@ -248,7 +269,11 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
                 }
                 disabled={materialize.isPending}
               >
-                {materialize.isPending ? <SpinnerDots /> : <span>Додати в кошик Сільпо</span>}
+                {materialize.isPending ? (
+                  <SpinnerDots />
+                ) : (
+                  <span>{resync ? "Оновити кошик Сільпо" : "Додати в кошик Сільпо"}</span>
+                )}
               </PrimaryButton>
             </>
           );
@@ -290,30 +315,42 @@ type MaterializedOk = Extract<CartMaterializeResult, { status: "ok" }>;
 function CartResult({
   planId,
   materialized,
+  onResync,
 }: {
   planId: string;
   materialized: MaterializedOk | null;
+  onResync: () => void;
 }) {
   const router = useRouter();
   const reconnect = useReconnect();
+  const live = trpc.cart.liveState.useQuery({ planId });
   const bonus = trpc.cart.offerBonus.useQuery({ planId });
-  const checkout = trpc.cart.checkoutLink.useQuery({ planId });
   const slots = trpc.cart.deliverySlots.useQuery({ planId });
   const applyBonus = trpc.cart.applyBonus.useMutation({ onSettled: () => void bonus.refetch() });
+  const reduceLine = trpc.cart.reduceLine.useMutation();
+  const applyReplacement = trpc.plan.applyReplacement.useMutation();
   const [bonusOn, setBonusOn] = useState(false);
   const [slotOpen, setSlotOpen] = useState(false);
+  const [skuSheetSlug, setSkuSheetSlug] = useState<string | null>(null);
+  const [mealSheetDay, setMealSheetDay] = useState<number | null>(null);
 
-  const selectedSlot = slots.data?.status === "ok" ? slots.data.selected : null;
-  const afterSlotChange = () => {
-    void checkout.refetch();
+  const refreshAll = () => {
+    void live.refetch();
     void bonus.refetch();
     void slots.refetch();
   };
 
-  const cartTotal = materialized?.cartTotalUah ?? null;
-  const validations = materialized?.validations ?? [];
+  const selectedSlot = slots.data?.status === "ok" ? slots.data.selected : null;
+
+  const state = live.data?.status === "ok" ? live.data : null;
+  const cartTotal = state?.cartTotalUah ?? materialized?.cartTotalUah ?? null;
+  const validations = state?.validations ?? materialized?.validations ?? [];
   const errorMessages = distinctValidationMessages(validations, "error");
   const infoMessages = distinctValidationMessages(validations, "info");
+  const shortages = state?.shortages ?? [];
+  const webLink = state?.checkoutWebLink ?? materialized?.checkoutWebLink ?? null;
+  const mobileLink = state?.checkoutMobileLink ?? materialized?.checkoutMobileLink ?? null;
+  const checkoutReady = webLink != null || mobileLink != null;
   const bonusOffer =
     bonus.data?.status === "ok" && bonus.data.isEnabled && bonus.data.available > 0
       ? bonus.data
@@ -338,6 +375,13 @@ function CartResult({
         </div>
       )}
 
+      {live.isLoading && <SpinnerDots />}
+      {live.data?.status === "auth_required" && <ReconnectBanner onReconnect={reconnect} />}
+      {live.data?.status === "no_cart" && <NoCartBanner />}
+      {live.data?.status === "error" && (
+        <StateBanner title="Не вдалося перечитати кошик">{live.data.message}</StateBanner>
+      )}
+
       {errorMessages.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {errorMessages.map((msg, i) => (
@@ -352,6 +396,42 @@ function CartResult({
           {msg}
         </p>
       ))}
+
+      {shortages.length > 0 && (
+        <div className="cart-items-list">
+          <div className="cart-group-title">Бракує на складі</div>
+          {shortages.map((s) => (
+            <ShortageRow
+              key={s.productId}
+              s={s}
+              busy={reduceLine.isPending || applyReplacement.isPending}
+              onReduce={() =>
+                s.slug != null &&
+                reduceLine.mutate(
+                  { planId, slug: s.slug, toQuantity: s.stock },
+                  { onSettled: refreshAll },
+                )
+              }
+              onSwapSku={() => s.slug != null && setSkuSheetSlug(s.slug)}
+              onSwapMeal={() => s.affectedDays.length > 0 && setMealSheetDay(s.affectedDays[0]!)}
+            />
+          ))}
+          {reduceLine.data?.status === "not_materialized" && (
+            <p className="screen-sub-title">{reduceLine.data.reason}</p>
+          )}
+          {reduceLine.data?.status === "rejected" && (
+            <p className="screen-sub-title">{reduceLine.data.reason}</p>
+          )}
+          {reduceLine.data?.status === "auth_required" && (
+            <ReconnectBanner onReconnect={reconnect} />
+          )}
+          {reduceLine.data?.status === "error" && (
+            <StateBanner title="Не вдалося змінити кількість">
+              {reduceLine.data.message}
+            </StateBanner>
+          )}
+        </div>
+      )}
 
       {materialized && cartTotal != null && (
         <div className="cart-summary-block">
@@ -410,10 +490,10 @@ function CartResult({
         </div>
       )}
 
-      {checkout.data?.status === "ok" && (checkout.data.webLink || checkout.data.mobileLink) ? (
+      {checkoutReady ? (
         <a
           className="btn-primary"
-          href={(checkout.data.webLink ?? checkout.data.mobileLink)!}
+          href={(webLink ?? mobileLink)!}
           target="_blank"
           rel="noreferrer"
           style={{ textDecoration: "none" }}
@@ -421,12 +501,10 @@ function CartResult({
           <span>Перейти до оформлення</span>
           <ArrowRight />
         </a>
-      ) : checkout.data?.status === "unavailable" ? (
+      ) : state?.blockReason ? (
         <StateBanner tone="warn" title="Оформлення поки недоступне">
-          {checkout.data.reason}
+          {state.blockReason}
         </StateBanner>
-      ) : checkout.isLoading ? (
-        <SpinnerDots />
       ) : null}
 
       <div className="cart-slot-row">
@@ -440,6 +518,11 @@ function CartResult({
         </button>
       </div>
 
+      <SecondaryButton onClick={refreshAll} disabled={live.isFetching}>
+        {live.isFetching ? <SpinnerDots /> : <span>Перевірити ще раз</span>}
+      </SecondaryButton>
+      <SecondaryButton onClick={onResync}>Оновити кошик</SecondaryButton>
+
       <p className="cart-retailer-note">Оплата й доставка — у «Сільпо».</p>
       <SecondaryButton onClick={() => (window.location.href = `/plan/${planId}/trace`)}>
         Як це працювало
@@ -451,10 +534,93 @@ function CartResult({
           planId={planId}
           selected={selectedSlot}
           onClose={() => setSlotOpen(false)}
-          onDone={afterSlotChange}
+          onDone={refreshAll}
           onReconnect={reconnect}
         />
       )}
+      {skuSheetSlug && (
+        <LineSkuSheet
+          planId={planId}
+          slug={skuSheetSlug}
+          onClose={() => setSkuSheetSlug(null)}
+          onDone={() => {
+            setSkuSheetSlug(null);
+            refreshAll();
+          }}
+        />
+      )}
+      {mealSheetDay != null && (
+        <ReplaceSheet
+          planId={planId}
+          day={mealSheetDay}
+          applying={applyReplacement.isPending}
+          onClose={() => setMealSheetDay(null)}
+          onPick={(alt) =>
+            applyReplacement.mutate(
+              { planId, day: mealSheetDay, recipeId: alt.recipeId },
+              {
+                onSettled: () => {
+                  setMealSheetDay(null);
+                  refreshAll();
+                },
+              },
+            )
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function ShortageRow({
+  s,
+  busy,
+  onReduce,
+  onSwapSku,
+  onSwapMeal,
+}: {
+  s: CartShortage;
+  busy: boolean;
+  onReduce: () => void;
+  onSwapSku: () => void;
+  onSwapMeal: () => void;
+}) {
+  return (
+    <div className="cart-item-row is-muted">
+      <div className="cart-item-info">
+        <span className="cart-item-name">{s.productName ?? s.nameUk ?? s.productId}</span>
+        <span className="cart-item-pack">
+          лишилось {s.stock}
+          {s.requested != null ? ` · потрібно ${s.requested}` : ""}
+        </span>
+        <div className="cart-item-actions">
+          {s.slug != null && s.stock >= 1 && (
+            <button type="button" className="dish-card__replace" disabled={busy} onClick={onReduce}>
+              Зменшити до {s.stock}
+            </button>
+          )}
+          {s.slug != null && (
+            <button
+              type="button"
+              className="dish-card__replace"
+              disabled={busy}
+              onClick={onSwapSku}
+            >
+              Замінити товар
+            </button>
+          )}
+          {s.slug != null && s.affectedDays.length > 0 && (
+            <button
+              type="button"
+              className="dish-card__replace"
+              disabled={busy}
+              onClick={onSwapMeal}
+            >
+              Замінити страву
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

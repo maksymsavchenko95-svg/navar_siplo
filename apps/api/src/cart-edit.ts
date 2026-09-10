@@ -7,11 +7,18 @@
  * (fail-closed, ADR-05); the chosen SKU is re-checked before it is written.
  */
 
-import { getPlanDetail, type ListLineSkuPatch, updateListLineSku } from "@navar/db";
+import {
+  getPlanDetail,
+  type ListLineSkuPatch,
+  updateListLineQuantity,
+  updateListLineSku,
+} from "@navar/db";
 import {
   type CartLineAlternative,
   type CartLineAlternativesResult,
+  type CartReduceLineResult,
   type CartSetLineSkuResult,
+  type CartWriteItem,
   hasShelfMarkdown,
   isPromoMatch,
   type ListLine,
@@ -29,6 +36,7 @@ import { AuthRequiredError, NoCartError, type RetailProvider } from "@navar/reta
 import { hasHardExclusion } from "@navar/safety";
 
 import { clearPreview } from "./cart.js";
+import { applyCartDelta } from "./cart-resync.js";
 import { loadExclusions, loadMapperDict, makeSkuSafety } from "./mapper.js";
 import { withPersistedMcpTrace } from "./mcp-trace.js";
 
@@ -43,8 +51,8 @@ function retailError(err: unknown): RetailErrResult {
   return { status: "error", message: err instanceof Error ? err.message : String(err) };
 }
 
-const MATERIALIZED_REASON =
-  "Цей план уже зібрано в кошик Сільпо — товари в списку змінити не можна. Створіть новий план.";
+const CHECKED_OUT_REASON =
+  "Замовлення в «Сільпо» вже оформлене — список цього плану змінити не можна. Створіть новий план.";
 
 interface Resolved {
   line: ListLine;
@@ -180,9 +188,12 @@ export async function setLineSku(
   return withPersistedMcpTrace("cart_set_line_sku", { planId, householdId }, async () => {
     const plan = await getPlanDetail(planId, householdId);
     if (!plan) return { status: "not_found" };
-    if (plan.status === "materialized" || plan.status === "checked_out" || plan.cartId != null) {
-      return { status: "already_materialized", reason: MATERIALIZED_REASON };
+    // A placed order is frozen; a materialized-but-not-checked-out plan can still be edited,
+    // as long as the swap is also written through to the Silpo cart (R4).
+    if (plan.status === "checked_out") {
+      return { status: "already_materialized", reason: CHECKED_OUT_REASON };
     }
+    const isMaterialized = plan.status === "materialized" || plan.cartId != null;
 
     const r = await resolveLineCandidates(planId, householdId, slug, retail);
     if ("status" in r) return r;
@@ -223,9 +234,99 @@ export async function setLineSku(
       blockReason: null,
       userOverridden: true,
     };
+    // Re-sync the Silpo cart before touching the DB, so an MCP failure leaves nothing to
+    // reconcile: drop the old SKU, assert the new one at the line's quantity.
+    if (isMaterialized) {
+      const oldRef = r.line.productRef;
+      const newItem: CartWriteItem = {
+        productId: chosen.productId,
+        companyId: chosen.companyId,
+        branchId: chosen.branchId,
+        quantity: pack.quantityKg ?? Math.max(1, pack.packCount),
+      };
+      const sync = await applyCartDelta(planId, householdId, retail, {
+        removeProductIds: oldRef && oldRef !== chosen.productId ? [oldRef] : [],
+        addItems: [newItem],
+      });
+      if (sync.status !== "ok") return sync;
+    }
+
     const changed = await updateListLineSku(planId, householdId, slug, patch);
     if (changed === 0) return { status: "not_found" };
     await clearPreview(planId);
     return { status: "ok" };
+  });
+}
+
+/**
+ * `cart.reduceLine(planId, slug, toQuantity)` — cut a materialized line down to the stock the
+ * branch can fulfil (R4 genuine-shortage recovery). Writes the lower quantity to the Silpo
+ * cart (set-semantics — no remove), syncs the `list_lines` row, re-reads. The pre-materialize
+ * preview flow owns quantities, so a plan with no cart yet returns `not_materialized`.
+ */
+export async function reduceLine(
+  planId: string,
+  householdId: string,
+  slug: string,
+  toQuantity: number,
+  retail: RetailProvider,
+): Promise<CartReduceLineResult> {
+  return withPersistedMcpTrace("cart_reduce_line", { planId, householdId }, async () => {
+    const plan = await getPlanDetail(planId, householdId);
+    if (!plan) return { status: "not_found" };
+    if (plan.status !== "materialized") {
+      return {
+        status: "not_materialized",
+        reason:
+          plan.status === "checked_out"
+            ? "Замовлення вже оформлене — кількість змінюйте в «Сільпо»."
+            : "Кошик ще не зібрано — змініть кількість на кроці перегляду.",
+      };
+    }
+
+    const line = plan.list.find((l) => l.slug === slug);
+    if (!line) return { status: "not_found" };
+    if (line.productRef == null || line.companyId == null || line.branchId == null) {
+      return { status: "rejected", reason: "Цей товар не прив'язаний до кошика." };
+    }
+
+    const weighted = line.quantityKg != null;
+    const current = weighted ? line.quantityKg! : line.packCount;
+    const target = weighted
+      ? Math.min(current, Math.max(0, toQuantity))
+      : Math.max(1, Math.min(current, Math.floor(toQuantity)));
+
+    // Nothing to cut (stock already covers the line, or a degenerate target) — just re-read.
+    const delta =
+      target > 0 && target < current
+        ? {
+            removeProductIds: [],
+            addItems: [
+              {
+                productId: line.productRef,
+                companyId: line.companyId,
+                branchId: line.branchId,
+                quantity: target,
+              } satisfies CartWriteItem,
+            ],
+          }
+        : { removeProductIds: [], addItems: [] };
+
+    const sync = await applyCartDelta(planId, householdId, retail, delta);
+    if (sync.status !== "ok") return sync;
+
+    if (delta.addItems.length > 0) {
+      await updateListLineQuantity(planId, householdId, slug, {
+        packCount: weighted ? line.packCount : target,
+        quantityKg: weighted ? target : null,
+      });
+    }
+    return {
+      status: "ok",
+      validations: sync.validations,
+      checkoutWebLink: sync.checkoutWebLink,
+      checkoutMobileLink: sync.checkoutMobileLink,
+      cartTotalUah: sync.cartTotalUah,
+    };
   });
 }

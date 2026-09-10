@@ -54,6 +54,11 @@ fall back to the first returned.
   `validations[]`. Never assume success (`FR-CART-005`).
 - Do not clear or overwrite an existing cart without an explicit guest request
   (`FR-CART-004`).
+- **A post-materialize `list_lines` edit must re-sync the cart in the same operation**
+  (R4 — `apps/api/src/cart-resync.ts`): remove the SKUs the new list drops, re-assert the
+  changed ones (`addCartProducts` sets an absolute quantity and never removes), then re-read.
+  Apply the cart delta **before** the DB write so an MCP failure leaves nothing half-applied.
+  A `checked_out` plan is frozen — the Silpo order already exists.
 
 ## Error handling (`INT-MCP-002`)
 

@@ -4,11 +4,14 @@ import {
   cartApplyBonusResultSchema,
   cartDeliverySlotsResultSchema,
   cartLineAlternativesResultSchema,
+  cartLiveStateResultSchema,
   cartMaterializeResultSchema,
   cartPreviewLineSchema,
   cartPreviewResultSchema,
+  cartReduceLineResultSchema,
   cartSetDeliverySlotResultSchema,
   cartSetLineSkuResultSchema,
+  cartShortageSchema,
   cartViewSchema,
   cartWriteItemSchema,
 } from "./cart.js";
@@ -210,6 +213,76 @@ describe("cart result unions (discriminated on status)", () => {
       selected: null,
     };
     expect(cartDeliverySlotsResultSchema.parse(ok)).toEqual(ok);
+  });
+
+  it("cartShortageSchema defaults affectedDays and allows an unmapped line", () => {
+    const parsed = cartShortageSchema.parse({
+      productId: "42",
+      slug: null,
+      nameUk: null,
+      productName: null,
+      stock: 0,
+      requested: null,
+    });
+    expect(parsed.affectedDays).toEqual([]);
+    expect(
+      cartShortageSchema.parse({
+        productId: "42",
+        slug: "beef",
+        nameUk: "Яловичина",
+        productName: "Яловичина вирізка",
+        stock: 2,
+        requested: 3,
+        affectedDays: [1, 4],
+      }).affectedDays,
+    ).toEqual([1, 4]);
+  });
+
+  it("cartLiveStateResultSchema round-trips ok (with shortages) + auth_required", () => {
+    const ok = {
+      status: "ok" as const,
+      planId: "11111111-1111-4111-8111-111111111111",
+      validations: [
+        { level: "error" as const, type: "product", message: "product.offer.stock.max" },
+      ],
+      checkoutWebLink: null,
+      checkoutMobileLink: null,
+      cartTotalUah: 640.5,
+      currentCartLines: 12,
+      blockReason: "деяких товарів бракує",
+      shortages: [
+        {
+          productId: "42",
+          slug: "beef",
+          nameUk: "Яловичина",
+          productName: "Яловичина вирізка",
+          stock: 2,
+          requested: 3,
+          affectedDays: [2],
+        },
+      ],
+      alreadyMaterialized: true,
+    };
+    expect(cartLiveStateResultSchema.parse(ok)).toEqual(ok);
+    expect(cartLiveStateResultSchema.parse({ status: "auth_required" }).status).toBe(
+      "auth_required",
+    );
+  });
+
+  it("cartReduceLineResultSchema accepts ok + not_materialized", () => {
+    expect(
+      cartReduceLineResultSchema.parse({
+        status: "ok",
+        validations: [],
+        checkoutWebLink: null,
+        checkoutMobileLink: null,
+        cartTotalUah: 512,
+      }).status,
+    ).toBe("ok");
+    expect(
+      cartReduceLineResultSchema.parse({ status: "not_materialized", reason: "ще не зібрано" })
+        .status,
+    ).toBe("not_materialized");
   });
 
   it("cartSetDeliverySlotResultSchema accepts ok + rejected", () => {
