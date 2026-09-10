@@ -1,6 +1,7 @@
-import { getPlanDetail, getPlanRecipe, listPlans } from "@navar/db";
+import { deletePlan, getPlanDetail, getPlanRecipe, listPlans } from "@navar/db";
 import {
   type Plan,
+  type PlanDeleteResult,
   type PlanEditResult,
   type PlanGenerateResult,
   type PlanGetResult,
@@ -42,6 +43,18 @@ export const planRouter = router({
   list: protectedProcedure.query(async ({ ctx }): Promise<Plan[]> => {
     return listPlans(ctx.householdId);
   }),
+
+  /**
+   * `plan.delete` (R8) — hard-delete a plan and its items / list / MCP-call log (cascade),
+   * scoped to the session household. Deliberately does **not** touch the Silpo cart of a
+   * materialized plan (`FR-CART-004`); the Guest clears that in Silpo if they want.
+   */
+  delete: protectedProcedure
+    .input(z.object({ planId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }): Promise<PlanDeleteResult> => {
+      const n = await deletePlan(input.planId, ctx.householdId);
+      return n > 0 ? { status: "ok" } : { status: "not_found" };
+    }),
 
   /**
    * `R2` — one saved dinner as a cooking recipe: steps + ingredient amounts scaled to the

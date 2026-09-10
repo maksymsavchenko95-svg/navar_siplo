@@ -99,4 +99,16 @@ describe.skipIf(!process.env.DATABASE_URL)("plan router (integration)", () => {
     const res = await caller.plan.get({ planId: "00000000-0000-0000-0000-000000000000" });
     expect(res).toEqual({ status: "not_found" });
   });
+
+  it("delete removes a plan (cascade) and is idempotent", async () => {
+    const caller = appRouter.createCaller(await ctx());
+    const gen = await caller.plan.generate({ goal: "routine", budgetUah: 6000, seed: 12 });
+    expect(gen.status).toBe("ok");
+    if (gen.status !== "ok") return;
+
+    expect(await caller.plan.delete({ planId: gen.planId })).toEqual({ status: "ok" });
+    expect(await caller.plan.get({ planId: gen.planId })).toEqual({ status: "not_found" });
+    // second delete → not_found (already gone)
+    expect(await caller.plan.delete({ planId: gen.planId })).toEqual({ status: "not_found" });
+  }, 120_000);
 });

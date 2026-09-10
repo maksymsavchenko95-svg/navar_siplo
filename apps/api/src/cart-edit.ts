@@ -1,19 +1,21 @@
 /**
- * Cart-preview line edits (`cart.lineAlternatives` / `cart.setLineSku`). The Guest didn't
- * like the mapper's SKU for one ingredient and wants to pick a different product from the
- * branch's other options — or the fresh form of a protein isn't stocked. Pre-materialize
- * only (`guardEditable`): a materialised plan's `list_lines` must stay in lock-step with the
- * Silpo cart. Every candidate goes through the same T2.2 safety gate as the mapper
- * (fail-closed, ADR-05); the chosen SKU is re-checked before it is written.
+ * Cart line edits + recovery: `cart.lineAlternatives` / `cart.setLineSku` (swap one line's
+ * SKU), `cart.reduceLine` (cut a shorted line to available stock), `cart.checkoutInStock`
+ * (drop every sold-out line and check out the rest). SKU swaps go through the same T2.2
+ * safety gate as the mapper (fail-closed, ADR-05) and are re-checked before the write. A
+ * materialised plan's `list_lines` are kept in lock-step with the Silpo cart via
+ * `applyCartDelta`; a `checked_out` plan is frozen. No cart is ever cleared (`FR-CART-004`).
  */
 
 import {
   getPlanDetail,
   type ListLineSkuPatch,
+  markListLinesOutOfStock,
   updateListLineQuantity,
   updateListLineSku,
 } from "@navar/db";
 import {
+  type CartCheckoutInStockResult,
   type CartLineAlternative,
   type CartLineAlternativesResult,
   type CartReduceLineResult,
@@ -35,7 +37,7 @@ import {
 import { AuthRequiredError, NoCartError, type RetailProvider } from "@navar/retail";
 import { hasHardExclusion } from "@navar/safety";
 
-import { clearPreview } from "./cart.js";
+import { checkoutBlocker, clearPreview, STOCK_SHORTAGE_CODES } from "./cart.js";
 import { applyCartDelta } from "./cart-resync.js";
 import { loadExclusions, loadMapperDict, makeSkuSafety } from "./mapper.js";
 import { withPersistedMcpTrace } from "./mcp-trace.js";
@@ -328,5 +330,67 @@ export async function reduceLine(
       checkoutMobileLink: sync.checkoutMobileLink,
       cartTotalUah: sync.cartTotalUah,
     };
+  });
+}
+
+/**
+ * `cart.checkoutInStock(planId)` — the Guest chose to order the in-stock remainder. Drops
+ * every `product.offer.stock.*` line from the Silpo cart (consented, set-semantic, never a
+ * clear — `FR-CART-004`), re-reads, and hands back the checkout link. `list_lines` for the
+ * dropped SKUs are flagged out of stock so the same plan's later screens stay consistent.
+ * `blockReason` is non-null when the reduced cart still can't check out (e.g. now below
+ * `order.cost.min`); `nothing_to_drop` when no line is actually short.
+ */
+export async function checkoutInStock(
+  planId: string,
+  householdId: string,
+  retail: RetailProvider,
+): Promise<CartCheckoutInStockResult> {
+  return withPersistedMcpTrace("cart_checkout_in_stock", { planId, householdId }, async () => {
+    const plan = await getPlanDetail(planId, householdId);
+    if (!plan) return { status: "not_found" };
+
+    try {
+      const cart = await retail.getCart();
+      const shortedIds = [
+        ...new Set(
+          cart.validations
+            .filter((v) => v.level === "error" && STOCK_SHORTAGE_CODES.has(v.message))
+            .map((v) => String(v.context?.productId ?? v.context?.productOfferId ?? ""))
+            .filter((id) => id !== ""),
+        ),
+      ];
+      if (shortedIds.length === 0) return { status: "nothing_to_drop" };
+
+      const sync = await applyCartDelta(planId, householdId, retail, {
+        removeProductIds: shortedIds,
+        addItems: [],
+      });
+      if (sync.status !== "ok") return sync;
+
+      await markListLinesOutOfStock(planId, householdId, shortedIds);
+
+      // Name the lines we can map; an unmatched `productId` (R0 — the list can hold SKUs no
+      // plan line owns) is still removed but not listed by a raw id.
+      const droppedNames = shortedIds
+        .map((id) => plan.list.find((x) => x.productRef === id || x.externalProductId === id))
+        .filter((l): l is NonNullable<typeof l> => l != null)
+        .map((l) => l.productName ?? l.nameUk);
+
+      // Removing products never touches the delivery echo — reuse the pre-write `delivery`
+      // with the re-read validations to name any remaining blocker (FR-CART-005).
+      const ready = sync.checkoutWebLink != null || sync.checkoutMobileLink != null;
+      return {
+        status: "ok",
+        droppedCount: shortedIds.length,
+        droppedNames,
+        checkoutWebLink: sync.checkoutWebLink,
+        checkoutMobileLink: sync.checkoutMobileLink,
+        cartTotalUah: sync.cartTotalUah,
+        blockReason: ready ? null : checkoutBlocker({ ...cart, validations: sync.validations }),
+      };
+    } catch (err) {
+      return retailError(err);
+    }
   });
 }

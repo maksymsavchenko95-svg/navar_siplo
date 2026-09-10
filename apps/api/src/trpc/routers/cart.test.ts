@@ -10,6 +10,8 @@ const checkoutLink = vi.fn();
 const offerBonus = vi.fn();
 const applyBonus = vi.fn();
 
+const checkoutInStock = vi.fn();
+
 vi.mock("../../cart.js", () => ({
   previewPlan: (...a: unknown[]) => previewPlan(...(a as [])),
   materializePlan: (...a: unknown[]) => materializePlan(...(a as [])),
@@ -17,6 +19,15 @@ vi.mock("../../cart.js", () => ({
   checkoutLink: (...a: unknown[]) => checkoutLink(...(a as [])),
   offerBonus: (...a: unknown[]) => offerBonus(...(a as [])),
   applyBonus: (...a: unknown[]) => applyBonus(...(a as [])),
+  deliverySlots: vi.fn(),
+  setDeliverySlot: vi.fn(),
+  liveCartState: vi.fn(),
+}));
+vi.mock("../../cart-edit.js", () => ({
+  checkoutInStock: (...a: unknown[]) => checkoutInStock(...(a as [])),
+  lineAlternatives: vi.fn(),
+  reduceLine: vi.fn(),
+  setLineSku: vi.fn(),
 }));
 
 const { appRouter } = await import("../router.js");
@@ -58,10 +69,19 @@ describe("cart router", () => {
     });
   });
 
+  it("checkoutInStock forwards the plan + household to the service", async () => {
+    checkoutInStock.mockResolvedValue({ status: "nothing_to_drop" });
+    await appRouter.createCaller(ctx()).cart.checkoutInStock({ planId: PLAN_ID });
+    expect(checkoutInStock).toHaveBeenCalledWith(PLAN_ID, "hh-1", expect.anything());
+  });
+
   it("every procedure is protected — no session → UNAUTHORIZED", async () => {
     const anon = testContext({ householdId: null });
     await expect(appRouter.createCaller(anon).cart.preview({ planId: PLAN_ID })).rejects.toThrow(
       /UNAUTHORIZED|Not connected/,
     );
+    await expect(
+      appRouter.createCaller(anon).cart.checkoutInStock({ planId: PLAN_ID }),
+    ).rejects.toThrow(/UNAUTHORIZED|Not connected/);
   });
 });

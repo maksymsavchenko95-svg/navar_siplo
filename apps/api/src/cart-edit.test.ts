@@ -1,15 +1,18 @@
 import type { ListLineSkuPatch } from "@navar/db";
 import type { PlanDetail, ProductMatch } from "@navar/domain";
+import { AuthRequiredError } from "@navar/retail";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getPlanDetail = vi.fn<(id: string, hh: string) => Promise<PlanDetail | null>>();
 const updateListLineSku =
   vi.fn<(id: string, hh: string, slug: string, patch: ListLineSkuPatch) => Promise<number>>();
 const updateListLineQuantity = vi.fn(async () => 1);
+const markListLinesOutOfStock = vi.fn(async () => 1);
 vi.mock("@navar/db", () => ({
   getPlanDetail: (...a: [string, string]) => getPlanDetail(...a),
   updateListLineSku: (...a: [string, string, string, ListLineSkuPatch]) => updateListLineSku(...a),
   updateListLineQuantity: (...a: unknown[]) => updateListLineQuantity(...(a as [])),
+  markListLinesOutOfStock: (...a: unknown[]) => markListLinesOutOfStock(...(a as [])),
 }));
 
 /** `applyCartDelta` is exercised in cart-resync.test.ts — here it is a controllable stub. */
@@ -54,12 +57,18 @@ vi.mock("./mapper.js", () => ({
 vi.mock("@navar/safety", () => ({ hasHardExclusion: () => true }));
 
 const clearPreview = vi.fn(async () => {});
-vi.mock("./cart.js", () => ({ clearPreview: (...a: unknown[]) => clearPreview(...(a as [])) }));
+vi.mock("./cart.js", () => ({
+  clearPreview: (...a: unknown[]) => clearPreview(...(a as [])),
+  checkoutBlocker: (cart: { validations: unknown[] }) =>
+    cart.validations.length > 0 ? "кошик потребує уваги" : null,
+  STOCK_SHORTAGE_CODES: new Set(["product.offer.stock.max", "product.offer.stock.min"]),
+}));
 vi.mock("./mcp-trace.js", () => ({
   withPersistedMcpTrace: (_p: string, _i: unknown, fn: () => unknown) => fn(),
 }));
 
-const { lineAlternatives, reduceLine, setLineSku } = await import("./cart-edit.js");
+const { checkoutInStock, lineAlternatives, reduceLine, setLineSku } =
+  await import("./cart-edit.js");
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -316,5 +325,185 @@ describe("reduceLine", () => {
     const r = await reduceLine("p1", "hh", "beef", 1, fakeRetail([]));
     expect(r.status).toBe("error");
     expect(updateListLineQuantity).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkoutInStock", () => {
+  const oosCart = (over: Record<string, unknown> = {}) => ({
+    shoppingCartId: "cart-1",
+    lines: [],
+    validations: [
+      {
+        level: "error",
+        type: "product",
+        message: "product.offer.stock.max",
+        context: { productId: "beef-sku", stock: 0 },
+      },
+      {
+        level: "error",
+        type: "product",
+        message: "product.offer.stock.max",
+        context: { productId: "rice-sku", stock: 0 },
+      },
+    ],
+    totalUah: 500,
+    totalAfterDiscountsUah: 480,
+    checkoutWebLink: null,
+    checkoutMobileLink: null,
+    delivery: {
+      deliveryType: "DeliveryHome",
+      timeslot: { start: "s", end: "e" },
+      address: {},
+      shipments: [],
+    },
+    loyalty: null,
+    ...over,
+  });
+
+  const listLine = (slug: string, ref: string, name: string) => ({
+    slug,
+    nameUk: name,
+    neededAmount: 500,
+    unit: "g",
+    productRef: ref,
+    companyId: "co",
+    branchId: "br",
+    productName: `${name} SKU`,
+    packCount: 1,
+  });
+
+  const planWithOos = () =>
+    ({
+      ...plan({ status: "materialized", cartId: "cart-1" }),
+      list: [
+        listLine("beef", "beef-sku", "Яловичина"),
+        listLine("rice", "rice-sku", "Рис"),
+        listLine("milk", "milk-sku", "Молоко"),
+      ],
+    }) as unknown as PlanDetail;
+
+  const retail = (getCart: () => Promise<unknown>) => ({ getCart: vi.fn(getCart) }) as never;
+
+  it("drops the shorted SKUs, flags the rows, returns the checkout link", async () => {
+    getPlanDetail.mockResolvedValue(planWithOos());
+    applyCartDelta.mockResolvedValueOnce({
+      status: "ok",
+      validations: [],
+      checkoutWebLink: "https://silpo.ua/c",
+      checkoutMobileLink: null,
+      cartTotalUah: 300,
+    } as never);
+
+    const r = await checkoutInStock(
+      "p1",
+      "hh",
+      retail(async () => oosCart()),
+    );
+
+    expect(r).toEqual({
+      status: "ok",
+      droppedCount: 2,
+      droppedNames: ["Яловичина SKU", "Рис SKU"],
+      checkoutWebLink: "https://silpo.ua/c",
+      checkoutMobileLink: null,
+      cartTotalUah: 300,
+      blockReason: null,
+    });
+    expect(applyCartDelta).toHaveBeenCalledWith("p1", "hh", expect.anything(), {
+      removeProductIds: ["beef-sku", "rice-sku"],
+      addItems: [],
+    });
+    expect(markListLinesOutOfStock).toHaveBeenCalledWith("p1", "hh", ["beef-sku", "rice-sku"]);
+  });
+
+  it("still removes an unmatched shorted productId but does not name it", async () => {
+    getPlanDetail.mockResolvedValue(planWithOos());
+    applyCartDelta.mockResolvedValueOnce({
+      status: "ok",
+      validations: [],
+      checkoutWebLink: "https://silpo.ua/c",
+      checkoutMobileLink: null,
+      cartTotalUah: 300,
+    } as never);
+    const cartWithGhost = () =>
+      oosCart({
+        validations: [
+          {
+            level: "error",
+            type: "product",
+            message: "product.offer.stock.max",
+            context: { productId: "beef-sku", stock: 0 },
+          },
+          {
+            level: "error",
+            type: "product",
+            message: "product.offer.stock.max",
+            context: { productId: "ghost-not-in-list", stock: 0 },
+          },
+        ],
+      });
+    const r = await checkoutInStock(
+      "p1",
+      "hh",
+      retail(async () => cartWithGhost()),
+    );
+    expect(r).toMatchObject({ status: "ok", droppedCount: 2, droppedNames: ["Яловичина SKU"] });
+    expect(applyCartDelta).toHaveBeenCalledWith("p1", "hh", expect.anything(), {
+      removeProductIds: ["beef-sku", "ghost-not-in-list"],
+      addItems: [],
+    });
+  });
+
+  it("returns nothing_to_drop when no line is short", async () => {
+    getPlanDetail.mockResolvedValue(planWithOos());
+    const r = await checkoutInStock(
+      "p1",
+      "hh",
+      retail(async () => oosCart({ validations: [] })),
+    );
+    expect(r.status).toBe("nothing_to_drop");
+    expect(applyCartDelta).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a remaining block reason when the reduced cart still can't check out", async () => {
+    getPlanDetail.mockResolvedValue(planWithOos());
+    applyCartDelta.mockResolvedValueOnce({
+      status: "ok",
+      validations: [{ level: "error", type: "order", message: "order.cost.min", context: {} }],
+      checkoutWebLink: null,
+      checkoutMobileLink: null,
+      cartTotalUah: 120,
+    } as never);
+    const r = await checkoutInStock(
+      "p1",
+      "hh",
+      retail(async () => oosCart()),
+    );
+    expect(r).toMatchObject({ status: "ok", blockReason: "кошик потребує уваги" });
+  });
+
+  it("not_found for an unknown plan", async () => {
+    getPlanDetail.mockResolvedValue(null);
+    expect(
+      (
+        await checkoutInStock(
+          "p1",
+          "hh",
+          retail(async () => oosCart()),
+        )
+      ).status,
+    ).toBe("not_found");
+  });
+
+  it("passes a retail error through", async () => {
+    getPlanDetail.mockResolvedValue(planWithOos());
+    const r = await checkoutInStock(
+      "p1",
+      "hh",
+      retail(async () => {
+        throw new AuthRequiredError("x");
+      }),
+    );
+    expect(r.status).toBe("auth_required");
   });
 });

@@ -74,6 +74,34 @@ export default function PlanPage({ params }: { params: Promise<{ planId: string 
     onError: onEditError,
   });
 
+  // R9 — re-order a completed plan: a fresh solver run with the same goal / budget / seed
+  // against today's prices and promos, then jump to the new plan.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const regenerate = trpc.plan.generate.useMutation({
+    onSuccess: (r) => {
+      clearEditFeedback();
+      if (r.status === "ok") router.replace(`/plan/${r.planId}`);
+      else if (r.status === "auth_required") setEditBanner("auth_required");
+      else if (r.status === "no_cart") setEditBanner("no_cart");
+      else if (r.status === "infeasible") setEditError(r.reason);
+      else setEditError(r.message);
+    },
+    onError: (e) => {
+      clearEditFeedback();
+      setEditError(e.message || "Не вдалося оновити план. Спробуйте ще раз.");
+    },
+  });
+  const del = trpc.plan.delete.useMutation({
+    onSuccess: () => {
+      void utils.plan.list.invalidate();
+      router.replace("/plans");
+    },
+    onError: (e) => {
+      clearEditFeedback();
+      setEditError(e.message || "Не вдалося видалити план. Спробуйте ще раз.");
+    },
+  });
+
   if (plan.isLoading) {
     return (
       <ScreenShell step={4} back="/plans">
@@ -93,7 +121,8 @@ export default function PlanPage({ params }: { params: Promise<{ planId: string 
 
   const p = plan.data.plan;
   const locked = p.status === "materialized" || p.status === "checked_out";
-  const busy = applyReplacement.isPending || cheaper.isPending;
+  const busy =
+    applyReplacement.isPending || cheaper.isPending || regenerate.isPending || del.isPending;
 
   return (
     <ScreenShell step={4} back="/plans">
@@ -178,9 +207,14 @@ export default function PlanPage({ params }: { params: Promise<{ planId: string 
         })}
       </div>
 
+      {regenerate.isPending && (
+        <StateBanner tone="info">Оновлюю план під сьогоднішні ціни та акції…</StateBanner>
+      )}
+
       {locked ? (
-        <StateBanner tone="warn">
-          План уже в кошику «Сільпо». Створіть новий план, щоб змінити меню.
+        <StateBanner tone="info">
+          Цей план уже в кошику «Сільпо». «Замовити знову» перебудує меню під сьогоднішні ціни та
+          акції; «Зібрати той самий кошик» додасть ті самі товари ще раз.
         </StateBanner>
       ) : (
         <div className="chip-row">
@@ -201,12 +235,55 @@ export default function PlanPage({ params }: { params: Promise<{ planId: string 
       <p className="cart-retailer-note">{DISCLAIMER}</p>
 
       <div className="plan-pinned-actions">
-        <PrimaryButton onClick={() => router.push(`/plan/${planId}/cart`)}>
-          <span>Зібрати кошик</span>
-        </PrimaryButton>
+        {locked ? (
+          <>
+            <PrimaryButton
+              disabled={busy}
+              onClick={() =>
+                regenerate.mutate({
+                  goal: p.goal,
+                  budgetUah: p.budgetUah,
+                  seed: p.seed,
+                  days: p.days,
+                })
+              }
+            >
+              {regenerate.isPending ? <SpinnerDots /> : <span>Замовити знову</span>}
+            </PrimaryButton>
+            <SecondaryButton
+              disabled={busy}
+              onClick={() => router.push(`/plan/${planId}/cart?resync=1`)}
+            >
+              Зібрати той самий кошик
+            </SecondaryButton>
+          </>
+        ) : (
+          <PrimaryButton onClick={() => router.push(`/plan/${planId}/cart`)}>
+            <span>Зібрати кошик</span>
+          </PrimaryButton>
+        )}
         <SecondaryButton onClick={() => router.push(`/plan/${planId}/trace`)}>
           Як це працювало
         </SecondaryButton>
+        {confirmDelete ? (
+          <div className="chip-row">
+            <button
+              type="button"
+              className="chip-choice"
+              disabled={busy}
+              onClick={() => del.mutate({ planId })}
+            >
+              Видалити план
+            </button>
+            <button type="button" className="chip-choice" onClick={() => setConfirmDelete(false)}>
+              Скасувати
+            </button>
+          </div>
+        ) : (
+          <SecondaryButton disabled={busy} onClick={() => setConfirmDelete(true)}>
+            Видалити план
+          </SecondaryButton>
+        )}
       </div>
 
       {sheetDay != null && (

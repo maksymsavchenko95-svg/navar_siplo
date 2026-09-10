@@ -160,6 +160,16 @@ export const planGetResultSchema = z.discriminatedUnion("status", [
 ]);
 export type PlanGetResult = z.infer<typeof planGetResultSchema>;
 
+/**
+ * `plan.delete` result (R8). A hard delete of the Navar plan rows (cascades to items / list
+ * lines / MCP-call log); the Silpo cart of a materialized plan is never touched (`FR-CART-004`).
+ */
+export const planDeleteResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok") }),
+  z.object({ status: z.literal("not_found") }),
+]);
+export type PlanDeleteResult = z.infer<typeof planDeleteResultSchema>;
+
 // ── plan.recipe — one dinner's cooking view (R2) ────────────────────────────
 
 /**

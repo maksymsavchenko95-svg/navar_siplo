@@ -232,6 +232,33 @@ export const cartReduceLineResultSchema = z.discriminatedUnion("status", [
 export type CartReduceLineResult = z.infer<typeof cartReduceLineResultSchema>;
 
 /**
+ * `cart.checkoutInStock(planId)` — the Guest chose to order the in-stock remainder: drop
+ * every `product.offer.stock.*` line from the Silpo cart (consented, set-semantic, never a
+ * clear), re-read, and hand back the checkout link. `blockReason` is non-null when the
+ * reduced cart still can't check out (e.g. now below `order.cost.min`). `nothing_to_drop`
+ * when no line is actually short.
+ */
+export const cartCheckoutInStockResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    /** How many lines were removed (matched + unmatched). */
+    droppedCount: z.number().int().nonnegative(),
+    /** Guest-facing names of the removed lines that mapped to a plan line. */
+    droppedNames: z.array(z.string()),
+    checkoutWebLink: z.string().nullable(),
+    checkoutMobileLink: z.string().nullable(),
+    cartTotalUah: z.number().nullable(),
+    blockReason: z.string().nullable(),
+  }),
+  z.object({ status: z.literal("nothing_to_drop") }),
+  z.object({ status: z.literal("not_found") }),
+  z.object({ status: z.literal("auth_required"), hint: z.string().optional() }),
+  z.object({ status: z.literal("no_cart"), hint: z.string().optional() }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+export type CartCheckoutInStockResult = z.infer<typeof cartCheckoutInStockResultSchema>;
+
+/**
  * `cart.preview(planId)` — exactly what a `cart.materialize` would add, partitioned so the
  * Guest sees what is blocked / needs confirmation / is out of stock before anything is
  * written (`FR-CART-001`, ADR-07). Trusts the stored `list_lines` prices; the real total

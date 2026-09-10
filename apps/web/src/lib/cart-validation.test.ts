@@ -1,7 +1,13 @@
 import type { CartValidation } from "@navar/domain";
 import { describe, expect, it } from "vitest";
 
-import { distinctValidationMessages, humanValidation } from "./cart-validation";
+import {
+  distinctValidationMessages,
+  humanValidation,
+  isStockShortage,
+  nonStockErrorMessages,
+  onlyStockShortages,
+} from "./cart-validation";
 
 const v = (message: string, over: Partial<CartValidation> = {}): CartValidation => ({
   level: "error",
@@ -60,5 +66,35 @@ describe("distinctValidationMessages", () => {
 
   it("returns [] when nothing matches the level", () => {
     expect(distinctValidationMessages([], "error")).toEqual([]);
+  });
+});
+
+describe("stock-shortage classification", () => {
+  it("isStockShortage only matches error-level stock codes", () => {
+    expect(isStockShortage(v("product.offer.stock.max"))).toBe(true);
+    expect(isStockShortage(v("product.offer.stock.min"))).toBe(true);
+    expect(isStockShortage(v("product.offer.stock.max", { level: "info" }))).toBe(false);
+    expect(isStockShortage(v("order.cost.min"))).toBe(false);
+  });
+
+  it("onlyStockShortages is true iff every error is a stock shortage", () => {
+    expect(onlyStockShortages([v("product.offer.stock.max"), v("product.offer.stock.max")])).toBe(
+      true,
+    );
+    expect(onlyStockShortages([v("product.offer.stock.max"), v("order.cost.min")])).toBe(false);
+    expect(onlyStockShortages([])).toBe(false);
+    expect(onlyStockShortages([v("timeslot.not_found", { level: "info" })])).toBe(false);
+  });
+
+  it("nonStockErrorMessages drops stock shortages, keeps the rest", () => {
+    const validations = [
+      v("product.offer.stock.max"),
+      v("order.cost.min", { context: { orderCostMin: 799 } }),
+      v("order.payment_types.disabled"),
+    ];
+    const msgs = nonStockErrorMessages(validations);
+    expect(msgs.some((m) => /кількості/.test(m))).toBe(false);
+    expect(msgs.some((m) => /799/.test(m))).toBe(true);
+    expect(msgs.some((m) => /оплати/.test(m))).toBe(true);
   });
 });

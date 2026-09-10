@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
@@ -22,7 +23,14 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function PlansPage() {
   const router = useRouter();
+  const utils = trpc.useUtils();
   const plans = trpc.plan.list.useQuery();
+  const del = trpc.plan.delete.useMutation({
+    onSettled: () => void utils.plan.list.invalidate(),
+  });
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  const open = (id: string) => router.push(`/plan/${id}`);
 
   return (
     <ScreenShell>
@@ -36,11 +44,18 @@ export default function PlansPage() {
 
       <div className="dishes-list">
         {(plans.data ?? []).map((p) => (
-          <button
+          <div
             key={p.id}
-            type="button"
+            role="button"
+            tabIndex={0}
             className="dish-card"
-            onClick={() => router.push(`/plan/${p.id}`)}
+            onClick={() => open(p.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                open(p.id);
+              }
+            }}
           >
             <div className="dish-card-header">
               <span className="dish-card-title">
@@ -48,7 +63,49 @@ export default function PlansPage() {
                 {" · "}
                 {p.goal === "form" ? "Форма" : "Рутина"}
               </span>
-              <span className="dish-day-tag">{STATUS_LABEL[p.status] ?? p.status}</span>
+              <div className="dish-card-header-actions">
+                <span className="dish-day-tag">{STATUS_LABEL[p.status] ?? p.status}</span>
+                {confirmingId === p.id ? (
+                  <>
+                    <button
+                      type="button"
+                      className="chip-remove-btn"
+                      disabled={del.isPending}
+                      title="Видалити план"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        del.mutate({ planId: p.id });
+                        setConfirmingId(null);
+                      }}
+                    >
+                      Видалити
+                    </button>
+                    <button
+                      type="button"
+                      className="chip-remove-btn"
+                      title="Скасувати"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmingId(null);
+                      }}
+                    >
+                      ↩
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="chip-remove-btn"
+                    title="Видалити план"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmingId(p.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             </div>
             <div className="dish-meta-row">
               <span className="dish-pill-meta" style={{ fontWeight: 800 }}>
@@ -60,7 +117,7 @@ export default function PlansPage() {
               )}
               <span className="dish-pill-meta">seed {p.seed}</span>
             </div>
-          </button>
+          </div>
         ))}
       </div>
 

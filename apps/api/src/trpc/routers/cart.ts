@@ -1,6 +1,7 @@
 import type {
   CartApplyBonusResult,
   CartBonusOfferResult,
+  CartCheckoutInStockResult,
   CartCheckoutLinkResult,
   CartDeliverySlotsResult,
   CartLineAlternativesResult,
@@ -24,7 +25,7 @@ import {
   previewPlan,
   setDeliverySlot,
 } from "../../cart.js";
-import { lineAlternatives, reduceLine, setLineSku } from "../../cart-edit.js";
+import { checkoutInStock, lineAlternatives, reduceLine, setLineSku } from "../../cart-edit.js";
 import { protectedProcedure, router } from "../trpc.js";
 
 /**
@@ -101,6 +102,16 @@ export const cartRouter = router({
     )
     .mutation(async ({ ctx, input }): Promise<CartReduceLineResult> => {
       return reduceLine(input.planId, ctx.householdId, input.slug, input.toQuantity, ctx.retail);
+    }),
+
+  /**
+   * `cart.checkoutInStock(planId)` — drop every sold-out line from the Silpo cart (consented)
+   * and hand back the checkout link for the in-stock remainder (R4).
+   */
+  checkoutInStock: protectedProcedure
+    .input(z.object({ planId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }): Promise<CartCheckoutInStockResult> => {
+      return checkoutInStock(input.planId, ctx.householdId, ctx.retail);
     }),
 
   /** `cart.deliverySlots(planId)` — the branch's upcoming delivery windows (read-only). */

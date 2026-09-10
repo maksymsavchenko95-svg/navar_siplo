@@ -23,6 +23,7 @@ export const mcpCallPhaseSchema = z.enum([
   "cart_set_delivery_slot",
   "cart_live_state",
   "cart_reduce_line",
+  "cart_checkout_in_stock",
   "bootstrap",
   "other",
 ]);

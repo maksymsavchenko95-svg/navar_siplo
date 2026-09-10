@@ -449,7 +449,7 @@ describe("checkoutBlocker", () => {
     expect(checkoutBlocker(cartView({ validations: [] }))).toBeNull();
   });
 
-  it("blames the delivery slot when every line is stock:0 (the no-timeslot side-effect)", () => {
+  it("blames the delivery slot when there is no slot and every line is stock:0", () => {
     const cart = cartView({
       delivery: null,
       validations: [
@@ -458,6 +458,22 @@ describe("checkoutBlocker", () => {
       ],
     });
     expect(checkoutBlocker(cart)).toBe("потрібно обрати слот доставки");
+  });
+
+  it("reports a stock reason when a slot IS set even though every short line is stock:0", () => {
+    const cart = cartView({
+      delivery: {
+        deliveryType: "DeliveryHome",
+        timeslot: { start: "s", end: "e" },
+        address: {},
+        shipments: [],
+      },
+      validations: [
+        err("product.offer.stock.max", { productId: "a", stock: 0 }),
+        err("product.offer.stock.max", { productId: "b", stock: 0 }),
+      ],
+    });
+    expect(checkoutBlocker(cart)).toMatch(/бракує/);
   });
 
   it("blames the slot when timeslot.not_found is present alongside stock errors", () => {
@@ -504,7 +520,7 @@ describe("slotIsCheckoutBlocker", () => {
   it("is false with no errors", () => {
     expect(slotIsCheckoutBlocker(cartView({ validations: [] }))).toBe(false);
   });
-  it("blames the slot on every-line stock:0 or timeslot.not_found or no delivery", () => {
+  it("blames the slot when there is no delivery echo, or an explicit timeslot.not_found", () => {
     expect(
       slotIsCheckoutBlocker(
         cartView({ delivery: null, validations: [err("product.offer.stock.max", { stock: 0 })] }),
@@ -516,12 +532,25 @@ describe("slotIsCheckoutBlocker", () => {
       ),
     ).toBe(true);
   });
-  it("is false for a genuine shortage with a slot present", () => {
+  it("is false for a genuine shortage with a slot present (stock:2)", () => {
     expect(
       slotIsCheckoutBlocker(
         cartView({
           delivery: withSlot,
           validations: [err("product.offer.stock.max", { productId: "a", stock: 2 })],
+        }),
+      ),
+    ).toBe(false);
+  });
+  it("is false when a slot is set even though every short line is stock:0 (R4 regression)", () => {
+    expect(
+      slotIsCheckoutBlocker(
+        cartView({
+          delivery: withSlot,
+          validations: [
+            err("product.offer.stock.max", { productId: "a", stock: 0 }),
+            err("product.offer.stock.max", { productId: "b", stock: 0 }),
+          ],
         }),
       ),
     ).toBe(false);
@@ -571,7 +600,7 @@ describe("mapCartShortages", () => {
     ]);
   });
 
-  it("is empty when the slot is the real blocker (every line stock:0)", () => {
+  it("is empty when there is no slot (every line stock:0 is the no-slot side-effect)", () => {
     const cart = cartView({
       delivery: null,
       validations: [
@@ -580,6 +609,17 @@ describe("mapCartShortages", () => {
       ],
     });
     expect(mapCartShortages(cart, list, new Map())).toEqual([]);
+  });
+
+  it("maps genuine stock:0 shortages once a slot is set (R4 regression)", () => {
+    const cart = cartView({
+      delivery: withSlot,
+      validations: [
+        err("product.offer.stock.max", { productId: "sku-beef", stock: 0 }),
+        err("product.offer.stock.max", { productId: "sku-rice", stock: 0 }),
+      ],
+    });
+    expect(mapCartShortages(cart, list, new Map()).map((s) => s.slug)).toEqual(["beef", "rice"]);
   });
 
   it("keeps an unmapped productId with null line fields", () => {

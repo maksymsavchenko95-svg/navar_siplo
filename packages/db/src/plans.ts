@@ -17,7 +17,7 @@ import type {
   ListLine,
   ServingMacros,
 } from "@navar/domain";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { db, type Db } from "./client.js";
 import {
@@ -235,6 +235,24 @@ export async function markPlanMaterialized(
   const rows = await database
     .update(plans)
     .set({ status: "materialized", cartId, materializedAt: new Date() })
+    .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)))
+    .returning({ id: plans.id });
+  return rows.length;
+}
+
+/**
+ * `plan.delete` (R8) — a hard delete of one plan, scoped to `householdId`. `plan_items`,
+ * `list_lines` and `mcp_call_log` are `ON DELETE cascade`, so this is the only row to touch.
+ * Never touches the Silpo cart of a materialized plan (`FR-CART-004`). Returns the number of
+ * rows deleted (0 = not found / not this household).
+ */
+export async function deletePlan(
+  planId: string,
+  householdId: string,
+  database: Db = db,
+): Promise<number> {
+  const rows = await database
+    .delete(plans)
     .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)))
     .returning({ id: plans.id });
   return rows.length;
@@ -560,6 +578,35 @@ export async function updateListLineQuantity(
         quantityKg: qty.quantityKg == null ? null : num(qty.quantityKg, 3),
       })
       .where(and(eq(listLines.planId, planId), eq(listLines.slug, slug)))
+      .returning({ id: listLines.id });
+    return rows.length;
+  });
+}
+
+/**
+ * Flag `list_lines` rows as out of stock by their Silpo `product_ref` (`cart.checkoutInStock`
+ * — the Guest dropped the shorted lines and checked out the rest). Best-effort: keeps the
+ * same plan's later `preview` / `liveState` from re-adding them. Household-scoped. Returns
+ * rows changed.
+ */
+export async function markListLinesOutOfStock(
+  planId: string,
+  householdId: string,
+  productRefs: readonly string[],
+  database: Db = db,
+): Promise<number> {
+  if (productRefs.length === 0) return 0;
+  return database.transaction(async (tx) => {
+    const owned = await tx
+      .select({ id: plans.id })
+      .from(plans)
+      .where(and(eq(plans.id, planId), eq(plans.householdId, householdId)));
+    if (owned.length === 0) return 0;
+
+    const rows = await tx
+      .update(listLines)
+      .set({ outOfStock: true })
+      .where(and(eq(listLines.planId, planId), inArray(listLines.productRef, [...productRefs])))
       .returning({ id: listLines.id });
     return rows.length;
   });

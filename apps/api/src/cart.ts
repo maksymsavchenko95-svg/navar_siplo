@@ -201,21 +201,19 @@ export function checkoutBlockReason(v: CartValidation): string {
 }
 
 /**
- * The Silpo cart reports `product.offer.stock.max` with `context.stock === 0` for *every*
- * line when the cart has no valid delivery slot — availability can't be resolved without a
- * branch/window (docs/app-review-2026-09-08.md F16). In that case the actionable blocker is
- * the slot, not a stock shortage.
+ * Is the cart's *only* checkout blocker the missing delivery slot? When the cart carries no
+ * slot, Silpo can't resolve availability and reports `product.offer.stock.max` /
+ * `context.stock: 0` for every line (docs/app-review-2026-09-08.md F16) — so the actionable
+ * blocker is the slot, not a shortage. But once a real slot **is** set, a `stock: 0` line is
+ * a genuine sold-out item, not that side-effect — treating it as "pick a slot" hides the
+ * shortage and swallows `mapCartShortages` (R4 regression). So the only slot signals are: no
+ * `cart.delivery` echo, or an explicit `timeslot.not_found`.
  */
 export function slotIsCheckoutBlocker(cart: CartView): boolean {
   const errs = cart.validations.filter((v) => v.level === "error");
   if (errs.length === 0) return false;
-  return (
-    !cart.delivery ||
-    errs.some((v) => v.message === "timeslot.not_found") ||
-    errs.every(
-      (v) => v.message === "product.offer.stock.max" && Number(v.context?.stock ?? -1) === 0,
-    )
-  );
+  if (!cart.delivery) return true;
+  return errs.some((v) => v.message === "timeslot.not_found");
 }
 
 /** The single actionable reason checkout is blocked, or `null` when nothing blocks it. */
@@ -227,7 +225,7 @@ export function checkoutBlocker(cart: CartView): string | null {
     : checkoutBlockReason(errs[0]!);
 }
 
-const STOCK_SHORTAGE_CODES = new Set(["product.offer.stock.max", "product.offer.stock.min"]);
+export const STOCK_SHORTAGE_CODES = new Set(["product.offer.stock.max", "product.offer.stock.min"]);
 
 /**
  * Genuine stock shortages (not the no-slot side-effect) mapped back to their plan line via

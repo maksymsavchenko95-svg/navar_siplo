@@ -1,13 +1,17 @@
 "use client";
 
 import type { CartMaterializeResult, CartPreviewLine, CartShortage } from "@navar/domain";
-import { use, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, use, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
 import { useReconnect } from "@/lib/auth";
 import { approx, deliveryWindow, pct, quantityLabel, uah } from "@/lib/format";
-import { distinctValidationMessages } from "@/lib/cart-validation";
+import {
+  distinctValidationMessages,
+  nonStockErrorMessages,
+  onlyStockShortages,
+} from "@/lib/cart-validation";
 import { DeliverySlotSheet } from "@/components/plan/DeliverySlotSheet";
 import { LineSkuSheet } from "@/components/plan/LineSkuSheet";
 import { ReplaceSheet } from "@/components/plan/ReplaceSheet";
@@ -24,6 +28,20 @@ import {
 } from "@/components/ui";
 
 export default function CartPage({ params }: { params: Promise<{ planId: string }> }) {
+  return (
+    <Suspense
+      fallback={
+        <ScreenShell step={5} back="/plans">
+          <SpinnerDots />
+        </ScreenShell>
+      }
+    >
+      <CartPageInner params={params} />
+    </Suspense>
+  );
+}
+
+function CartPageInner({ params }: { params: Promise<{ planId: string }> }) {
   const { planId } = use(params);
   const router = useRouter();
   const reconnect = useReconnect();
@@ -35,9 +53,10 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [skuSheetSlug, setSkuSheetSlug] = useState<string | null>(null);
   const [mealSheetDay, setMealSheetDay] = useState<number | null>(null);
-  // Set when the Guest asks to re-sync an already-materialized cart — drops the result-screen
-  // short-circuit so the normal preview → «Додати в кошик» flow runs again (R4).
-  const [resync, setResync] = useState(false);
+  // `?resync=1` (from the plan screen's «Зібрати той самий кошик») drops the result-screen
+  // short-circuit so an already-materialized plan re-runs the preview → materialize flow.
+  const searchParams = useSearchParams();
+  const [resync] = useState(searchParams.get("resync") === "1");
   const fired = useRef(false);
 
   const refetchPreview = () => preview.mutate({ planId });
@@ -66,17 +85,7 @@ export default function CartPage({ params }: { params: Promise<{ planId: string 
     return (
       <ScreenShell step={5} back={`/plan/${planId}`}>
         <ScreenTitle title="Кошик Сільпо" sub="Оплата й доставка — у «Сільпо»." />
-        <CartResult
-          planId={planId}
-          materialized={m?.status === "ok" ? m : null}
-          onResync={() => {
-            setResync(true);
-            materialize.reset();
-            setConfirmed(new Set());
-            setExcluded(new Set());
-            preview.mutate({ planId });
-          }}
-        />
+        <CartResult planId={planId} materialized={m?.status === "ok" ? m : null} />
       </ScreenShell>
     );
   }
@@ -315,11 +324,9 @@ type MaterializedOk = Extract<CartMaterializeResult, { status: "ok" }>;
 function CartResult({
   planId,
   materialized,
-  onResync,
 }: {
   planId: string;
   materialized: MaterializedOk | null;
-  onResync: () => void;
 }) {
   const router = useRouter();
   const reconnect = useReconnect();
@@ -339,17 +346,25 @@ function CartResult({
     void bonus.refetch();
     void slots.refetch();
   };
+  const checkoutInStock = trpc.cart.checkoutInStock.useMutation({ onSettled: refreshAll });
 
   const selectedSlot = slots.data?.status === "ok" ? slots.data.selected : null;
 
   const state = live.data?.status === "ok" ? live.data : null;
   const cartTotal = state?.cartTotalUah ?? materialized?.cartTotalUah ?? null;
   const validations = state?.validations ?? materialized?.validations ?? [];
-  const errorMessages = distinctValidationMessages(validations, "error");
+  const hardErrorMessages = nonStockErrorMessages(validations);
+  const stockIsTheOnlyBlocker = onlyStockShortages(validations);
   const infoMessages = distinctValidationMessages(validations, "info");
   const shortages = state?.shortages ?? [];
-  const webLink = state?.checkoutWebLink ?? materialized?.checkoutWebLink ?? null;
-  const mobileLink = state?.checkoutMobileLink ?? materialized?.checkoutMobileLink ?? null;
+  const dropped = checkoutInStock.data?.status === "ok" ? checkoutInStock.data : null;
+  const webLink =
+    dropped?.checkoutWebLink ?? state?.checkoutWebLink ?? materialized?.checkoutWebLink ?? null;
+  const mobileLink =
+    dropped?.checkoutMobileLink ??
+    state?.checkoutMobileLink ??
+    materialized?.checkoutMobileLink ??
+    null;
   const checkoutReady = webLink != null || mobileLink != null;
   const bonusOffer =
     bonus.data?.status === "ok" && bonus.data.isEnabled && bonus.data.available > 0
@@ -382,15 +397,37 @@ function CartResult({
         <StateBanner title="Не вдалося перечитати кошик">{live.data.message}</StateBanner>
       )}
 
-      {errorMessages.length > 0 && (
+      {hardErrorMessages.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {errorMessages.map((msg, i) => (
+          {hardErrorMessages.map((msg, i) => (
             <StateBanner key={i} tone="error">
               {msg}
             </StateBanner>
           ))}
         </div>
       )}
+
+      {stockIsTheOnlyBlocker && shortages.length > 0 && !checkoutReady && (
+        <StateBanner tone="warn" title="Частини товарів зараз немає">
+          Деяких товарів немає в наявності ({shortages.length}) — можна оформити решту без них.
+        </StateBanner>
+      )}
+
+      {dropped && (
+        <StateBanner tone="info">
+          Не додано ({dropped.droppedCount})
+          {dropped.droppedNames.length > 0 ? `: ${dropped.droppedNames.join(", ")}` : ""} — немає в
+          наявності.
+          {dropped.blockReason ? ` Але ${dropped.blockReason}.` : ""}
+        </StateBanner>
+      )}
+      {checkoutInStock.data?.status === "auth_required" && (
+        <ReconnectBanner onReconnect={reconnect} />
+      )}
+      {checkoutInStock.data?.status === "error" && (
+        <StateBanner title="Не вдалося оформити решту">{checkoutInStock.data.message}</StateBanner>
+      )}
+
       {infoMessages.map((msg, i) => (
         <p key={i} className="screen-sub-title">
           {msg}
@@ -431,6 +468,15 @@ function CartResult({
             </StateBanner>
           )}
         </div>
+      )}
+
+      {stockIsTheOnlyBlocker && shortages.length > 0 && !checkoutReady && (
+        <PrimaryButton
+          disabled={checkoutInStock.isPending}
+          onClick={() => checkoutInStock.mutate({ planId })}
+        >
+          {checkoutInStock.isPending ? <SpinnerDots /> : <span>Оформити те, що є</span>}
+        </PrimaryButton>
       )}
 
       {materialized && cartTotal != null && (
@@ -501,7 +547,7 @@ function CartResult({
           <span>Перейти до оформлення</span>
           <ArrowRight />
         </a>
-      ) : state?.blockReason ? (
+      ) : state?.blockReason && !stockIsTheOnlyBlocker ? (
         <StateBanner tone="warn" title="Оформлення поки недоступне">
           {state.blockReason}
         </StateBanner>
@@ -521,7 +567,6 @@ function CartResult({
       <SecondaryButton onClick={refreshAll} disabled={live.isFetching}>
         {live.isFetching ? <SpinnerDots /> : <span>Перевірити ще раз</span>}
       </SecondaryButton>
-      <SecondaryButton onClick={onResync}>Оновити кошик</SecondaryButton>
 
       <p className="cart-retailer-note">Оплата й доставка — у «Сільпо».</p>
       <SecondaryButton onClick={() => (window.location.href = `/plan/${planId}/trace`)}>

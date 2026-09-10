@@ -5,8 +5,10 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { closeDb, db } from "./client.js";
 import { importCanonicalIngredients } from "./import-ingredients.js";
 import {
+  deletePlan,
   getPlanDetail,
   getPlanLineDays,
+  markListLinesOutOfStock,
   markPlanMaterialized,
   replacePlanRows,
   savePlan,
@@ -324,6 +326,41 @@ describe.skipIf(!process.env.DATABASE_URL)("savePlan / getPlanDetail (integratio
     await db.delete(plans).where(eq(plans.id, planId));
     expect(await db.$count(planItems, eq(planItems.planId, planId))).toBe(0);
     expect(await db.$count(listLines, eq(listLines.planId, planId))).toBe(0);
+  });
+
+  it("deletePlan is household-scoped and cascades to items + list lines (R8)", async () => {
+    await setup();
+    const planId = await savePlan(rowsFor());
+
+    // wrong household → 0 rows, plan untouched
+    expect(await deletePlan(planId, "00000000-0000-0000-0000-000000000000")).toBe(0);
+    expect(await getPlanDetail(planId, householdId)).not.toBeNull();
+
+    expect(await deletePlan(planId, householdId)).toBe(1);
+    expect(await getPlanDetail(planId, householdId)).toBeNull();
+    expect(await db.$count(planItems, eq(planItems.planId, planId))).toBe(0);
+    expect(await db.$count(listLines, eq(listLines.planId, planId))).toBe(0);
+    // idempotent
+    expect(await deletePlan(planId, householdId)).toBe(0);
+  });
+
+  it("markListLinesOutOfStock flips the flag by product_ref, household-scoped", async () => {
+    await setup();
+    const planId = await savePlan(rowsFor());
+
+    expect(
+      await markListLinesOutOfStock(planId, "00000000-0000-0000-0000-000000000000", ["carrot-sku"]),
+    ).toBe(0);
+    expect(await markListLinesOutOfStock(planId, householdId, ["carrot-sku", "onion-sku"])).toBe(2);
+    expect(await markListLinesOutOfStock(planId, householdId, [])).toBe(0);
+
+    const detail = await getPlanDetail(planId, householdId);
+    const oos = new Map(detail!.list.map((l) => [l.slug, l.outOfStock]));
+    expect(oos.get("carrot")).toBe(true);
+    expect(oos.get("onion")).toBe(true);
+    expect(oos.get("potato")).toBe(false);
+
+    await db.delete(plans).where(eq(plans.id, planId));
   });
 
   it("updatePlanDay rewrites one day and leaves the others untouched (T4.2)", async () => {

@@ -43,3 +43,24 @@ export function distinctValidationMessages(
   }
   return out;
 }
+
+const STOCK_CODES = new Set(["product.offer.stock.max", "product.offer.stock.min"]);
+
+/** A `stock.*` error → recoverable (drop it, check out the rest). Anything else is a hard stop. */
+export function isStockShortage(v: CartValidation): boolean {
+  return v.level === "error" && STOCK_CODES.has(v.message);
+}
+
+/** Error-level validations that are NOT stock shortages (min order sum, payment types, …). */
+export function nonStockErrorMessages(validations: readonly CartValidation[]): string[] {
+  return distinctValidationMessages(
+    validations.filter((v) => v.level === "error" && !STOCK_CODES.has(v.message)),
+    "error",
+  );
+}
+
+/** Every error is a stock shortage — the cart is checkout-able once those lines are dropped. */
+export function onlyStockShortages(validations: readonly CartValidation[]): boolean {
+  const errs = validations.filter((v) => v.level === "error");
+  return errs.length > 0 && errs.every(isStockShortage);
+}
