@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
 import { useReconnect } from "@/lib/auth";
-import { approx, minutes, pct, uah } from "@/lib/format";
+import { approx, minutes, pct, pluralPeople, uah } from "@/lib/format";
 import { planEditFeedback } from "@/lib/plan-edit-feedback";
 import { ReplaceSheet } from "@/components/plan/ReplaceSheet";
 import {
@@ -327,6 +327,8 @@ function PlanHero({ plan: p }: { plan: PlanDetail }) {
           </span>
         )}
       </div>
+
+      {p.items[0] && <p className="members-line">Кошик на {pluralPeople(p.items[0].servings)}</p>}
 
       {estimated && (
         <p className="screen-sub-title">

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
-import { uah, pct, groupNumber } from "@/lib/format";
+import { uah, pct, groupNumber, pluralPeople } from "@/lib/format";
 import {
   ACTIVITY_OPTIONS,
   DIRECTION_OPTIONS,
@@ -20,6 +20,7 @@ import {
   ScreenTitle,
   Segmented,
   SpinnerDots,
+  Stepper,
 } from "@/components/ui";
 
 const BUDGET_STEP = 50;
@@ -62,6 +63,19 @@ export default function NumbersPage() {
               (household.data?.status === "ok" && household.data.household.weeklyBudgetUah) ||
               DEFAULT_BUDGET
             }
+          />
+          <MembersField
+            initialAdults={
+              household.data?.status === "ok"
+                ? household.data.members.filter((m) => m.kind === "adult").length || 1
+                : 1
+            }
+            initialChildren={
+              household.data?.status === "ok"
+                ? household.data.members.filter((m) => m.kind === "child").length
+                : 0
+            }
+            goal={goal}
           />
           {goal === "form" && <NutritionForm />}
           <div style={{ marginTop: 8, paddingTop: 8 }}>
@@ -163,6 +177,77 @@ function BudgetField({ initial }: { initial: number }) {
           <span>{uah(BUDGET_MAX)}</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * R5 — editable household size. Bootstrap seeds `household_members` from Silpo's family list,
+ * which is often just the account holder; `servings` (which scales every recipe's cost and
+ * the budget check) is derived from it at `plan.generate`. Shown in both goal modes — the
+ * count is goal-independent. Mirrors `BudgetField`'s debounced-write shape.
+ */
+function MembersField({
+  initialAdults,
+  initialChildren,
+  goal,
+}: {
+  initialAdults: number;
+  initialChildren: number;
+  goal: "routine" | "form";
+}) {
+  const utils = trpc.useUtils();
+  const setMembers = trpc.household.setMembers.useMutation({
+    onSettled: () => void utils.household.get.invalidate(),
+  });
+  const [adults, setAdults] = useState(initialAdults);
+  const [children, setChildren] = useState(initialChildren);
+
+  const dAdults = useDebounced(adults, 400);
+  const dChildren = useDebounced(children, 400);
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    setMembers.mutate({ adults: dAdults, children: dChildren });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dAdults, dChildren]);
+
+  return (
+    <div className="form-card-field">
+      <div className="field-label-row">
+        <span className="field-label">Скільки їдців</span>
+        <span className="field-value-bold">{pluralPeople(adults + children)}</span>
+      </div>
+      <div className="form-2col-row">
+        <div className="tactile-input-card">
+          <span className="tactile-input-label">Дорослі</span>
+          <Stepper
+            value={adults}
+            min={1}
+            max={12}
+            onChange={setAdults}
+            ariaLabel="Кількість дорослих"
+          />
+        </div>
+        <div className="tactile-input-card">
+          <span className="tactile-input-label">Діти</span>
+          <Stepper
+            value={children}
+            min={0}
+            max={12}
+            onChange={setChildren}
+            ariaLabel="Кількість дітей"
+          />
+        </div>
+      </div>
+      {goal === "form" && (
+        <p className="screen-sub-title">
+          Ситний коридор рахуємо на одну людину — кількість їдців впливає лише на розмір кошика.
+        </p>
+      )}
     </div>
   );
 }

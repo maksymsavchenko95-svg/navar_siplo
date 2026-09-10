@@ -19,24 +19,51 @@ calorie corridor) — are **one solver with different configuration**, never a c
 
 ## Repository state
 
-**M0–M3 done, M4 in progress.** The end-to-end P0 loop works on a live Silpo account: web
-login via Silpo OAuth → `household.bootstrap` reads profile/family/restrictions/receipts →
-household portrait → deterministic 5-day meal plan in both goal modes (`routine` / `form`),
-within budget, no restriction violated → persisted plan + SKU shopping list + a Guest-facing
-explanation; an infeasible budget returns the nearest valid plan + the ₴ delta + a concrete
-reason → cart preview/materialize → `validations[]` → balabonuses → `checkoutWebLink`. **M4:**
-T4.1 (promo into the solver) + T4.2 (`plan.replaceItem` / `cheaper`) + T4.3 (`ops.trace` —
-the MCP-call trace) done; T4.4 (web screens) in progress — the materialized-cart recovery
-path (R4) is in: `cart.liveState` re-reads a materialized cart for its live `validations[]` +
-per-line stock shortages, `cart.reduceLine` / post-materialize `cart.setLineSku` /
-`plan.applyReplacement` edit a materialized plan and re-sync the Silpo cart in the same
-operation (`apps/api/src/cart-resync.ts`). **T4.5 (latency) done** — cold `plan.generate`
-68 s → ~10 s: the mapper's LLM SKU re-ranks run 8-wide (`mapWithConcurrency`) on
-`NAVAR_LLM_RERANK_MODEL` (default `claude-haiku-4-5`), `explainPlan` is written in the
-background, `buildPlanContext` reads are parallelised, and `getCartContext` shares one
-in-flight fetch. Real progress stages via `apps/api/src/plan-progress.ts` (Redis) +
-`plan.generationStage` (`plan.generate` stays a synchronous call — the BullMQ job is
-deferred). T4.4 web screens + R0/R7 mapping quality next.
+**M0–M4 essentially done, M5 (validate + present) is the remaining work.** The end-to-end
+P0 loop works on a live Silpo account: web login via Silpo OAuth → `household.bootstrap`
+reads profile/family/restrictions/receipts → household portrait → deterministic 5-day meal
+plan in both goal modes (`routine` / `form`), within budget, no restriction violated, with
+portion-fit + seeded local search (T3.3) on top → persisted plan + SKU shopping list + a
+Guest-facing explanation; an infeasible budget returns the nearest valid plan, the ₴ delta,
+and a concrete reason → cart preview/materialize → `validations[]` → balabonuses →
+`checkoutWebLink`. **M4 done:** T4.1 (promo into the solver) · T4.2 (`plan.replaceItem` /
+`cheaper`) · T4.3 (`ops.trace` — the MCP-call trace) · T4.5 (latency) · T4.6 (cart-recovery
+polish — `plan.delete`, «Замовити знову» re-order, `cart.checkoutInStock`).
+
+**T4.4 web screens — built, wired to real tRPC:** the wizard `goal → numbers (nutrition
+calc) → tastes` then `plan/` (generation with real Redis progress stages) →
+`plan/[planId]` (5-day menu, hero ₴ + protein + promo share) → `plan/[planId]/day/[i]` →
+`plan/[planId]/cart` (preview → materialize → delivery-slot picker → balabonus toggle →
+stock-shortage recovery → `checkoutInStock` → handoff) → `plan/[planId]/trace` (the
+`ops.trace` drawer). `plan/[planId]` also does `replaceItem` / `applyReplacement` /
+`cheaper`. **Still open in T4.4:** a public landing page (`INT-UI-002`) and a dedicated
+account-connect / onboarding screen (login today is the bare `<SessionGate>` card).
+
+**R5 (editable household size, 2026-09-11):** `household.setMembers` + adults/children
+steppers on `/numbers` (both goal modes) — `servings` (which scales every recipe cost + the
+budget check) is no longer stuck at whatever `silpo_get_my_family` returned. New
+`household_members.source` (`silpo` | `guest`, migration `0012`): a guest override survives
+re-bootstrap, and a failed `getFamily()` no longer wipes members to zero. Plan hero shows
+"Кошик на N осіб". Children are count-only in P0 (per-child ages + per-member protein are
+P1). `docs/app-review-2026-09-08.md` R5.
+
+**Materialized-cart recovery (R4):** `cart.liveState` re-reads a materialized cart for its
+live `validations[]` + per-line stock shortages; `cart.reduceLine` / post-materialize
+`cart.setLineSku` / `plan.applyReplacement` edit a materialized plan and re-sync the Silpo
+cart in the same operation (`apps/api/src/cart-resync.ts`).
+
+**T4.5 (latency):** cold `plan.generate` 68 s → ~10 s — the mapper's LLM SKU re-ranks run
+8-wide (`mapWithConcurrency`) on `NAVAR_LLM_RERANK_MODEL` (default `claude-haiku-4-5`),
+`explainPlan` is written in the background, `buildPlanContext` reads are parallelised, and
+`getCartContext` shares one in-flight fetch. Real progress stages via
+`apps/api/src/plan-progress.ts` (Redis) + `plan.generationStage` (`plan.generate` stays a
+synchronous call — the full BullMQ job is deferred).
+
+**800 tests green** (`pnpm typecheck && pnpm test`, 2026-09-11). **Next:** M5 — wizard-of-oz
+on 10 real plans + ≥8 depth interviews (`AC-P0-10`, start now — cannot be done
+retroactively), CI (GitHub Actions), the `AC-P0-01..09` live run-through twice, and the
+YouTube video pitch — submission deadline **14 Sep 2026**. Plus T4.4's landing/onboarding
+screens, R6 (per-dinner calorie copy), and R0/R7 mapping-quality polish if time allows.
 pnpm monorepo laid out per `docs/tdd-navar.md` §2.
 
 | Path                           | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -44,7 +71,7 @@ pnpm monorepo laid out per `docs/tdd-navar.md` §2.
 | `packages/domain`              | `@navar/domain` — Zod schemas, inferred types, unit conversions, cross-package port contracts (`CredentialStore`). Depends only on zod. Imported by everything (ADR-01).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `packages/db`                  | `@navar/db` — Drizzle schema + migrate + seed + the Postgres-backed `CredentialStore` (AES-256-GCM) + the idempotent `import-ingredients.ts` / `import-recipes.ts` importers (pure helpers split from DB I/O). The only package that touches the database.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `packages/retail`              | `@navar/retail` — `RetailProvider` seam + Silpo MCP adapter + OAuth (CLI loopback flow `auth-flow.ts` + web flow `web-auth.ts` + shared app-level DCR client `app-client.ts`). Typed methods: `listTools`, `getCartContext`, `findProducts`, `getProductDetails`, `getReplacements`, the `HouseholdReader` reads (`silpo/parse.ts` maps the raw responses); `rawToolList` / `callToolRaw` are audit-only. **The only package that imports `@modelcontextprotocol/sdk`** (ADR-04); a grep enforces it.                                                                                                                                                                                                                                                                                                                                              |
-| `packages/planner`             | `@navar/planner` — the deterministic solver (TDD §4, ADR-03/09). `hardFilter` → `recipeCost` (in pack sizes; unmapped lines get a category-median estimate) → `scoreRecipe` (`WEIGHTS[goal]`) → `greedyPlan` day-by-day. Infeasible → `diagnoseInfeasible`: `cheapestPlan` + the binding constraint + a concrete reason (`FR-PLAN-006`). Portion-fit / local search still stubbed (T3.3).                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `packages/planner`             | `@navar/planner` — the deterministic solver (TDD §4, ADR-03/09). `hardFilter` → `recipeCost` (in pack sizes; unmapped lines get a category-median estimate) → `scoreRecipe` (`WEIGHTS[goal]`) → `greedyPlan` day-by-day → `refinePlan` (T3.3 — `portionFit` for `form` + a ≤200-iteration seeded `localSearch`). Infeasible → `diagnoseInfeasible`: `cheapestPlan` + the binding constraint + a concrete reason (`FR-PLAN-006`). `dayAlternatives` powers `plan.replaceItem` (seed-independent, ranked).                                                                                                                                                                                                                                                                                                                                           |
 | `packages/mapper`              | `@navar/mapper` — ingredient ↔ SKU matching (TDD §5, real). `consolidate` → `buildQuery` (head-noun normalisation) → `rankCandidates` (deterministic score) → LLM re-rank only on a close call → `decideMatch` (flags `confidence < 0.6`, never adds silently) → pack/surplus. Out-of-stock → replacement funnel. `data/golden/queries.yaml` regression set.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `packages/safety`              | `@navar/safety` — food-safety guardrails, deterministic + fail-closed (ADR-05). `resolveExclusions` (restrictions → EU-14 codes, non-canonical codes remapped + warned), `checkIngredient` (planning), `checkSku` (`get_product_details` — structured allergen tokens **and** a `Склад` free-text stem-scan), `needsSkuCheck` (narrow by category). Re-exports `assertKcalFloor` (`FR-SAFE-009`).                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `apps/api`                     | Fastify + tRPC. Wires the packages; `/health`, `/auth/silpo/callback` (OAuth redirect → session), tRPC routers `auth` / `household` / `plan` / `recipes` (+ `hello`). `context.ts` resolves the session → `ctx.householdId` / per-household `ctx.retail`; `protectedProcedure` gates everything account-scoped. `src/{auth-flow,session,retail,mapper,plan,plan-edit,cart,cart-edit,cart-resync,mcp-trace,llm}.ts` + `household/` (bootstrap) + `queue/` (BullMQ). tRPC routers also include `cart` / `ops` (`ops.trace` = the T4.3 MCP-call trace). `cart-resync.ts` (R4) keeps `list_lines` ↔ the Silpo cart in lock-step for post-materialize edits. `src/scripts/{mcp-auth,mcp-register,mcp-tools-snapshot,mcp-audit,mcp-audit-cart,plan-probe,mapper-probe,cart-probe,plan-edit-probe,ops-trace}.ts` (`audit-util.ts` = tested pure helpers). |
@@ -86,7 +113,8 @@ no JS emit.
 `packages/db/src/schema.ts` — the identity + consumption + recipe-corpus + plan subset of
 `docs/tdd-navar.md` §3: `households` (incl. `goal` = routine|form, `bootstrap_status`, the
 **unique `silpo_user_ref`** — one row per Silpo account, the login dedup key),
-`household_members`, `household_restrictions`, `nutrition_targets`, `consumption_models`,
+`household_members` (incl. `source` = silpo|guest — migration `0012`, R5: a `guest` row
+survives re-bootstrap), `household_restrictions`, `nutrition_targets`, `consumption_models`,
 `household_preferences`, `receipt_lines`, `mcp_credentials`, `canonical_ingredients`,
 `recipes`, `recipe_ingredients`, `plans` / `plan_items` / `list_lines` (T2.4 — migration
 `0005`; TDD §3's `text` FK types are stale, real ones are `uuid`; `plan_items.recipe_id`

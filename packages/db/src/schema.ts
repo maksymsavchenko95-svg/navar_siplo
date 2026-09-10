@@ -82,6 +82,10 @@ export const householdMembers = pgTable("household_members", {
   kind: text("kind").notNull(), // adult | child | pet
   ageYears: integer("age_years"),
   label: text("label"),
+  // silpo = derived from `silpo_get_my_family` at bootstrap; guest = the Guest's explicit
+  // override via `household.setMembers` / onboarding. A `guest` row survives re-bootstrap
+  // (R5), the same way a restriction's `confirmed_at` does.
+  source: text("source").notNull().default("silpo"), // silpo | guest
 });
 
 export const householdRestrictions = pgTable(

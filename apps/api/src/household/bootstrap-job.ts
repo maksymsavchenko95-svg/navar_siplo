@@ -145,29 +145,45 @@ export async function runBootstrap(
     // Idempotent: per-household delete + insert, re-deriving `ingredient_id` each run.
     await saveReceiptLines(db, householdId, orders);
 
-    // 6. Family → members (rebuild).
-    await db
-      .delete(schema.householdMembers)
-      .where(eq(schema.householdMembers.householdId, householdId));
-    if (family) {
+    // 6. Family → members (rebuild) — skipped when the Guest overrode the counts
+    //    (`source: "guest"`, R5) or the family read failed this run (`family === null` from
+    //    the `Promise.allSettled` above): a transient MCP error must not wipe good data.
+    const [guestMember] = await db
+      .select({ id: schema.householdMembers.id })
+      .from(schema.householdMembers)
+      .where(
+        and(
+          eq(schema.householdMembers.householdId, householdId),
+          eq(schema.householdMembers.source, "guest"),
+        ),
+      )
+      .limit(1);
+
+    if (family && !guestMember) {
+      await db
+        .delete(schema.householdMembers)
+        .where(eq(schema.householdMembers.householdId, householdId));
       const rows = [
         ...Array.from({ length: Math.max(family.adultCount, 1) }, () => ({
           householdId,
           kind: "adult",
           ageYears: null as number | null,
           label: null as string | null,
+          source: "silpo",
         })),
         ...family.childAgeYears.map((age) => ({
           householdId,
           kind: "child",
           ageYears: age,
           label: null,
+          source: "silpo",
         })),
         ...Array.from({ length: family.petCount }, () => ({
           householdId,
           kind: "pet",
           ageYears: null,
           label: null,
+          source: "silpo",
         })),
       ];
       if (rows.length > 0) await db.insert(schema.householdMembers).values(rows);

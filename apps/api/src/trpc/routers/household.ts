@@ -6,6 +6,7 @@ import {
   confirmTastesInputSchema,
   type Goal,
   goalSchema,
+  type HouseholdMemberView,
   type HouseholdPortrait,
   type HouseholdResult,
   KCAL_FLOOR,
@@ -15,10 +16,12 @@ import {
   nutritionTargetsSchema,
   onboardingAnswersSchema,
   rawKcalTarget,
+  type SetMembersResult,
+  setMembersInputSchema,
   type StoredRestriction,
 } from "@navar/domain";
 import { parseRestrictionsStep, runStep } from "@navar/llm";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { buildPortrait } from "../../household/portrait.js";
@@ -55,6 +58,17 @@ function toStoredRestrictions(
     severity: r.severity as StoredRestriction["severity"],
     source: r.source as StoredRestriction["source"],
     confirmed: r.confirmedAt !== null,
+  }));
+}
+
+function toMemberViews(
+  rows: { kind: string; ageYears: number | null; label: string | null; source: string }[],
+): HouseholdMemberView[] {
+  return rows.map((m) => ({
+    kind: m.kind as HouseholdMemberView["kind"],
+    ageYears: m.ageYears,
+    label: m.label,
+    source: m.source as HouseholdMemberView["source"],
   }));
 }
 
@@ -156,11 +170,7 @@ export const householdRouter = router({
         deliveryType: hh.deliveryType,
         bootstrapStatus: hh.bootstrapStatus as (typeof BOOTSTRAP_STATUS)[number],
       },
-      members: hh.members.map((m) => ({
-        kind: m.kind as "adult" | "child" | "pet",
-        ageYears: m.ageYears,
-        label: m.label,
-      })),
+      members: toMemberViews(hh.members),
       restrictions: toStoredRestrictions(hh.restrictions),
       consumptionModel: (hh.consumptionModel?.model ?? null) as ConsumptionModel | null,
       preferences: hh.preferences
@@ -289,7 +299,8 @@ export const householdRouter = router({
         { provider: ctx.llm, tracer: ctx.tracer },
       );
 
-      // Members from the answers.
+      // Members from the answers — `source: "guest"`, so a later re-bootstrap keeps them
+      // (the Guest typed these) the way a restriction's `confirmed_at` survives (R5).
       await ctx.db
         .delete(schema.householdMembers)
         .where(eq(schema.householdMembers.householdId, householdId));
@@ -299,12 +310,14 @@ export const householdRouter = router({
           kind: "adult",
           ageYears: null as number | null,
           label: null as string | null,
+          source: "guest",
         })),
         ...input.children.map((age) => ({
           householdId,
           kind: "child",
           ageYears: age,
           label: null,
+          source: "guest",
         })),
       ];
       await ctx.db.insert(schema.householdMembers).values(memberRows);
@@ -439,6 +452,54 @@ export const householdRouter = router({
         return { status: "ok", weeklyBudgetUah: input.weeklyBudgetUah };
       },
     ),
+
+  /**
+   * `R5` — the Guest's explicit household-size override. Bootstrap seeds `household_members`
+   * from `silpo_get_my_family`, which is often incomplete (lists only the account holder);
+   * `servings` is derived from the non-pet member count at `plan.generate`, so an
+   * uncorrected count sizes the plan and the budget check for the wrong number of people.
+   *
+   * Writes `source: "guest"` rows so bootstrap step 6 will not clobber them (mirrors a
+   * restriction's `confirmed_at`). Children are count-only in P0 (`age_years` null). Existing
+   * `pet` rows are left untouched. No `plans` column — the next `plan.generate` re-derives
+   * `servings` from these rows. Deliberate Guest action → writes unconditionally. Idempotent.
+   */
+  setMembers: protectedProcedure
+    .input(setMembersInputSchema)
+    .mutation(async ({ ctx, input }): Promise<SetMembersResult> => {
+      const { householdId } = ctx;
+      try {
+        await ctx.db
+          .delete(schema.householdMembers)
+          .where(
+            and(
+              eq(schema.householdMembers.householdId, householdId),
+              inArray(schema.householdMembers.kind, ["adult", "child"]),
+            ),
+          );
+        const rows = [
+          ...Array.from({ length: input.adults }, () => ({
+            householdId,
+            kind: "adult",
+            ageYears: null as number | null,
+            label: null as string | null,
+            source: "guest",
+          })),
+          ...Array.from({ length: input.children }, () => ({
+            householdId,
+            kind: "child",
+            ageYears: null as number | null,
+            label: null as string | null,
+            source: "guest",
+          })),
+        ];
+        if (rows.length > 0) await ctx.db.insert(schema.householdMembers).values(rows);
+        const hh = await loadHousehold(ctx.db, householdId);
+        return { status: "ok", members: toMemberViews(hh?.members ?? []) };
+      } catch (err) {
+        return { status: "error", message: err instanceof Error ? err.message : String(err) };
+      }
+    }),
 
   /**
    * `FR-GOAL-003` — body metrics → `nutrition_targets`, computed by the system. Fail-closed

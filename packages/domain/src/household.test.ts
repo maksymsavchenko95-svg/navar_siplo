@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   consumptionModelSchema,
+  householdMemberSchema,
   householdPortraitSchema,
   householdResultSchema,
   inferConsumptionOutputSchema,
@@ -9,6 +10,7 @@ import {
   parsedRestrictionSchema,
   parseRestrictionsOutputSchema,
   retailOrderSchema,
+  setMembersInputSchema,
 } from "./household.js";
 
 describe("consumptionModelSchema", () => {
@@ -161,6 +163,46 @@ describe("onboardingAnswersSchema", () => {
         maxPrepMinutes: 40,
       }),
     ).toThrow();
+  });
+});
+
+describe("householdMemberSchema", () => {
+  it("defaults source to 'silpo' when omitted", () => {
+    const m = householdMemberSchema.parse({ kind: "adult", ageYears: null, label: null });
+    expect(m.source).toBe("silpo");
+  });
+
+  it("accepts an explicit guest source", () => {
+    expect(() =>
+      householdMemberSchema.parse({ kind: "child", ageYears: null, label: null, source: "guest" }),
+    ).not.toThrow();
+  });
+
+  it("rejects an unknown source", () => {
+    expect(() =>
+      householdMemberSchema.parse({ kind: "adult", ageYears: null, label: null, source: "mcp" }),
+    ).toThrow();
+  });
+});
+
+describe("setMembersInputSchema", () => {
+  it("accepts adults 1-12 and children 0-12", () => {
+    expect(() => setMembersInputSchema.parse({ adults: 4, children: 2 })).not.toThrow();
+    expect(() => setMembersInputSchema.parse({ adults: 1, children: 0 })).not.toThrow();
+    expect(() => setMembersInputSchema.parse({ adults: 12, children: 12 })).not.toThrow();
+  });
+
+  it("rejects fewer than one adult", () => {
+    expect(() => setMembersInputSchema.parse({ adults: 0, children: 0 })).toThrow();
+  });
+
+  it("rejects counts above 12", () => {
+    expect(() => setMembersInputSchema.parse({ adults: 13, children: 0 })).toThrow();
+    expect(() => setMembersInputSchema.parse({ adults: 2, children: 13 })).toThrow();
+  });
+
+  it("rejects non-integer counts", () => {
+    expect(() => setMembersInputSchema.parse({ adults: 2.5, children: 0 })).toThrow();
   });
 });
 

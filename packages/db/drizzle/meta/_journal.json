@@ -85,6 +85,13 @@
       "when": 1788969600346,
       "tag": "0011_sharp_the_twelve",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789081744228,
+      "tag": "0012_light_doctor_spectrum",
+      "breakpoints": true
     }
   ]
 }

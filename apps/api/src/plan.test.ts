@@ -237,7 +237,7 @@ describe.skipIf(!process.env.DATABASE_URL)("plan generation (integration)", () =
 
     const input = await buildSolverInput(id, retail, { goal: "form", seed: 3 });
     expect(input.goal).toBe("form");
-    expect(input.servings).toBe(3); // 2 adults + 1 child, no pets
+    expect(input.servings).toBe(3); // 2 adults + 1 child, no pets (seed rows, source='silpo')
     expect(input.hardConstraints.proteinMinPerDay).toBe(31);
     expect(input.hardConstraints.excludedAllergens).toContain("gluten");
     expect(input.candidates.length).toBeGreaterThan(0);

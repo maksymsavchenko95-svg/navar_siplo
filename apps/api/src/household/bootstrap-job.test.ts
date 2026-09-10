@@ -126,6 +126,7 @@ describe.skipIf(!HAS_DB)("runBootstrap (integration)", () => {
     expect(hh.silpoUserRef).toBe("prof-test");
     expect(hh.members.map((m) => m.kind).sort()).toEqual(["adult", "adult", "child", "pet"]);
     expect(hh.members.find((m) => m.kind === "child")!.ageYears).toBe(7);
+    expect(hh.members.every((m) => m.source === "silpo")).toBe(true);
     expect(hh.restrictions.some((r) => r.kind === "allergen" && r.code === "milk")).toBe(true);
     expect(hh.consumptionModel!.source).toBe("receipts");
     expect(hh.consumptionModel!.orderCount).toBe(3);
@@ -222,5 +223,45 @@ describe.skipIf(!HAS_DB)("runBootstrap (integration)", () => {
     expect(
       await db.$count(schema.receiptLines, eq(schema.receiptLines.householdId, householdId)),
     ).toBe(6);
+  });
+
+  it("R5 — a guest household-size override survives a re-bootstrap", async () => {
+    await runBootstrap(householdId, deps(fakeReader())); // 2 adult + 1 child + 1 pet (silpo)
+
+    // Guest overrides the counts (mirrors household.setMembers).
+    await db
+      .delete(schema.householdMembers)
+      .where(eq(schema.householdMembers.householdId, householdId));
+    await db
+      .insert(schema.householdMembers)
+      .values([
+        ...Array.from({ length: 4 }, () => ({ householdId, kind: "adult", source: "guest" })),
+        ...Array.from({ length: 2 }, () => ({ householdId, kind: "child", source: "guest" })),
+      ]);
+
+    await runBootstrap(householdId, deps(fakeReader()));
+
+    const hh = await readBack();
+    expect(hh.members.filter((m) => m.kind === "adult")).toHaveLength(4);
+    expect(hh.members.filter((m) => m.kind === "child")).toHaveLength(2);
+    expect(hh.members.filter((m) => m.kind === "pet")).toHaveLength(0); // rebuild skipped whole
+    expect(hh.members.every((m) => m.source === "guest")).toBe(true);
+  });
+
+  it("R5 — a failed family read does not wipe existing members", async () => {
+    await runBootstrap(householdId, deps(fakeReader()));
+    expect((await readBack()).members).toHaveLength(4);
+
+    const reader = fakeReader({
+      getFamily: async () => {
+        throw new Error("mcp down");
+      },
+    });
+    const res = await runBootstrap(householdId, deps(reader));
+    expect(res.outcome).toBe("done");
+
+    const hh = await readBack();
+    expect(hh.members).toHaveLength(4); // pre-R5 this was 0
+    expect(hh.members.every((m) => m.source === "silpo")).toBe(true);
   });
 });

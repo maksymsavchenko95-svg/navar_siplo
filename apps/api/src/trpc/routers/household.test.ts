@@ -45,6 +45,7 @@ describe.skipIf(!process.env.DATABASE_URL)("household router (integration)", () 
     goal: string;
     weeklyBudget: string | null;
     targets: typeof schema.nutritionTargets.$inferSelect | undefined;
+    members: (typeof schema.householdMembers.$inferSelect)[];
   };
 
   beforeAll(async () => {
@@ -60,7 +61,11 @@ describe.skipIf(!process.env.DATABASE_URL)("household router (integration)", () 
       .select()
       .from(schema.nutritionTargets)
       .where(eq(schema.nutritionTargets.householdId, householdId));
-    snapshot = { goal: hh!.goal, weeklyBudget: hh!.weeklyBudget, targets };
+    const members = await db
+      .select()
+      .from(schema.householdMembers)
+      .where(eq(schema.householdMembers.householdId, householdId));
+    snapshot = { goal: hh!.goal, weeklyBudget: hh!.weeklyBudget, targets, members };
   });
 
   afterAll(async () => {
@@ -72,6 +77,13 @@ describe.skipIf(!process.env.DATABASE_URL)("household router (integration)", () 
       .delete(schema.nutritionTargets)
       .where(eq(schema.nutritionTargets.householdId, householdId));
     if (snapshot.targets) await db.insert(schema.nutritionTargets).values(snapshot.targets);
+    // Restore the exact member rows — `plan.test.ts` in this package asserts
+    // `input.servings === 3` off them and the suite runs with no file parallelism.
+    await db
+      .delete(schema.householdMembers)
+      .where(eq(schema.householdMembers.householdId, householdId));
+    if (snapshot.members.length > 0)
+      await db.insert(schema.householdMembers).values(snapshot.members);
   });
 
   it("setGoal flips households.goal and round-trips", async () => {
@@ -116,6 +128,55 @@ describe.skipIf(!process.env.DATABASE_URL)("household router (integration)", () 
       .from(schema.households)
       .where(eq(schema.households.id, householdId));
     expect(Number(row2!.weeklyBudget)).toBe(4500);
+  });
+
+  it("setMembers replaces adult/child rows with guest-sourced counts and returns the reloaded view", async () => {
+    const res = await caller.household.setMembers({ adults: 4, children: 2 });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+
+    const nonPet = res.members.filter((m) => m.kind !== "pet");
+    expect(nonPet.filter((m) => m.kind === "adult")).toHaveLength(4);
+    expect(nonPet.filter((m) => m.kind === "child")).toHaveLength(2);
+    expect(nonPet.every((m) => m.source === "guest")).toBe(true);
+    expect(nonPet.every((m) => m.ageYears === null)).toBe(true);
+
+    const got = await caller.household.get();
+    if (got.status !== "ok") throw new Error("expected ok");
+    expect(got.members.filter((m) => m.kind !== "pet")).toHaveLength(6);
+  });
+
+  it("setMembers preserves existing pet rows", async () => {
+    await db.insert(schema.householdMembers).values({
+      householdId,
+      kind: "pet",
+      ageYears: null,
+      label: null,
+      source: "silpo",
+    });
+    await caller.household.setMembers({ adults: 2, children: 1 });
+    const rows = await db
+      .select()
+      .from(schema.householdMembers)
+      .where(eq(schema.householdMembers.householdId, householdId));
+    expect(rows.filter((m) => m.kind === "pet")).toHaveLength(1);
+    expect(rows.filter((m) => m.kind === "adult")).toHaveLength(2);
+    expect(rows.filter((m) => m.kind === "child")).toHaveLength(1);
+  });
+
+  it("setMembers is idempotent", async () => {
+    await caller.household.setMembers({ adults: 3, children: 1 });
+    await caller.household.setMembers({ adults: 3, children: 1 });
+    const rows = await db
+      .select()
+      .from(schema.householdMembers)
+      .where(eq(schema.householdMembers.householdId, householdId));
+    expect(rows.filter((m) => m.kind !== "pet")).toHaveLength(4);
+  });
+
+  it("setMembers rejects out-of-range counts", async () => {
+    await expect(caller.household.setMembers({ adults: 0, children: 0 })).rejects.toThrow();
+    await expect(caller.household.setMembers({ adults: 2, children: 13 })).rejects.toThrow();
   });
 
   it("computeNutrition writes the computed targets and is idempotent", async () => {

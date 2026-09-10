@@ -1086,6 +1086,51 @@ textarea {
   gap: 8px;
 }
 
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: #ede6dc;
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.08),
+    inset 0 1px 2px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.stepper-btn {
+  flex: 0 0 auto;
+  width: 38px;
+  min-height: 38px;
+  border: none;
+  background: #ffffff;
+  border-radius: var(--radius-xs);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  color: #9a3412;
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stepper-btn:disabled {
+  opacity: 0.4;
+  box-shadow: none;
+}
+
+.stepper-value {
+  flex: 1 1 0;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--color-text-hero);
+  font-variant-numeric: tabular-nums;
+}
+
 .tactile-input-card {
   background-color: var(--color-surface);
   border-radius: var(--radius-md);

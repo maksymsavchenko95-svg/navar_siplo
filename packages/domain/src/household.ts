@@ -317,10 +317,15 @@ export const bootstrapStatusSchema = z.enum([
 ]);
 export type BootstrapStatus = z.infer<typeof bootstrapStatusSchema>;
 
+export const memberSourceSchema = z.enum(["silpo", "guest"]);
+export type MemberSource = z.infer<typeof memberSourceSchema>;
+
 export const householdMemberSchema = z.object({
   kind: z.enum(["adult", "child", "pet"]),
   ageYears: z.number().int().nullable(),
   label: z.string().nullable(),
+  // `.default` keeps pre-R5 constructors (tests, fixtures) valid without a `source`.
+  source: memberSourceSchema.default("silpo"),
 });
 export type HouseholdMemberView = z.infer<typeof householdMemberSchema>;
 
@@ -343,3 +348,22 @@ export const householdResultSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("not_bootstrapped") }),
 ]);
 export type HouseholdResult = z.infer<typeof householdResultSchema>;
+
+// ─── household.setMembers (R5 — the Guest's household-size override) ───────────
+
+/**
+ * Counts, not an age array — children are count-only in P0 (`submitOnboarding.children` is
+ * an age array; the two "children" shapes coexist deliberately). Bounds match
+ * `onboardingAnswersSchema` (adults 1–12, children ≤ 12).
+ */
+export const setMembersInputSchema = z.object({
+  adults: z.number().int().min(1).max(12),
+  children: z.number().int().min(0).max(12),
+});
+export type SetMembersInput = z.infer<typeof setMembersInputSchema>;
+
+export const setMembersResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok"), members: z.array(householdMemberSchema) }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+export type SetMembersResult = z.infer<typeof setMembersResultSchema>;

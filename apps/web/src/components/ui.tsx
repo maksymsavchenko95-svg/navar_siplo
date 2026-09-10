@@ -208,6 +208,48 @@ export function Segmented<T extends string>({
   );
 }
 
+/* ---- numeric stepper --------------------------------------------- */
+
+export function Stepper({
+  value,
+  min,
+  max,
+  onChange,
+  ariaLabel,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+  ariaLabel?: string;
+}) {
+  return (
+    <div className="stepper" role="group" aria-label={ariaLabel}>
+      <button
+        type="button"
+        className="stepper-btn"
+        aria-label="Менше"
+        disabled={value <= min}
+        onClick={() => onChange(Math.max(min, value - 1))}
+      >
+        −
+      </button>
+      <span className="stepper-value" aria-live="polite">
+        {value}
+      </span>
+      <button
+        type="button"
+        className="stepper-btn"
+        aria-label="Більше"
+        disabled={value >= max}
+        onClick={() => onChange(Math.min(max, value + 1))}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 /* ---- loading dots -------------------------------------------------- */
 
 export function SpinnerDots() {
