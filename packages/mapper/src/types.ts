@@ -73,5 +73,11 @@ export const ACCEPT_GAP = 0.25;
 export const MIN_CONFIDENCE = 0.6;
 /** `silpo_find_products_batch` takes at most this many queries per call (`FR-MAP-004`). */
 export const BATCH_SIZE = 30;
+/**
+ * How many LLM re-ranks the mapper runs at once (T4.5). The re-ranks are independent —
+ * one ingredient's ≤5 candidate names each — so bounding concurrency cuts wall-clock
+ * ~N× without touching determinism (decisions are still applied in `consolidated` order).
+ */
+export const RERANK_CONCURRENCY = 8;
 /** A pack more than this multiple of what's needed is treated as a poor fit (TDD §5 step 3). */
 export const OVERSIZE_PACK_RATIO = 3;

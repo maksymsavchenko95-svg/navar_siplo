@@ -112,6 +112,9 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
   private client: Client | undefined;
   private toolsCache: { at: number; value: McpToolsResult } | undefined;
   private cartCache: { at: number; value: CartContext } | undefined;
+  /** Shared while a cold `getCartContext` fetch is in progress (T4.5) — the mapper + promo
+   *  reads all call it concurrently, and without this each ran its own 3-call chain. */
+  private cartCtxInFlight: Promise<CartContext> | undefined;
   private productCache = new Map<string, { at: number; value: ProductSearchResult }>();
   private detailsCache = new Map<string, { at: number; value: ProductDetails }>();
   private promotionsCache = new Map<string, { at: number; value: Promotion[] }>();
@@ -178,6 +181,19 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
       recordCacheHit("silpo_get_my_shopping_cart", {});
       return this.cartCache.value;
     }
+    // A cold generate calls this from the mapper and both promo reads at once — share the
+    // one in-flight 3-call chain instead of racing several (T4.5).
+    if (this.cartCtxInFlight) {
+      recordCacheHit("silpo_get_my_shopping_cart", {});
+      return this.cartCtxInFlight;
+    }
+    this.cartCtxInFlight = this.fetchCartContext().finally(() => {
+      this.cartCtxInFlight = undefined;
+    });
+    return this.cartCtxInFlight;
+  }
+
+  private async fetchCartContext(): Promise<CartContext> {
     if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
 
     const myCart = await this.callTool("silpo_get_my_shopping_cart");
@@ -430,6 +446,7 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
 
   private clearCartCache(): void {
     this.cartCache = undefined;
+    this.cartCtxInFlight = undefined;
   }
 
   // ─── Household reads (HouseholdReader, T1.4) ────────────────────────────────

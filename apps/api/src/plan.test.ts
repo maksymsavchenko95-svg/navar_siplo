@@ -259,9 +259,21 @@ describe.skipIf(!process.env.DATABASE_URL)("plan generation (integration)", () =
     expect(missing.status).toBe("error");
 
     // demo household: `ok` when MCP is authed + feasible, otherwise a degraded/typed status.
-    const res = await generateAndPersistPlan(id, retail, { goal: "routine", seed: 5 });
+    const stages: string[] = [];
+    const res = await generateAndPersistPlan(id, retail, {
+      goal: "routine",
+      seed: 5,
+      detachExplanation: false, // the test asserts the note on return
+      onStage: (s) => stages.push(s),
+    });
     expect(["ok", "infeasible", "auth_required", "no_cart", "error"]).toContain(res.status);
+    // T4.5 — the pipeline reports progress stages in order (a prefix of the full sequence,
+    // depending on how far generation got).
+    const ORDER = ["context", "pricing", "solving", "saving", "explaining", "done"];
+    expect(stages[0]).toBe("context");
+    expect(stages).toEqual([...stages].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)));
     if (res.status === "ok") {
+      expect(stages).toEqual(ORDER);
       const { getPlanDetail, schema, db } = await import("@navar/db");
       const { eq } = await import("drizzle-orm");
       const detail = await getPlanDetail(res.planId, id);

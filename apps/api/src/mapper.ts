@@ -27,7 +27,7 @@ import {
 } from "@navar/safety";
 import { eq, inArray } from "drizzle-orm";
 
-import { getLlm, getLlmTracer } from "./llm.js";
+import { getLlmTracer, getRerankLlm } from "./llm.js";
 
 /**
  * Load the dictionary rows a plan needs, in the shape `@navar/mapper` consumes. The DB row
@@ -177,9 +177,12 @@ export function makeSkuSafety(
   };
 }
 
-/** The LLM re-rank function for the mapper's close-call branch, wired to the API singletons. */
+/**
+ * The LLM re-rank function for the mapper's close-call branch, wired to the API singletons.
+ * Uses the fast re-rank model (`getRerankLlm()`, T4.5), not the main one.
+ */
 export function getRerankFn(): RerankFn {
-  return llmRerank({ provider: getLlm(), tracer: getLlmTracer() });
+  return llmRerank({ provider: getRerankLlm(), tracer: getLlmTracer() });
 }
 
 /**

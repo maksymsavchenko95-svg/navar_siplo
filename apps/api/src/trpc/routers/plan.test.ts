@@ -72,8 +72,16 @@ describe.skipIf(!process.env.DATABASE_URL)("plan router (integration)", () => {
     if (got.status !== "ok") return;
     expect(got.plan.items).toHaveLength(5);
     expect(got.plan.list.length).toBeGreaterThan(0);
-    expect(got.plan.explanation).toBeTruthy();
     expect(got.plan.seed).toBe(11);
+
+    // T4.5 — the explanation is written in the background; give it a moment.
+    let explanation = got.plan.explanation;
+    for (let i = 0; i < 20 && !explanation; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+      const again = await caller.plan.get({ planId: gen.planId });
+      if (again.status === "ok") explanation = again.plan.explanation;
+    }
+    expect(explanation).toBeTruthy();
     expect(got.plan.totalEstUah).toBeLessThanOrEqual(6000);
 
     // B2 — cook time comes from the linked recipe (seeded corpus → all present, positive int)

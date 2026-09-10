@@ -122,7 +122,10 @@ async function main(): Promise<void> {
 
   if (flag("persist")) {
     console.log("\n── persist (plan.generate + explainPlan) ──");
-    const gen = await generateAndPersistPlan(householdId, retail, opts);
+    const gen = await generateAndPersistPlan(householdId, retail, {
+      ...opts,
+      detachExplanation: false,
+    });
     if (gen.status !== "ok") {
       console.log(`⚠️  ${gen.status}${"reason" in gen ? ` — ${gen.reason}` : ""}`);
       process.exitCode = 1;

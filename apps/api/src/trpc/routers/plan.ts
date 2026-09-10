@@ -4,6 +4,7 @@ import {
   type PlanDeleteResult,
   type PlanEditResult,
   type PlanGenerateResult,
+  type PlanGenerationStageResult,
   type PlanGetResult,
   type PlanRecipeResult,
   type PlanReplaceItemResult,
@@ -13,6 +14,7 @@ import { z } from "zod";
 
 import { applyReplacement, makeCheaper, proposeReplacements } from "../../plan-edit.js";
 import { generateAndPersistPlan, toPlanRecipeView } from "../../plan.js";
+import { readGenStage } from "../../plan-progress.js";
 import { protectedProcedure, router } from "../trpc.js";
 
 /**
@@ -42,6 +44,15 @@ export const planRouter = router({
 
   list: protectedProcedure.query(async ({ ctx }): Promise<Plan[]> => {
     return listPlans(ctx.householdId);
+  }),
+
+  /**
+   * `plan.generationStage` (T4.5) — the current pipeline stage of an in-flight
+   * `plan.generate` for this household, or `null` when none is running. The generate screen
+   * polls this so the progress card shows real stages, not `Math.floor(elapsed / 6)`.
+   */
+  generationStage: protectedProcedure.query(async ({ ctx }): Promise<PlanGenerationStageResult> => {
+    return { stage: await readGenStage(ctx.householdId) };
   }),
 
   /**

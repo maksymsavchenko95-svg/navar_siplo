@@ -247,6 +247,56 @@ describe("mapPlan", () => {
     expect(await run()).toEqual(await run());
   });
 
+  it("T4.5: parallel re-ranks stay deterministic and apply in ingredient order", async () => {
+    // Every ingredient below is a close call → all go through the re-ranker concurrently.
+    const table = {
+      молоко: [
+        sku({ productId: "m1", name: "Молоко А" }),
+        sku({ productId: "m2", name: "Молоко Б" }),
+      ],
+      "соус соєвий": [
+        sku({ productId: "s1", name: "Соус А", packSize: "150мл" }),
+        sku({ productId: "s2", name: "Соус Б", packSize: "150мл" }),
+      ],
+      зіра: [
+        sku({ productId: "z1", name: "Зіра А", packSize: "20г" }),
+        sku({ productId: "z2", name: "Зіра Б", packSize: "20г" }),
+      ],
+    };
+    // Resolves with jittered timing so completion order differs from input order.
+    const jitterRerank: RerankFn = (input) =>
+      new Promise((res) =>
+        setTimeout(
+          () => res({ index: input.candidates.length - 1, confidence: 0.7, source: "llm" }),
+          Math.floor(Math.random() * 8),
+        ),
+      );
+
+    const planLines = lines([
+      { slug: "milk", amount: 500, unit: "ml" },
+      { slug: "soy_sauce", amount: 30, unit: "ml" },
+      { slug: "cumin_ground", amount: 3, unit: "g" },
+    ]);
+    const run = () =>
+      mapPlan(
+        { lines: planLines, dict: DICT },
+        { retail: fakeRetail(table), rerank: jitterRerank },
+      );
+
+    const a = await run();
+    const b = await run();
+    // same output every run despite the parallel re-ranks finishing out of order
+    expect(a).toEqual(b);
+    // `consolidate` fixes a stable order; each line took the re-ranker's pick (last candidate)
+    const bySlug = new Map(a.matches.map((m) => [m.slug, m]));
+    expect(bySlug.get("milk")!.match?.productId).toBe("m2");
+    expect(bySlug.get("soy_sauce")!.match?.productId).toBe("s2");
+    expect(bySlug.get("cumin_ground")!.match?.productId).toBe("z2");
+    expect(a.matches.every((m) => m.rerankSource === "llm")).toBe(true);
+    // order is a pure function of the input, not of re-rank timing
+    expect(a.matches.map((m) => m.slug)).toEqual(b.matches.map((m) => m.slug));
+  });
+
   it("consolidates identical ingredients into one SkuMatch with pack/surplus", async () => {
     const retail = fakeRetail({
       морква: [sku({ productId: "c1", name: "Морква", packSize: "400г" })],

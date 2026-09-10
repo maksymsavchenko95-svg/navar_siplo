@@ -28,6 +28,16 @@ const schema = z.object({
     (v) => (v === "" ? undefined : v),
     z.string().default("claude-sonnet-5"),
   ),
+  /**
+   * Model for the mapper's SKU re-rank step only (T4.5). A smaller/faster model — the task
+   * is "pick the best of ≤5 named candidates", not open generation — so `plan.generate`
+   * runs its ~12–15 re-ranks quickly. Haiku also honours `temperature: 0` (better
+   * determinism). Every other step stays on `NAVAR_LLM_MODEL`.
+   */
+  NAVAR_LLM_RERANK_MODEL: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().default("claude-haiku-4-5"),
+  ),
   /** Langfuse tracing (`FR-OPS-002`) — all three must be set for tracing to activate. */
   LANGFUSE_PUBLIC_KEY: optionalStr,
   LANGFUSE_SECRET_KEY: optionalStr,

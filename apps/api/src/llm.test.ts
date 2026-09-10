@@ -38,7 +38,7 @@ describe("checkLlmHealth", () => {
 
     const h = await checkLlmHealth(provider as never);
 
-    expect(h).toEqual({ status: "ok", model: "claude-test" });
+    expect(h).toEqual({ status: "ok", model: "claude-test", rerankModel: "claude-haiku-4-5" });
     expect(getLlmHealth()).toEqual(h);
     expect(provider.generateObject).toHaveBeenCalledTimes(1);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("[llm] ok — model claude-test"));
@@ -70,7 +70,11 @@ describe("checkLlmHealth", () => {
 
     const h = await checkLlmHealth(provider as never);
 
-    expect(h).toEqual({ status: "disabled", model: "claude-test" });
+    expect(h).toEqual({
+      status: "disabled",
+      model: "claude-test",
+      rerankModel: "claude-haiku-4-5",
+    });
     expect(provider.generateObject).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("[llm] DISABLED"));
   });

@@ -28,7 +28,13 @@ await app.register(cookie, { secret: env.COOKIE_SECRET });
 app.get("/health", async () => {
   await db.execute(sql`select 1`);
   const llm = getLlmHealth();
-  return { status: "ok", db: "ok", llm: llm.status, llmModel: llm.model };
+  return {
+    status: "ok",
+    db: "ok",
+    llm: llm.status,
+    llmModel: llm.model,
+    llmRerankModel: llm.rerankModel,
+  };
 });
 
 /**

@@ -30,7 +30,13 @@ the MCP-call trace) done; T4.4 (web screens) in progress — the materialized-ca
 path (R4) is in: `cart.liveState` re-reads a materialized cart for its live `validations[]` +
 per-line stock shortages, `cart.reduceLine` / post-materialize `cart.setLineSku` /
 `plan.applyReplacement` edit a materialized plan and re-sync the Silpo cart in the same
-operation (`apps/api/src/cart-resync.ts`). T4.5 (latency) next.
+operation (`apps/api/src/cart-resync.ts`). **T4.5 (latency) done** — cold `plan.generate`
+68 s → ~10 s: the mapper's LLM SKU re-ranks run 8-wide (`mapWithConcurrency`) on
+`NAVAR_LLM_RERANK_MODEL` (default `claude-haiku-4-5`), `explainPlan` is written in the
+background, `buildPlanContext` reads are parallelised, and `getCartContext` shares one
+in-flight fetch. Real progress stages via `apps/api/src/plan-progress.ts` (Redis) +
+`plan.generationStage` (`plan.generate` stays a synchronous call — the BullMQ job is
+deferred). T4.4 web screens + R0/R7 mapping quality next.
 pnpm monorepo laid out per `docs/tdd-navar.md` §2.
 
 | Path                           | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |

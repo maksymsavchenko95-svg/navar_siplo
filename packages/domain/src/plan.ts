@@ -12,6 +12,26 @@ import { skuMatchDecisionSchema } from "./mapper.js";
 export const planStatusSchema = z.enum(["draft", "confirmed", "materialized", "checked_out"]);
 export type PlanStatus = z.infer<typeof planStatusSchema>;
 
+/**
+ * `plan.generate` progress breadcrumb (T4.5). `plan.generate` stays a synchronous call; the
+ * handler writes the current stage to Redis at each pipeline boundary and the generate
+ * screen polls `plan.generationStage` so the progress bar shows real stages, not `elapsed/6`.
+ */
+export const planGenStageSchema = z.enum([
+  "context",
+  "pricing",
+  "solving",
+  "saving",
+  "explaining",
+  "done",
+]);
+export type PlanGenStage = z.infer<typeof planGenStageSchema>;
+
+export const planGenerationStageResultSchema = z.object({
+  stage: planGenStageSchema.nullable(),
+});
+export type PlanGenerationStageResult = z.infer<typeof planGenerationStageResultSchema>;
+
 /** One dinner of a saved plan (`plan_items` row, display fields snapshotted). */
 export const planItemSchema = z.object({
   dayIndex: z.number().int().positive(),

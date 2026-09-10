@@ -18,7 +18,14 @@ import {
  */
 
 let provider: LlmProvider | undefined;
+let rerankProvider: LlmProvider | undefined;
 let tracer: LlmTracer | undefined;
+
+const disabledProvider: LlmProvider = {
+  generateObject() {
+    return Promise.reject(new LlmUnavailableError());
+  },
+};
 
 export function getLlm(): LlmProvider {
   if (!provider) {
@@ -27,13 +34,26 @@ export function getLlm(): LlmProvider {
           apiKey: llmEnv.ANTHROPIC_API_KEY,
           model: llmEnv.NAVAR_LLM_MODEL,
         })
-      : {
-          generateObject() {
-            return Promise.reject(new LlmUnavailableError());
-          },
-        };
+      : disabledProvider;
   }
   return provider;
+}
+
+/**
+ * The provider for the mapper's SKU re-rank step (T4.5) — `NAVAR_LLM_RERANK_MODEL`
+ * (default `claude-haiku-4-5`). Separate from `getLlm()` so `plan.generate`'s ~12–15
+ * re-ranks run on a fast model while explanations stay on the main one.
+ */
+export function getRerankLlm(): LlmProvider {
+  if (!rerankProvider) {
+    rerankProvider = llmEnv.ANTHROPIC_API_KEY
+      ? new AnthropicLlmProvider({
+          apiKey: llmEnv.ANTHROPIC_API_KEY,
+          model: llmEnv.NAVAR_LLM_RERANK_MODEL,
+        })
+      : disabledProvider;
+  }
+  return rerankProvider;
 }
 
 export function getLlmTracer(): LlmTracer {
@@ -56,10 +76,16 @@ export interface LlmHealth {
   /** `checking` until the startup probe has returned — `/health` never claims more than it knows. */
   status: "checking" | "ok" | "degraded" | "disabled";
   model: string;
+  /** The model the mapper's SKU re-rank step runs on (T4.5) — usually a faster one. */
+  rerankModel: string;
   message?: string;
 }
 
-let llmHealth: LlmHealth = { status: "checking", model: llmEnv.NAVAR_LLM_MODEL };
+let llmHealth: LlmHealth = {
+  status: "checking",
+  model: llmEnv.NAVAR_LLM_MODEL,
+  rerankModel: llmEnv.NAVAR_LLM_RERANK_MODEL,
+};
 
 /** Last result of `checkLlmHealth` — surfaced by `/health` as `llm`. */
 export function getLlmHealth(): LlmHealth {
@@ -74,8 +100,9 @@ export function getLlmHealth(): LlmHealth {
  */
 export async function checkLlmHealth(provider: LlmProvider = getLlm()): Promise<LlmHealth> {
   const model = llmEnv.NAVAR_LLM_MODEL;
+  const rerankModel = llmEnv.NAVAR_LLM_RERANK_MODEL;
   if (!llmEnv.ANTHROPIC_API_KEY) {
-    llmHealth = { status: "disabled", model };
+    llmHealth = { status: "disabled", model, rerankModel };
     console.warn(
       "[llm] DISABLED — no ANTHROPIC_API_KEY; every step will use its deterministic fallback",
     );
@@ -89,11 +116,11 @@ export async function checkLlmHealth(provider: LlmProvider = getLlm()): Promise<
       prompt: "ping",
       temperature: 0,
     });
-    llmHealth = { status: "ok", model };
-    console.log(`[llm] ok — model ${model}`);
+    llmHealth = { status: "ok", model, rerankModel };
+    console.log(`[llm] ok — model ${model} · rerank ${rerankModel}`);
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 200);
-    llmHealth = { status: "degraded", model, message };
+    llmHealth = { status: "degraded", model, rerankModel, message };
     console.warn(`[llm] DEGRADED — ${message}; every step will use its deterministic fallback`);
   }
   return llmHealth;

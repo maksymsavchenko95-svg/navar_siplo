@@ -20,6 +20,16 @@ import {
 
 const PHASES = ["Читаю акції та персональні пропозиції", "Підбираю товари", "Рахую меню"];
 
+/** T4.5 — the real pipeline stage from `plan.generationStage` → which PHASE is active. */
+const STAGE_TO_PHASE: Record<string, number> = {
+  context: 0,
+  pricing: 1,
+  solving: 2,
+  saving: 2,
+  explaining: 2,
+  done: 2,
+};
+
 export default function GeneratePage() {
   return (
     <Suspense
@@ -39,6 +49,11 @@ function GenerateInner() {
   const reconnect = useReconnect();
   const household = trpc.household.get.useQuery();
   const generate = trpc.plan.generate.useMutation();
+  // T4.5 — poll the real pipeline stage while the (still synchronous) mutation is in flight.
+  const genStage = trpc.plan.generationStage.useQuery(undefined, {
+    enabled: generate.isPending,
+    refetchInterval: generate.isPending ? 1200 : false,
+  });
 
   // `/tastes` sends the Guest here with `?run=1` to generate immediately. A bare `/plan`
   // (brand mark, «Новий план», or a back-navigation) must NOT auto-generate — otherwise
@@ -117,7 +132,13 @@ function GenerateInner() {
       {generate.isPending && (
         <div className="progress-card">
           {PHASES.map((p, i) => {
-            const stepAt = Math.min(PHASES.length - 1, Math.floor(elapsed / 6));
+            // Real stage from the backend once the first poll lands; the time heuristic
+            // only bridges the ~1 s before that.
+            const stage = genStage.data?.stage;
+            const stepAt =
+              stage != null
+                ? (STAGE_TO_PHASE[stage] ?? PHASES.length - 1)
+                : Math.min(PHASES.length - 1, Math.floor(elapsed / 6));
             return (
               <div
                 key={p}
@@ -127,7 +148,7 @@ function GenerateInner() {
               </div>
             );
           })}
-          <p className="screen-sub-title">≈ {elapsed} с — перше складання займає до 30 с.</p>
+          <p className="screen-sub-title">≈ {elapsed} с — перше складання займає до 20 с.</p>
         </div>
       )}
 

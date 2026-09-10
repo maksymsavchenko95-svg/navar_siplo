@@ -8,6 +8,7 @@ import {
   type SkuMatch,
 } from "@navar/domain";
 
+import { mapWithConcurrency } from "./concurrency.js";
 import { consolidate } from "./consolidate.js";
 import { decideMatch } from "./decide.js";
 import { isNonFoodSku } from "./nonfood.js";
@@ -20,6 +21,7 @@ import {
   type MapperDictEntry,
   type MapperRetail,
   type PlanIngredientLine,
+  RERANK_CONCURRENCY,
   type RerankFn,
   type SkuSafetyCheck,
 } from "./types.js";
@@ -133,30 +135,60 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
     for (const res of batch) resultsByQuery.set(res.query, res.products);
   }
 
-  const matches: SkuMatch[] = [];
+  // ── stage 1: rank every ingredient deterministically, collect the close calls ──────────
+  interface Prepped {
+    c: ConsolidatedIngredient;
+    entry: MapperDictEntry;
+    query: string;
+    ranked: ScoredCandidate[];
+    candidateCount: number;
+  }
+  const prepped: (Prepped | { c: ConsolidatedIngredient; blocked: string })[] = [];
+  const closeCalls: { slug: string; input: ReturnType<typeof toRerankInput> }[] = [];
   for (const c of consolidated) {
     const blockReason = blockedBySlug.get(c.slug);
     if (blockReason) {
-      matches.push(blockedMatch(c, buildQuery(input.dict.get(c.slug)!), blockReason));
+      prepped.push({ c, blocked: blockReason });
       continue;
     }
-
     const entry = input.dict.get(c.slug)!;
     const query = queryBySlug.get(c.slug)!;
     // R7: drop non-food hits (gift bows, homeware, pet items) before scoring — a trigram
     // coincidence, never a real match. An emptied list → `sku_unknown` via `decideMatch`.
     const candidates = (resultsByQuery.get(query) ?? []).filter((p) => !isNonFoodSku(p.name));
-
-    let ranked = rankCandidates(entry, c.amount, candidates, input.history);
-    let reranked: Awaited<ReturnType<RerankFn>> | undefined;
+    const ranked = rankCandidates(entry, c.amount, candidates, input.history);
+    prepped.push({ c, entry, query, ranked, candidateCount: candidates.length });
     if (closeCall(ranked)) {
-      reranked = await deps.rerank(
-        toRerankInput(
+      closeCalls.push({
+        slug: c.slug,
+        input: toRerankInput(
           { name: c.nameUk, category: c.category, qty: c.amount, unit: c.baseUnit },
           ranked,
         ),
-      );
+      });
     }
+  }
+
+  // ── stage 2: LLM re-rank the close calls, bounded concurrency (T4.5) ───────────────────
+  // Independent per ingredient, so running them in parallel can't change the decision; the
+  // per-ingredient decide loop below still runs in `consolidated` order (`FR-PLAN-005`).
+  const rerankResults = await mapWithConcurrency(closeCalls, RERANK_CONCURRENCY, (cc) =>
+    deps.rerank(cc.input),
+  );
+  const rerankBySlug = new Map<string, Awaited<ReturnType<RerankFn>>>();
+  closeCalls.forEach((cc, i) => rerankBySlug.set(cc.slug, rerankResults[i]!));
+
+  // ── stage 3: decide, replacement funnel, SKU safety — in `consolidated` order ──────────
+  const matches: SkuMatch[] = [];
+  for (const p of prepped) {
+    if ("blocked" in p) {
+      matches.push(blockedMatch(p.c, buildQuery(input.dict.get(p.c.slug)!), p.blocked));
+      continue;
+    }
+
+    const { c, entry, query, candidateCount } = p;
+    let ranked = p.ranked;
+    const reranked = rerankBySlug.get(c.slug);
     let d = decideMatch({ ranked, reranked });
 
     // Replacement funnel — only when the chosen SKU is out of stock (`FR-MAP-005`).
@@ -238,7 +270,7 @@ export async function mapPlan(input: MapPlanInput, deps: MapPlanDeps): Promise<M
       // The multi-buy tier travels to the solver so budget arithmetic can decide whether
       // the plan actually buys enough units to collect the discount (T4.1).
       promoTier: chosen ? promoTier(chosen) : null,
-      candidatesConsidered: candidates.length,
+      candidatesConsidered: candidateCount,
       rerankSource: d.rerankSource,
       safetyChecked: safetyOn, // the ingredient-level gate ran for this line
       blockReason: null,

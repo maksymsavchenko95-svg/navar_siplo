@@ -749,3 +749,26 @@ describe("SilpoRetailProvider.listTools cache (MCP 1.109.8 tools.listChanged)", 
     expect(listTools).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("SilpoRetailProvider.getCartContext — concurrent de-dup (T4.5)", () => {
+  it("N concurrent cold callers share one 3-call chain", async () => {
+    const provider = providerWith(cartAwareStub({}), { withToken: true });
+    const spy = (provider as unknown as { client: { callTool: ReturnType<typeof vi.fn> } }).client
+      .callTool;
+
+    const [a, b, c] = await Promise.all([
+      provider.getCartContext(),
+      provider.getCartContext(),
+      provider.getCartContext(),
+    ]);
+
+    // one cart → cart-by-id → time-slots chain, not three
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect(a).toEqual(b);
+    expect(b).toEqual(c);
+
+    // the resolved value is cached — a follow-up call adds no MCP calls
+    await provider.getCartContext();
+    expect(spy).toHaveBeenCalledTimes(3);
+  });
+});

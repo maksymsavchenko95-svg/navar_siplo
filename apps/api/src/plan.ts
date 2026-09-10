@@ -10,6 +10,7 @@ import {
   type MapperResult,
   type NearestPlan,
   type PlanGenerateResult,
+  type PlanGenStage,
   type PlanRecipeResult,
 } from "@navar/domain";
 import { explainPlanStep, runStep } from "@navar/llm";
@@ -33,6 +34,7 @@ import { ALLERGEN_LABEL_UK, hasHardExclusion } from "@navar/safety";
 import { getLlm, getLlmTracer } from "./llm.js";
 import { persistMcpTrace } from "./mcp-trace.js";
 import { savePlanContext, toCacheable } from "./plan-context-cache.js";
+import { setGenStage } from "./plan-progress.js";
 import {
   getRerankFn,
   loadExclusions,
@@ -83,6 +85,15 @@ export interface BuildPlanOpts {
   budgetUah?: number;
   seed?: number;
   goal?: Goal;
+  /** Progress breadcrumb (T4.5) — fired at `"context"` (entry) and `"pricing"` (before the mapper). */
+  onStage?: (stage: PlanGenStage) => void;
+  /**
+   * `generateAndPersistPlan` only. `true` (default for the tRPC path) returns as soon as the
+   * plan is saved and writes the `explainPlan` note in the background — it's cosmetic and
+   * `plan.get` tolerates its absence. `plan:probe` / integration tests pass `false` so they
+   * still observe the note on return.
+   */
+  detachExplanation?: boolean;
 }
 
 export interface PlanContext {
@@ -118,14 +129,20 @@ export async function buildPlanContext(
   retail: RetailProvider,
   opts: BuildPlanOpts = {},
 ): Promise<PlanContext> {
-  const hh = await db.query.households.findFirst({
-    where: (h, { eq: e }) => e(h.id, householdId),
-    with: { members: true, preferences: true, consumptionModel: true },
-  });
+  opts.onStage?.("context");
+  // Independent reads — one round-trip each, no data dependency between them (T4.5).
+  const [hh, targets, exclusions, allRecipes] = await Promise.all([
+    db.query.households.findFirst({
+      where: (h, { eq: e }) => e(h.id, householdId),
+      with: { members: true, preferences: true, consumptionModel: true },
+    }),
+    db.query.nutritionTargets.findFirst({
+      where: (nt, { eq: e }) => e(nt.householdId, householdId),
+    }),
+    loadExclusions(householdId),
+    db.query.recipes.findMany({ with: { ingredients: { with: { ingredient: true } } } }),
+  ]);
   if (!hh) throw new PlanInputError(`household ${householdId} not found`);
-  const targets = await db.query.nutritionTargets.findFirst({
-    where: (nt, { eq: e }) => e(nt.householdId, householdId),
-  });
 
   const goal: Goal = opts.goal ?? (hh.goal as Goal);
   const days = opts.days ?? 5;
@@ -133,8 +150,6 @@ export async function buildPlanContext(
   const budget = opts.budgetUah ?? (hh.weeklyBudget != null ? Number(hh.weeklyBudget) : 2500);
   const servings = Math.max(1, hh.members.filter((m) => m.kind !== "pet").length);
   const maxActiveMinutes = hh.preferences?.maxPrepMinutes ?? 60;
-
-  const exclusions = await loadExclusions(householdId);
 
   // ── form goal constraints (per-dinner) ────────────────────────────────────
   const goalConstraints: { proteinMinPerDay?: number; kcalRange?: [number, number] } = {};
@@ -156,12 +171,11 @@ export async function buildPlanContext(
   }
 
   // ── corpus → candidates ──────────────────────────────────────────────────
-  const recipes = await db.query.recipes.findMany({
-    with: { ingredients: { with: { ingredient: true } } },
-  });
   const excludedAllergens = new Set<string>(exclusions.allergens);
-  const usableRecipes = recipes.filter((r) => !r.allergens.some((a) => excludedAllergens.has(a)));
-  const excludedRecipeCount = recipes.length - usableRecipes.length;
+  const usableRecipes = allRecipes.filter(
+    (r) => !r.allergens.some((a) => excludedAllergens.has(a)),
+  );
+  const excludedRecipeCount = allRecipes.length - usableRecipes.length;
   const excludedAllergenLabels = exclusions.allergens.map(
     (a) => ALLERGEN_LABEL_UK[a as keyof typeof ALLERGEN_LABEL_UK] ?? a,
   );
@@ -215,8 +229,14 @@ export async function buildPlanContext(
     })),
   );
   const uniqueSlugs = [...new Set(lines.map((l) => l.slug))];
-  const dict = await loadMapperDict(uniqueSlugs);
-  const idBySlug = await loadIdBySlug(uniqueSlugs);
+  const allIngredientIds = [...new Set(candidates.flatMap((c) => c.ingredients.map((l) => l.id)))];
+  // dict + id map (mapper inputs) and the macro table (post-mapper) — all independent of the
+  // mapper itself, so overlap them with it (T4.5). `nutritionRead` is awaited after mapPlan.
+  const [dict, idBySlug] = await Promise.all([
+    loadMapperDict(uniqueSlugs),
+    loadIdBySlug(uniqueSlugs),
+  ]);
+  const nutritionRead = loadIngredientMacros(allIngredientIds);
   const prices: SolverInput["prices"] = new Map();
   let mapperResult: MapperResult | null = null;
   let retailError: AuthRequiredError | NoCartError | null = null;
@@ -233,6 +253,7 @@ export async function buildPlanContext(
     (async () => retail.getMyPromos())(),
   ]);
 
+  opts.onStage?.("pricing");
   try {
     mapperResult = await mapPlan(
       { lines, dict },
@@ -261,8 +282,7 @@ export async function buildPlanContext(
   }
 
   // ── nutrition + household signals ────────────────────────────────────────
-  const allIds = [...new Set(candidates.flatMap((c) => c.ingredients.map((l) => l.id)))];
-  const nutrition = await loadIngredientMacros(allIds);
+  const nutrition = await nutritionRead;
 
   const model = (hh.consumptionModel?.model ?? null) as ConsumptionModel | null;
   const frequentIngredientIds = (model?.buyFrequency ?? [])
@@ -482,11 +502,14 @@ export async function generateAndPersistPlan(
   retail: RetailProvider,
   opts: BuildPlanOpts = {},
 ): Promise<PlanGenerateResult> {
+  const stage = opts.onStage ?? ((s: PlanGenStage) => void setGenStage(householdId, s));
+  const detachExplanation = opts.detachExplanation ?? true;
+
   let ctx: PlanContext;
   let mcpRecords: McpCallRecord[] = [];
   try {
     const traced = await runWithMcpTrace({ phase: "plan_generate" }, () =>
-      buildPlanContext(householdId, retail, opts),
+      buildPlanContext(householdId, retail, { ...opts, onStage: stage }),
     );
     ctx = traced.result;
     mcpRecords = traced.records;
@@ -502,6 +525,7 @@ export async function generateAndPersistPlan(
     return { status: "no_cart", hint: ctx.retailError.message };
   }
 
+  stage("solving");
   const result: SolverResult = generatePlan(ctx.input);
   if (!result.feasible) {
     return {
@@ -559,27 +583,42 @@ export async function generateAndPersistPlan(
     recipeSlugIngredients: ctx.recipeSlugIngredients,
   });
 
+  stage("saving");
   const planId = await savePlan(rows);
-  // Keep the solver input this plan was built from, so plan.replaceItem / plan.cheaper can
-  // edit it without paying the ~13.7 s corpus re-map (T4.2, NFR-PERF-003).
-  await savePlanContext(planId, toCacheable(ctx));
-  // The MCP calls that built this plan, now that we have an id to hang them on (T4.3).
-  await persistMcpTrace(mcpRecords, { planId, householdId, phase: "plan_generate" });
+  // Both best-effort and independent: the solver input for plan.replaceItem / plan.cheaper
+  // (T4.2, avoids the corpus re-map) and the MCP-call trace for ops.trace (T4.3).
+  await Promise.all([
+    savePlanContext(planId, toCacheable(ctx)),
+    persistMcpTrace(mcpRecords, { planId, householdId, phase: "plan_generate" }),
+  ]);
 
-  const explain = await runStep(
-    explainPlanStep,
-    toExplainInput({
-      goal: result.goal,
-      days: ctx.input.days,
-      budgetUah: ctx.input.budget,
-      totalUah: result.totals.costUah,
-      dishes: result.days.map((d) => d.titleUk),
-      promoSharePct: result.totals.promoSharePct,
-      lines: rows.lines,
-    }),
-    { provider: getLlm(), tracer: getLlmTracer() },
-  );
-  await setPlanExplanation(planId, householdId, explain.value.text, explain.source);
+  // The explanation is cosmetic and `plan.get` tolerates its absence — write it in the
+  // background so the Guest sees the plan ~3 s sooner (T4.5). `plan:probe` / tests await it.
+  const writeExplanation = async () => {
+    stage("explaining");
+    const explain = await runStep(
+      explainPlanStep,
+      toExplainInput({
+        goal: result.goal,
+        days: ctx.input.days,
+        budgetUah: ctx.input.budget,
+        totalUah: result.totals.costUah,
+        dishes: result.days.map((d) => d.titleUk),
+        promoSharePct: result.totals.promoSharePct,
+        lines: rows.lines,
+      }),
+      { provider: getLlm(), tracer: getLlmTracer() },
+    );
+    await setPlanExplanation(planId, householdId, explain.value.text, explain.source);
+  };
+  if (detachExplanation) {
+    void writeExplanation().catch((e) =>
+      console.warn(`[plan] explanation write failed for ${planId}:`, e),
+    );
+  } else {
+    await writeExplanation();
+  }
 
+  stage("done");
   return { status: "ok", planId };
 }
