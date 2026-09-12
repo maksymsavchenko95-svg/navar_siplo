@@ -444,7 +444,7 @@ export const householdRouter = router({
    * `consumption_models.median_weekly_cheque_uah`. Idempotent.
    */
   setBudget: protectedProcedure
-    .input(z.object({ weeklyBudgetUah: z.number().positive().max(1_000_000) }))
+    .input(z.object({ weeklyBudgetUah: z.number().positive().max(20_000) }))
     .mutation(
       async ({
         ctx,

@@ -51,6 +51,28 @@ pnpm --filter @navar/domain test nutrition    # one file
 pnpm --filter @navar/domain exec vitest       # watch mode
 ```
 
+## Production deploy
+
+Live at `https://navar.top` — plain Docker Compose on a VPS (`docker-compose.prod.yml` +
+Caddy for automatic TLS), not a managed/serverless setup. Full first-time setup runbook:
+`docs/deploy.md` (local-only, gitignored with the rest of `docs/`).
+
+To ship a `main` update to production, SSH into the VPS and:
+
+```bash
+cd ~/navar_silpo
+git pull
+docker compose -f docker-compose.prod.yml build api
+docker compose -f docker-compose.prod.yml build web
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Build `api` and `web` sequentially (not a combined `--build`, which builds both in
+parallel) — the VPS has limited RAM and `web`'s build transpiles the whole monorepo. No
+need to stop anything first: the running containers keep serving traffic during the build,
+and `up -d` swaps only the services whose image changed (`db`/`redis`/`caddy` are left
+alone). DB migrations run automatically as part of the `api` container's startup.
+
 ## Layout
 
 - `apps/api` — Fastify + tRPC; wires the packages together

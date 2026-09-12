@@ -36,9 +36,12 @@ import type { SilpoOAuthClient } from "./app-client.js";
 import { isRateLimit } from "./errors.js";
 import { SilpoOAuthProvider } from "./oauth.js";
 import {
+  parseAddressForCart,
   parseAddresses,
+  parseDeliveryTypeChoice,
   parseFamily,
   parseFavorites,
+  parseFirstBranchId,
   parseMyPromos,
   parseOrders,
   parseProfile,
@@ -196,8 +199,7 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
   private async fetchCartContext(): Promise<CartContext> {
     if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
 
-    const myCart = await this.callTool("silpo_get_my_shopping_cart");
-    const cartId = (myCart as { shoppingCartId?: string }).shoppingCartId;
+    const cartId = await this.resolveCartId();
     const cartById = cartId
       ? await this.callTool("silpo_get_shopping_cart_by_id", { shoppingCartId: cartId })
       : {};
@@ -212,6 +214,7 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
         })
       : {};
 
+    const myCart = { shoppingCartId: cartId ?? undefined, exists: cartId != null };
     const value = toCartContext(myCart as never, cartById as never, slots as never);
     this.cartCache = { at: Date.now(), value };
     return value;
@@ -327,16 +330,11 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
 
   async getCart(): Promise<CartView> {
     if (!(await this.hasToken())) throw new AuthRequiredError(AUTH_HINT);
-    const myCart = (await this.callTool("silpo_get_my_shopping_cart")) as {
-      shoppingCartId?: string;
-      exists?: boolean;
-    };
-    const cartById =
-      myCart.shoppingCartId && myCart.exists !== false
-        ? await this.callTool("silpo_get_shopping_cart_by_id", {
-            shoppingCartId: myCart.shoppingCartId,
-          })
-        : {};
+    const cartId = await this.resolveCartId();
+    const myCart = { shoppingCartId: cartId ?? undefined, exists: cartId != null };
+    const cartById = cartId
+      ? await this.callTool("silpo_get_shopping_cart_by_id", { shoppingCartId: cartId })
+      : {};
     return toCartView(myCart, cartById); // throws NoCartError when there is no cart
   }
 
@@ -436,12 +434,96 @@ export class SilpoRetailProvider implements RetailProvider, HouseholdReader {
   }
 
   private async myShoppingCartId(): Promise<string> {
+    const cartId = await this.resolveCartId();
+    if (!cartId) throw new NoCartError();
+    return cartId;
+  }
+
+  /**
+   * Resolve a usable `shoppingCartId`, auto-provisioning an empty cart from the guest's
+   * saved Silpo delivery address when `silpo_get_my_shopping_cart` reports `exists:false`
+   * — the MCP's own documented recovery for that state. An existing cart is returned as-is
+   * and never re-provisioned or touched. `null` only when there's truly nothing to build a
+   * cart from (e.g. no saved address) — the caller's existing `NoCartError` path handles it.
+   */
+  private async resolveCartId(): Promise<string | null> {
     const myCart = (await this.callTool("silpo_get_my_shopping_cart")) as {
       shoppingCartId?: string;
       exists?: boolean;
     };
-    if (!myCart.shoppingCartId || myCart.exists === false) throw new NoCartError();
-    return myCart.shoppingCartId;
+    if (myCart.shoppingCartId && myCart.exists !== false) return myCart.shoppingCartId;
+    return this.provisionCart();
+  }
+
+  /**
+   * `silpo_get_my_delivery_addresses` → `..._available_delivery_types` →
+   * (`..._list_branches` if needed) → `..._get_time_slots` → `silpo_create_shopping_cart`.
+   * Fails closed at every step — an empty/unexpected response, or the create call itself
+   * failing, just returns `null` (logged) rather than throwing; the guest still sees
+   * today's `NoCartError` prompt in that rare case (e.g. no saved Silpo address at all).
+   */
+  private async provisionCart(): Promise<string | null> {
+    try {
+      const address = parseAddressForCart(await this.callTool("silpo_get_my_delivery_addresses"));
+      if (!address) return null;
+
+      const choice = parseDeliveryTypeChoice(
+        await this.callTool("silpo_get_available_delivery_types", {
+          latitude: address.latitude,
+          longitude: address.longitude,
+        }),
+      );
+      if (!choice) return null;
+
+      let branchId = choice.branchId;
+      if (!branchId) {
+        branchId = parseFirstBranchId(
+          await this.callTool("silpo_list_branches", {
+            hasPickup: choice.deliveryType === "SelfPickup" ? true : undefined,
+            hasNP: choice.deliveryType === "NovaPoshta" ? true : undefined,
+            limit: 5,
+          }),
+        );
+        if (!branchId) return null;
+      }
+
+      const slots = toDeliverySlots(
+        await this.callTool("silpo_get_time_slots", {
+          branchId,
+          deliveryTypes: [choice.deliveryType],
+          limit: 10,
+        }),
+      );
+      const timeslot = slots.find((s) => s.available) ?? slots[0];
+      if (!timeslot) return null;
+
+      const addressType =
+        choice.deliveryType === "SelfPickup"
+          ? "self-pickup"
+          : choice.deliveryType === "NovaPoshta"
+            ? "nova-poshta"
+            : address.addressType;
+
+      const created = await this.callTool("silpo_create_shopping_cart", {
+        addressType,
+        latitude: address.latitude,
+        longitude: address.longitude,
+        city: address.city,
+        street: address.street,
+        house: address.house,
+        district: address.district,
+        deliveryType: choice.deliveryType,
+        branchId,
+        timeslot: { start: timeslot.start, end: timeslot.end },
+      });
+      const shoppingCartId = (created as { shoppingCartId?: string }).shoppingCartId;
+      return shoppingCartId ?? null;
+    } catch (err) {
+      console.warn(
+        `[retail] cart auto-provisioning failed — ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
   }
 
   private clearCartCache(): void {

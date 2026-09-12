@@ -106,6 +106,96 @@ export function toDeliverySlots(raw: unknown): DeliverySlot[] {
   return out;
 }
 
+interface DeliveryAddress {
+  city?: string;
+  street?: string;
+  building?: string;
+  apartment?: string | null;
+  district?: string;
+  latitude?: string | number;
+  longitude?: string | number;
+}
+interface DeliveryAddresses {
+  addresses?: DeliveryAddress[];
+}
+
+/**
+ * A saved delivery address, kept geo-complete for `silpo_create_shopping_cart` (unlike
+ * the household-profile-facing `parseAddresses`, which deliberately drops these fields).
+ * Picks the first address with parseable coordinates; `null` when the guest has none saved
+ * — that stays a genuine "can't auto-provision a cart" case.
+ */
+export function parseAddressForCart(raw: unknown): {
+  latitude: number;
+  longitude: number;
+  city: string;
+  street: string;
+  house: string;
+  district: string;
+  addressType: "house" | "flat";
+} | null {
+  const list = (raw as DeliveryAddresses).addresses ?? [];
+  for (const a of list) {
+    const latitude = typeof a.latitude === "number" ? a.latitude : Number(a.latitude);
+    const longitude = typeof a.longitude === "number" ? a.longitude : Number(a.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+    return {
+      latitude,
+      longitude,
+      city: str(a.city) ?? "",
+      street: str(a.street) ?? "",
+      house: str(a.building) ?? "",
+      district: str(a.district) ?? "",
+      addressType: str(a.apartment) ? "flat" : "house",
+    };
+  }
+  return null;
+}
+
+interface DeliveryTypeOption {
+  type?: string;
+  deliveryType?: string;
+  branchId?: string | null;
+}
+interface DeliveryTypes {
+  /** Live shape confirmed 2026-09-12: `{ options: [{ deliveryType, branchId, description }] }`. */
+  options?: DeliveryTypeOption[];
+}
+
+/**
+ * `silpo_get_available_delivery_types` → the delivery type to provision a new cart with.
+ * Prefers an option that already carries a `branchId` (no extra `silpo_list_branches`
+ * round-trip needed), else the first option at all (e.g. `SelfPickup`, branch resolved
+ * separately). `null` when the location has no delivery options.
+ */
+export function parseDeliveryTypeChoice(
+  raw: unknown,
+): { deliveryType: string; branchId: string | null } | null {
+  const list = (raw as DeliveryTypes).options ?? [];
+  const options = list
+    .map((o) => ({ deliveryType: str(o.deliveryType) ?? str(o.type), branchId: str(o.branchId) }))
+    .filter((o): o is { deliveryType: string; branchId: string | null } => o.deliveryType != null);
+  return options.find((o) => o.branchId != null) ?? options[0] ?? null;
+}
+
+interface Branch {
+  branchId?: string;
+  id?: string;
+}
+interface Branches {
+  branches?: Branch[];
+}
+
+/** `silpo_list_branches` → the first branch id, for `SelfPickup`/`NovaPoshta` provisioning. */
+export function parseFirstBranchId(raw: unknown): string | null {
+  const list = (raw as Branches).branches ?? [];
+  for (const b of list) {
+    const id = str(b.branchId) ?? str(b.id);
+    if (id) return id;
+  }
+  return null;
+}
+
 /** The product shape shared by `find_products_batch`, `get_replacements`, `get_similar_products`. */
 interface RawProduct {
   id?: string;

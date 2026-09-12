@@ -772,3 +772,95 @@ describe("SilpoRetailProvider.getCartContext — concurrent de-dup (T4.5)", () =
     expect(spy).toHaveBeenCalledTimes(3);
   });
 });
+
+describe("SilpoRetailProvider — cart auto-provisioning (no cart yet)", () => {
+  const savedAddress = {
+    id: "a1",
+    tag: null,
+    city: "Харків",
+    street: "Сумська",
+    building: "1",
+    apartment: "12",
+    latitude: "49.99",
+    longitude: "36.23",
+  };
+
+  /** Like `cartAwareStub`, but the guest has no cart yet (`exists:false`). */
+  function noCartStub(named: Record<string, unknown>) {
+    return ({ name }: { name: string }) => {
+      if (name === "silpo_get_my_shopping_cart") return env({ exists: false });
+      if (name in named) return env(named[name]);
+      return env({});
+    };
+  }
+
+  it("provisions an empty cart from the saved address and resolves getCartContext", async () => {
+    const provider = providerWith(
+      noCartStub({
+        silpo_get_my_delivery_addresses: { addresses: [savedAddress] },
+        silpo_get_available_delivery_types: {
+          options: [{ deliveryType: "DeliveryHome", branchId: "b1" }],
+        },
+        silpo_get_time_slots: { slots: [{ start: "s1", end: "e1", available: true }] },
+        silpo_create_shopping_cart: { shoppingCartId: "new-cart-1" },
+        silpo_get_shopping_cart_by_id: {
+          cart: { deliveryType: "DeliveryHome", shipments: [{ branchId: "b1" }] },
+        },
+      }),
+      { withToken: true },
+    );
+
+    const ctx = await provider.getCartContext();
+    expect(ctx.branchId).toBe("b1");
+    expect(ctx.deliveryType).toBe("DeliveryHome");
+
+    const spy = (provider as unknown as { client: { callTool: ReturnType<typeof vi.fn> } }).client
+      .callTool;
+    const createCall = spy.mock.calls.find((c) => c[0].name === "silpo_create_shopping_cart");
+    expect(createCall?.[0].arguments).toMatchObject({
+      addressType: "flat",
+      latitude: 49.99,
+      longitude: 36.23,
+      deliveryType: "DeliveryHome",
+      branchId: "b1",
+      timeslot: { start: "s1", end: "e1" },
+    });
+  });
+
+  it("falls through to silpo_list_branches when the delivery type has no branchId", async () => {
+    const provider = providerWith(
+      noCartStub({
+        silpo_get_my_delivery_addresses: { addresses: [savedAddress] },
+        silpo_get_available_delivery_types: {
+          options: [{ deliveryType: "SelfPickup", branchId: null }],
+        },
+        silpo_list_branches: { branches: [{ branchId: "pickup-b1" }] },
+        silpo_get_time_slots: { slots: [{ start: "s1", end: "e1", available: true }] },
+        silpo_create_shopping_cart: { shoppingCartId: "new-cart-2" },
+        silpo_get_shopping_cart_by_id: {
+          cart: { deliveryType: "SelfPickup", shipments: [{ branchId: "pickup-b1" }] },
+        },
+      }),
+      { withToken: true },
+    );
+
+    const ctx = await provider.getCartContext();
+    expect(ctx.branchId).toBe("pickup-b1");
+  });
+
+  it("still throws NoCartError when the guest has no saved delivery address", async () => {
+    const { NoCartError } = await import("../provider.js");
+    const provider = providerWith(noCartStub({}), { withToken: true });
+    await expect(provider.getCartContext()).rejects.toBeInstanceOf(NoCartError);
+  });
+
+  it("never touches delivery addresses or create_shopping_cart when a cart already exists", async () => {
+    const provider = providerWith(cartAwareStub({}), { withToken: true });
+    await provider.getCartContext();
+    const spy = (provider as unknown as { client: { callTool: ReturnType<typeof vi.fn> } }).client
+      .callTool;
+    const names = spy.mock.calls.map((c) => c[0].name);
+    expect(names).not.toContain("silpo_get_my_delivery_addresses");
+    expect(names).not.toContain("silpo_create_shopping_cart");
+  });
+});

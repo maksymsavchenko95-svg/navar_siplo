@@ -130,6 +130,10 @@ describe.skipIf(!process.env.DATABASE_URL)("household router (integration)", () 
     expect(Number(row2!.weeklyBudget)).toBe(4500);
   });
 
+  it("setBudget rejects a budget above the 20,000 UAH cap", async () => {
+    await expect(caller.household.setBudget({ weeklyBudgetUah: 20001 })).rejects.toThrow();
+  });
+
   it("setMembers replaces adult/child rows with guest-sourced counts and returns the reloaded view", async () => {
     const res = await caller.household.setMembers({ adults: 4, children: 2 });
     expect(res.status).toBe("ok");

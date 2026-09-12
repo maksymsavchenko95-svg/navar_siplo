@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { NoCartError } from "../provider.js";
 import {
+  parseAddressForCart,
   parseAddresses,
+  parseDeliveryTypeChoice,
   parseFamily,
   parseFavorites,
+  parseFirstBranchId,
   parseMyPromos,
   parseOrders,
   parseProfile,
@@ -386,6 +389,142 @@ describe("parseAddresses", () => {
         ],
       }),
     ).toEqual([{ id: "a1", tag: null, city: "Харків" }]);
+  });
+});
+
+describe("parseAddressForCart", () => {
+  it("keeps geo + street fields for the real block3-deliveryAddresses.json shape", () => {
+    expect(
+      parseAddressForCart({
+        addresses: [
+          {
+            id: "a1",
+            tag: null,
+            city: "Харків",
+            street: "Сумська",
+            building: "1",
+            apartment: "12",
+            floor: "8",
+            entrance: "3",
+            latitude: "49.99",
+            longitude: "36.23",
+            comment: null,
+          },
+        ],
+      }),
+    ).toEqual({
+      latitude: 49.99,
+      longitude: 36.23,
+      city: "Харків",
+      street: "Сумська",
+      house: "1",
+      district: "",
+      addressType: "flat",
+    });
+  });
+
+  it("derives addressType 'house' when there's no apartment", () => {
+    expect(
+      parseAddressForCart({
+        addresses: [{ city: "Київ", building: "5", apartment: null, latitude: 1, longitude: 2 }],
+      }),
+    ).toMatchObject({ addressType: "house" });
+  });
+
+  it("skips an address with unparseable coordinates and falls through to the next", () => {
+    expect(
+      parseAddressForCart({
+        addresses: [
+          { city: "no-geo", latitude: "«redacted»", longitude: "«redacted»" },
+          { city: "Київ", latitude: 1, longitude: 2 },
+        ],
+      }),
+    ).toMatchObject({ city: "Київ" });
+  });
+
+  it("returns null with no saved addresses", () => {
+    expect(parseAddressForCart({ addresses: [] })).toBeNull();
+    expect(parseAddressForCart({})).toBeNull();
+  });
+});
+
+describe("parseDeliveryTypeChoice", () => {
+  it("prefers an option that already carries a branchId", () => {
+    expect(
+      parseDeliveryTypeChoice({
+        options: [
+          { deliveryType: "SelfPickup", branchId: null },
+          { deliveryType: "DeliveryHome", branchId: "b1" },
+        ],
+      }),
+    ).toEqual({ deliveryType: "DeliveryHome", branchId: "b1" });
+  });
+
+  // Live shape captured 2026-09-12 via `silpo_get_available_delivery_types` for a real
+  // address — `{ options: [{ deliveryType, branchId, description }] }`, 4 offered types.
+  it("reads the real silpo_get_available_delivery_types response", () => {
+    expect(
+      parseDeliveryTypeChoice({
+        success: true,
+        summary: "Found 4 delivery options for 49.96, 36.31",
+        options: [
+          {
+            deliveryType: "DeliveryHome",
+            branchId: "1f07843d-cdbd-6cee-afea-f7a07e27bbd7",
+            description: "Regular delivery (groceries, fresh products)",
+          },
+          {
+            deliveryType: "B2B",
+            branchId: "1eee2a85-16f1-6ca2-9d5f-292109ee47d7",
+            description: "B2B delivery (business orders)",
+          },
+          { deliveryType: "NovaPoshta", branchId: null, description: "Shipped via Nova Poshta" },
+          { deliveryType: "SelfPickup", branchId: null, description: "Self pickup" },
+        ],
+      }),
+    ).toEqual({ deliveryType: "DeliveryHome", branchId: "1f07843d-cdbd-6cee-afea-f7a07e27bbd7" });
+  });
+
+  it("falls back to the first option when none carries a branchId", () => {
+    expect(
+      parseDeliveryTypeChoice({ options: [{ deliveryType: "SelfPickup", branchId: null }] }),
+    ).toEqual({ deliveryType: "SelfPickup", branchId: null });
+  });
+
+  it("returns null with no delivery options", () => {
+    expect(parseDeliveryTypeChoice({ options: [] })).toBeNull();
+    expect(parseDeliveryTypeChoice({})).toBeNull();
+  });
+});
+
+describe("parseFirstBranchId", () => {
+  it("reads the first branch's id", () => {
+    expect(parseFirstBranchId({ branches: [{ branchId: "b1" }, { branchId: "b2" }] })).toBe("b1");
+  });
+
+  // Live shape captured 2026-09-12 via `silpo_list_branches` — confirms `branches[].branchId`.
+  it("reads the real silpo_list_branches response", () => {
+    expect(
+      parseFirstBranchId({
+        success: true,
+        branches: [
+          {
+            branchId: "1ed43e73-051b-6842-a111-a5ad042eb496",
+            companyId: "1ec88c5d-a050-669c-8467-570a157f3e31",
+            city: "Київ",
+            address: "просп. Володимира Івасюка, 46",
+            hasPickup: true,
+            open: true,
+          },
+        ],
+        meta: { limit: 3, offset: 0, total: 457 },
+      }),
+    ).toBe("1ed43e73-051b-6842-a111-a5ad042eb496");
+  });
+
+  it("returns null with no branches", () => {
+    expect(parseFirstBranchId({ branches: [] })).toBeNull();
+    expect(parseFirstBranchId({})).toBeNull();
   });
 });
 

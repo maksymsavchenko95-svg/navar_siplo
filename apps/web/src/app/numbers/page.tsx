@@ -25,14 +25,8 @@ import {
 
 const BUDGET_STEP = 50;
 const DEFAULT_BUDGET = 2500;
-
-/** Range scales around the seed (receipt-derived median can be small for a 1-person household). */
-function budgetRange(seed: number): { min: number; max: number } {
-  return {
-    min: Math.max(400, Math.round((seed * 0.5) / 100) * 100),
-    max: Math.max(6000, Math.round((seed * 3) / 100) * 100),
-  };
-}
+const BUDGET_MIN = 400;
+const BUDGET_MAX = 20000;
 
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -99,7 +93,6 @@ function BudgetField({ initial }: { initial: number }) {
   const [budget, setBudget_] = useState(initial);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(initial));
-  const { min: BUDGET_MIN, max: BUDGET_MAX } = budgetRange(initial);
 
   const debounced = useDebounced(budget, 500);
   const firstRun = useRef(true);
@@ -114,7 +107,7 @@ function BudgetField({ initial }: { initial: number }) {
 
   const commitDraft = () => {
     const parsed = parseInt(draft.replace(/\D/g, ""), 10);
-    if (!Number.isNaN(parsed) && parsed >= 500 && parsed <= 100000) setBudget_(parsed);
+    if (!Number.isNaN(parsed) && parsed >= BUDGET_MIN && parsed <= BUDGET_MAX) setBudget_(parsed);
     else setDraft(String(budget));
     setEditing(false);
   };
