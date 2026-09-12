@@ -11,10 +11,10 @@ RUN chmod +x /usr/local/bin/navar-entrypoint
 EXPOSE 3001
 ENTRYPOINT ["/usr/local/bin/navar-entrypoint"]
 
-# ---- prod: self-contained image (not used by docker-compose; here for deploy later) ----
+# ---- prod: self-contained image, used by docker-compose.prod.yml ----
 FROM base AS prod
 ENV NODE_ENV=production
 COPY . .
 RUN pnpm install --frozen-lockfile
 EXPOSE 3001
-CMD ["sh", "-c", "pnpm --filter @navar/api db:migrate && pnpm --filter @navar/api exec tsx src/index.ts"]
+CMD ["sh", "-c", "pnpm --filter @navar/db db:migrate && pnpm --filter @navar/api start"]

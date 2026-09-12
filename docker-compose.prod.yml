@@ -1,0 +1,89 @@
+name: navar-prod
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: navar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-navar}
+      POSTGRES_DB: navar
+    volumes:
+      - navar-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U navar -d navar"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - navar-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: prod
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: "3001"
+      DATABASE_URL: postgres://navar:${POSTGRES_PASSWORD:-navar}@db:5432/navar
+      REDIS_URL: redis://redis:6379
+      SILPO_MCP_URL: ${SILPO_MCP_URL:-https://mcp.silpo.ua/mcp}
+      MCP_OAUTH_CALLBACK_PORT: "8765"
+      MCP_TOKEN_KEY: ${MCP_TOKEN_KEY:-}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-https://api.navar.top}
+      WEB_ORIGIN: ${WEB_ORIGIN:-https://navar.top}
+      COOKIE_SECRET: ${COOKIE_SECRET:-}
+      SILPO_OAUTH_CLIENT: ${SILPO_OAUTH_CLIENT:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      NAVAR_LLM_MODEL: ${NAVAR_LLM_MODEL:-claude-sonnet-5}
+      NAVAR_LLM_RERANK_MODEL: ${NAVAR_LLM_RERANK_MODEL:-claude-haiku-4-5}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.navar.top}
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - navar-caddy-data:/data
+      - navar-caddy-config:/config
+    depends_on:
+      - web
+      - api
+    restart: unless-stopped
+
+volumes:
+  navar-pgdata:
+  navar-redis:
+  navar-caddy-data:
+  navar-caddy-config:

@@ -18,9 +18,9 @@ import { SESSION_COOKIE } from "./trpc/context.js";
 import { PENDING_COOKIE, takePending } from "./trpc/routers/auth.js";
 import { appRouter } from "./trpc/router.js";
 
-// Deploy note: behind a TLS-terminating proxy, add `trustProxy: true` so `req.protocol`
-// reports `https` and the `secure` cookie flag below actually gets set.
-const app = Fastify({ logger: true });
+// Behind Caddy in production, trustProxy makes `req.protocol` report `https` (from
+// X-Forwarded-Proto) so the `secure` cookie flag below actually gets set. No-op in dev.
+const app = Fastify({ logger: true, trustProxy: env.NODE_ENV === "production" });
 
 await app.register(cors, { origin: env.WEB_ORIGIN, credentials: true });
 await app.register(cookie, { secret: env.COOKIE_SECRET });
