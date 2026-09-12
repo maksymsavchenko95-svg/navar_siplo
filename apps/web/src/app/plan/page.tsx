@@ -55,12 +55,17 @@ function GenerateInner() {
     refetchInterval: generate.isPending ? 1200 : false,
   });
 
+  const searchParams = useSearchParams();
   // `/tastes` sends the Guest here with `?run=1` to generate immediately. A bare `/plan`
   // (brand mark, «Новий план», or a back-navigation) must NOT auto-generate — otherwise
   // every "Back" from a plan silently runs the solver and persists a duplicate (R1).
-  const runParam = useSearchParams().get("run") === "1";
+  const runParam = searchParams.get("run") === "1";
+  // Guests never pick a seed (backend picks one at random — `plan.ts`'s `randomSeed()`); a
+  // `?seed=` override exists only for us to force a repeatable plan while rehearsing/recording
+  // the AC-P0-09 determinism demo. Omitted (the normal case) → undefined → backend randomizes.
+  const seedParam = searchParams.get("seed");
+  const seedOverride = seedParam != null && seedParam !== "" ? Number(seedParam) : undefined;
 
-  const [seed, setSeed] = useState(1);
   const [elapsed, setElapsed] = useState(0);
   const fired = useRef(false);
 
@@ -70,14 +75,16 @@ function GenerateInner() {
 
   const run = () => {
     setElapsed(0);
-    generate.mutate({ goal, budgetUah, days: 5, seed });
+    generate.mutate({ goal, budgetUah, days: 5, seed: seedOverride });
   };
 
   useEffect(() => {
     if (!runParam || fired.current || household.data?.status !== "ok") return;
     fired.current = true;
-    router.replace("/plan"); // drop `?run=1` so a reload / back-nav here does not re-fire
-    generate.mutate({ goal, budgetUah, days: 5, seed });
+    // Drop `?run=1` so a reload / back-nav here does not re-fire (R1), but keep `?seed=`
+    // so a demo override survives the auto-generate's own redirect for a later retry.
+    router.replace(seedParam != null ? `/plan?seed=${seedParam}` : "/plan");
+    generate.mutate({ goal, budgetUah, days: 5, seed: seedOverride });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runParam, household.data?.status]);
 
@@ -100,27 +107,6 @@ function GenerateInner() {
         title={idle ? "Скласти план" : "Складаю план"}
         sub="5 вечерь у межах бюджету, без порушення обмежень."
       />
-
-      <label
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          fontSize: 11,
-          color: "var(--color-text-muted)",
-        }}
-      >
-        seed
-        <input
-          type="number"
-          value={seed}
-          onChange={(e) => setSeed(Number(e.target.value) || 0)}
-          className="budget-number-input"
-          style={{ width: 64 }}
-          disabled={generate.isPending}
-        />
-        <span>однаковий seed → однаковий план</span>
-      </label>
 
       {idle && (
         <PrimaryButton onClick={run}>
@@ -167,7 +153,7 @@ function GenerateInner() {
                     goal,
                     budgetUah: Math.ceil(budgetUah + (res.shortfallUah ?? 0)),
                     days: 5,
-                    seed,
+                    seed: seedOverride,
                   })
               : undefined
           }

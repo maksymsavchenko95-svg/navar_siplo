@@ -72,6 +72,18 @@ export function perDinnerTargets(t: {
   };
 }
 
+/**
+ * The seed only breaks score ties in the solver's shuffle / local search (ADR-03) — it has
+ * no effect on budget, restrictions, or nutrition. Guests never pick one; when a caller
+ * omits `seed`, each `generate` gets a fresh one from this range so identical inputs don't
+ * always produce the identical plan. The R9 "Замовити знову" re-order and the CLI probes
+ * still pass an explicit seed (the plan's own, or one on the command line) and are unaffected.
+ */
+const RANDOM_SEED_MAX = 5;
+function randomSeed(): number {
+  return Math.floor(Math.random() * RANDOM_SEED_MAX) + 1;
+}
+
 /** `form` goal with no `nutrition_targets` row — the check `household.setGoal` defers here. */
 export class PlanInputError extends Error {
   constructor(message: string) {
@@ -146,7 +158,7 @@ export async function buildPlanContext(
 
   const goal: Goal = opts.goal ?? (hh.goal as Goal);
   const days = opts.days ?? 5;
-  const seed = opts.seed ?? 1;
+  const seed = opts.seed ?? randomSeed();
   const budget = opts.budgetUah ?? (hh.weeklyBudget != null ? Number(hh.weeklyBudget) : 2500);
   // form mode plans for exactly one person — no household-size picker, no family-size scaling.
   const servings =

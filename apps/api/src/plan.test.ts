@@ -260,6 +260,23 @@ describe.skipIf(!process.env.DATABASE_URL)("plan generation (integration)", () =
     expect(input.servings).toBe(3); // 2 adults + 1 child, no pets (seed rows, source='silpo')
   }, 60_000);
 
+  it("omitting seed picks a random one instead of always defaulting to a fixed value", async () => {
+    const id = await resolveHouseholdId();
+    if (!id) throw new Error("no demo household — run pnpm db:seed");
+    const retail = await getSilpoProvider();
+
+    const seeds = new Set<number>();
+    for (let i = 0; i < 10; i++) {
+      const input = await buildSolverInput(id, retail, { goal: "routine" });
+      expect(Number.isInteger(input.seed)).toBe(true);
+      expect(input.seed).toBeGreaterThanOrEqual(1);
+      expect(input.seed).toBeLessThanOrEqual(5);
+      seeds.add(input.seed);
+    }
+    // odds of landing on one value 10/10 times by chance are 1-in-~2M — a fixed default would fail this every time
+    expect(seeds.size).toBeGreaterThan(1);
+  }, 60_000);
+
   it("generateAndPersistPlan returns a typed result without throwing", async () => {
     const id = await resolveHouseholdId();
     if (!id) throw new Error("no demo household — run pnpm db:seed");
