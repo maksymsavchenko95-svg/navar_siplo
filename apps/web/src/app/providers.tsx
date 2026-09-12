@@ -25,9 +25,9 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <PresentationShell>
-          <SessionGate>{children}</SessionGate>
-        </PresentationShell>
+        <SessionGate>
+          <PresentationShell>{children}</PresentationShell>
+        </SessionGate>
       </QueryClientProvider>
     </trpc.Provider>
   );
