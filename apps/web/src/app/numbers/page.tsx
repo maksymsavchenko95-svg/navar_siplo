@@ -218,7 +218,7 @@ function MembersField({
   return (
     <div className="form-card-field">
       <div className="field-label-row">
-        <span className="field-label">Скільки їдців</span>
+        <span className="field-label">Скільки осіб</span>
         <span className="field-value-bold">{pluralPeople(adults + children)}</span>
       </div>
       <div className="form-2col-row">

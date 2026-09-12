@@ -57,7 +57,7 @@ export function MockScreen2Numbers({ mode = "form" }: { mode?: "form" | "routine
           {mode === "routine" && (
             <div className="form-card-field">
               <div className="field-label-row">
-                <span className="field-label">Скільки їдців</span>
+                <span className="field-label">Скільки осіб</span>
                 <span className="field-value-bold">3 особи</span>
               </div>
               <div className="form-2col-row">
