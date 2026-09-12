@@ -37,7 +37,9 @@ export default function TastesPage() {
   const s = status.data?.status;
   const cookingFor =
     household.data?.status === "ok"
-      ? household.data.members.filter((m) => m.kind !== "pet").length || 1
+      ? household.data.household.goal === "form"
+        ? 1
+        : household.data.members.filter((m) => m.kind !== "pet").length || 1
       : null;
 
   return (

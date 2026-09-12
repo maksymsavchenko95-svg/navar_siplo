@@ -237,7 +237,8 @@ describe.skipIf(!process.env.DATABASE_URL)("plan generation (integration)", () =
 
     const input = await buildSolverInput(id, retail, { goal: "form", seed: 3 });
     expect(input.goal).toBe("form");
-    expect(input.servings).toBe(3); // 2 adults + 1 child, no pets (seed rows, source='silpo')
+    // demo household seed has 2 adults + 1 child, but form goal always plans for one person
+    expect(input.servings).toBe(1);
     expect(input.hardConstraints.proteinMinPerDay).toBe(31);
     expect(input.hardConstraints.excludedAllergens).toContain("gluten");
     expect(input.candidates.length).toBeGreaterThan(0);
@@ -247,6 +248,16 @@ describe.skipIf(!process.env.DATABASE_URL)("plan generation (integration)", () =
     const a = generatePlan(input);
     const b = generatePlan(input);
     expect(a).toEqual(b);
+  }, 60_000);
+
+  it("routine goal still scales servings by household size", async () => {
+    const id = await resolveHouseholdId();
+    if (!id) throw new Error("no demo household — run pnpm db:seed");
+    const retail = await getSilpoProvider();
+
+    const input = await buildSolverInput(id, retail, { goal: "routine", seed: 3 });
+    expect(input.goal).toBe("routine");
+    expect(input.servings).toBe(3); // 2 adults + 1 child, no pets (seed rows, source='silpo')
   }, 60_000);
 
   it("generateAndPersistPlan returns a typed result without throwing", async () => {

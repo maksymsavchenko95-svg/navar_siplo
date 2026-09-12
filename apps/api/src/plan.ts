@@ -148,7 +148,9 @@ export async function buildPlanContext(
   const days = opts.days ?? 5;
   const seed = opts.seed ?? 1;
   const budget = opts.budgetUah ?? (hh.weeklyBudget != null ? Number(hh.weeklyBudget) : 2500);
-  const servings = Math.max(1, hh.members.filter((m) => m.kind !== "pet").length);
+  // form mode plans for exactly one person — no household-size picker, no family-size scaling.
+  const servings =
+    goal === "form" ? 1 : Math.max(1, hh.members.filter((m) => m.kind !== "pet").length);
   const maxActiveMinutes = hh.preferences?.maxPrepMinutes ?? 60;
 
   // ── form goal constraints (per-dinner) ────────────────────────────────────

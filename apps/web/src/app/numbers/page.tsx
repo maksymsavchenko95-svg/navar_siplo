@@ -64,19 +64,20 @@ export default function NumbersPage() {
               DEFAULT_BUDGET
             }
           />
-          <MembersField
-            initialAdults={
-              household.data?.status === "ok"
-                ? household.data.members.filter((m) => m.kind === "adult").length || 1
-                : 1
-            }
-            initialChildren={
-              household.data?.status === "ok"
-                ? household.data.members.filter((m) => m.kind === "child").length
-                : 0
-            }
-            goal={goal}
-          />
+          {goal !== "form" && (
+            <MembersField
+              initialAdults={
+                household.data?.status === "ok"
+                  ? household.data.members.filter((m) => m.kind === "adult").length || 1
+                  : 1
+              }
+              initialChildren={
+                household.data?.status === "ok"
+                  ? household.data.members.filter((m) => m.kind === "child").length
+                  : 0
+              }
+            />
+          )}
           {goal === "form" && <NutritionForm />}
           <div style={{ marginTop: 8, paddingTop: 8 }}>
             <PrimaryButton onClick={() => router.push("/tastes")}>
@@ -182,19 +183,18 @@ function BudgetField({ initial }: { initial: number }) {
 }
 
 /**
- * R5 — editable household size. Bootstrap seeds `household_members` from Silpo's family list,
- * which is often just the account holder; `servings` (which scales every recipe's cost and
- * the budget check) is derived from it at `plan.generate`. Shown in both goal modes — the
- * count is goal-independent. Mirrors `BudgetField`'s debounced-write shape.
+ * R5 — editable household size, `routine` goal only. Bootstrap seeds `household_members` from
+ * Silpo's family list, which is often just the account holder; `servings` (which scales every
+ * recipe's cost and the budget check) is derived from it at `plan.generate`. `form` goal always
+ * plans for one person (forced server-side in `plan.ts`), so this picker is hidden there.
+ * Mirrors `BudgetField`'s debounced-write shape.
  */
 function MembersField({
   initialAdults,
   initialChildren,
-  goal,
 }: {
   initialAdults: number;
   initialChildren: number;
-  goal: "routine" | "form";
 }) {
   const utils = trpc.useUtils();
   const setMembers = trpc.household.setMembers.useMutation({
@@ -243,11 +243,6 @@ function MembersField({
           />
         </div>
       </div>
-      {goal === "form" && (
-        <p className="screen-sub-title">
-          Ситний коридор рахуємо на одну людину — кількість їдців впливає лише на розмір кошика.
-        </p>
-      )}
     </div>
   );
 }
