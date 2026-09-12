@@ -339,6 +339,12 @@ export const householdResultSchema = z.discriminatedUnion("status", [
       branchId: z.string().nullable(),
       deliveryType: z.string().nullable(),
       bootstrapStatus: bootstrapStatusSchema,
+      // `form` goal only — the daily protein floor / kcal corridor from `nutrition_targets`,
+      // for the guest-facing "what am I generating for" summary (`/plan`). `null` until
+      // `household.computeNutrition` has run once.
+      nutritionTargets: z
+        .object({ kcalTarget: z.number().int(), proteinMinG: z.number().int() })
+        .nullable(),
     }),
     members: z.array(householdMemberSchema),
     restrictions: z.array(storedRestrictionSchema),

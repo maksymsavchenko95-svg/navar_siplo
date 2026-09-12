@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { trpc } from "@/lib/trpc";
 import { useReconnect } from "@/lib/auth";
-import { approx, pct, uah } from "@/lib/format";
+import { approx, groupNumber, pct, pluralPeople, uah } from "@/lib/format";
 import {
   NoCartBanner,
   PrimaryButton,
@@ -72,6 +72,14 @@ function GenerateInner() {
   const budgetUah =
     household.data?.status === "ok" ? (household.data.household.weeklyBudgetUah ?? 2500) : 2500;
   const goal = household.data?.status === "ok" ? household.data.household.goal : "routine";
+  const nutritionTargets =
+    household.data?.status === "ok" ? household.data.household.nutritionTargets : null;
+  // form goal always plans for one person (`plan.ts` forces `servings = 1`); routine scales
+  // by the real household size.
+  const servingsCount =
+    household.data?.status === "ok"
+      ? household.data.members.filter((m) => m.kind !== "pet").length || 1
+      : 1;
 
   const run = () => {
     setElapsed(0);
@@ -105,13 +113,42 @@ function GenerateInner() {
     <ScreenShell step={4} back="/tastes">
       <ScreenTitle
         title={idle ? "Скласти план" : "Складаю план"}
-        sub="5 вечерь у межах бюджету, без порушення обмежень."
+        sub="Новий 5-денний план на основі вашої цілі та бюджету, без порушення обмежень."
       />
 
       {idle && (
-        <PrimaryButton onClick={run}>
-          <span>Скласти план</span>
-        </PrimaryButton>
+        <>
+          <div className="plan-summary-card">
+            <div className="plan-summary-price-row">
+              <span className="plan-hero-price">
+                {goal === "form" ? "Підтримання форми" : "Автоматизація рутини"}
+              </span>
+              <span className="plan-budget-limit">{uah(budgetUah)} / тиждень</span>
+            </div>
+            <div className="plan-pills-row">
+              {goal === "form" ? (
+                nutritionTargets && (
+                  <>
+                    <span className="pill-teal-protein">
+                      {groupNumber(nutritionTargets.kcalTarget)} ккал/добу
+                    </span>
+                    <span className="pill-teal-protein">
+                      мінімум {nutritionTargets.proteinMinG} г білка
+                    </span>
+                  </>
+                )
+              ) : (
+                <span className="pill-teal-protein">Кошик на {pluralPeople(servingsCount)}</span>
+              )}
+            </div>
+          </div>
+          <PrimaryButton onClick={run}>
+            <span>Скласти план</span>
+          </PrimaryButton>
+          <SecondaryButton onClick={() => router.push("/goal")}>
+            Змінити ціль і бюджет
+          </SecondaryButton>
+        </>
       )}
       {runParam && !generate.isPending && !res && <SpinnerDots />}
 

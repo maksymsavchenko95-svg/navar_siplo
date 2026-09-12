@@ -212,6 +212,33 @@ describe.skipIf(!process.env.DATABASE_URL)("household router (integration)", () 
     expect(rows).toHaveLength(1); // upsert, not a second row
   });
 
+  it("household.get surfaces the persisted nutrition targets (used by /plan's goal summary)", async () => {
+    await db
+      .delete(schema.nutritionTargets)
+      .where(eq(schema.nutritionTargets.householdId, householdId));
+    const before = await caller.household.get();
+    if (before.status !== "ok") throw new Error("expected ok");
+    expect(before.household.nutritionTargets).toBeNull();
+
+    const input = {
+      sex: "female",
+      ageYears: 29,
+      weightKg: 60,
+      heightCm: 165,
+      activity: "moderate",
+      direction: "maintain",
+    } as const;
+    const computed = computeNutritionTargets(input);
+    await caller.household.computeNutrition(input);
+
+    const after = await caller.household.get();
+    if (after.status !== "ok") throw new Error("expected ok");
+    expect(after.household.nutritionTargets).toEqual({
+      kcalTarget: computed.kcalTarget,
+      proteinMinG: computed.proteinMinG,
+    });
+  });
+
   it("computeNutrition rejects a sub-floor target and writes nothing new", async () => {
     // seed a known-good row first
     await caller.household.computeNutrition({

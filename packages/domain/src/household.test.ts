@@ -219,6 +219,28 @@ describe("householdResultSchema", () => {
           branchId: null,
           deliveryType: null,
           bootstrapStatus: "done",
+          nutritionTargets: null,
+        },
+        members: [{ kind: "adult", ageYears: null, label: "A" }],
+        restrictions: [],
+        consumptionModel: null,
+        preferences: null,
+      }),
+    ).not.toThrow();
+  });
+
+  it("accepts a populated nutritionTargets object (form goal, post-computeNutrition)", () => {
+    expect(() =>
+      householdResultSchema.parse({
+        status: "ok",
+        household: {
+          id: "00000000-0000-0000-0000-000000000001",
+          goal: "form",
+          weeklyBudgetUah: 2500,
+          branchId: null,
+          deliveryType: null,
+          bootstrapStatus: "done",
+          nutritionTargets: { kcalTarget: 2400, proteinMinG: 140 },
         },
         members: [{ kind: "adult", ageYears: null, label: "A" }],
         restrictions: [],

@@ -39,6 +39,7 @@ async function loadHousehold(db: Db, householdId: string) {
       restrictions: true,
       consumptionModel: true,
       preferences: true,
+      nutritionTargets: true,
     },
   });
 }
@@ -169,6 +170,12 @@ export const householdRouter = router({
         branchId: hh.branchId,
         deliveryType: hh.deliveryType,
         bootstrapStatus: hh.bootstrapStatus as (typeof BOOTSTRAP_STATUS)[number],
+        nutritionTargets: hh.nutritionTargets
+          ? {
+              kcalTarget: hh.nutritionTargets.kcalTarget,
+              proteinMinG: hh.nutritionTargets.proteinMinG,
+            }
+          : null,
       },
       members: toMemberViews(hh.members),
       restrictions: toStoredRestrictions(hh.restrictions),
