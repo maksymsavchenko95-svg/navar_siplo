@@ -5,7 +5,7 @@ purchase history, builds a menu within a hard budget and food restrictions, and 
 it into a real Silpo cart. Two goal modes — `routine` (budget-first) and `form` (adds a
 protein floor + calorie corridor) — are one solver, different configuration.
 
-See [`CLAUDE.md`](CLAUDE.md) for architecture and [`docs/`](docs/) for the TDD, brief and SRS.
+See [`CLAUDE.md`](CLAUDE.md) for architecture
 
 ## Quick start
 
@@ -55,7 +55,6 @@ pnpm --filter @navar/domain exec vitest       # watch mode
 
 Live at `https://navar.top` — plain Docker Compose on a VPS (`docker-compose.prod.yml` +
 Caddy for automatic TLS), not a managed/serverless setup. Full first-time setup runbook:
-`docs/deploy.md` (local-only, gitignored with the rest of `docs/`).
 
 To ship a `main` update to production, SSH into the VPS and:
 
